@@ -1,13 +1,15 @@
 # figma-cdp
 
-**Code → Figma.** The reverse of Figma MCP.
+Code → Figma. The reverse of Figma MCP.
 
-| | direction |
+|  | direction |
 |---|---|
 | Figma MCP | design → code |
-| **figma-cdp** | **code → design** |
+| figma-cdp | code → design |
 
-Turn ideas, copy, and intent into Figma mockups. Drives Figma's Plugin API directly via Chrome DevTools Protocol — no Figma MCP needed.
+Figma MCP reads designs out of Figma and turns them into code. This goes the other way: you describe what you want, or paste in HTML, and Claude Code builds it in Figma for you.
+
+No Figma MCP required. It drives Figma's Plugin API directly via Chrome DevTools Protocol.
 
 ## Install
 
@@ -16,9 +18,9 @@ npm i -g agent-browser && agent-browser install
 git clone <repo-url> ~/.claude/skills/figma-cdp
 ```
 
-Restart Claude Code. The skill auto-activates on Figma URLs or mockup requests.
+Restart Claude Code. The skill activates on its own when you mention a Figma URL or ask for a mockup.
 
-Optional: set `FIGMA_TOKEN` for REST features (image rendering, comments) — generate at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
+Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or comments. Generate a token at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
 
 ## Usage
 
@@ -29,9 +31,10 @@ Talk to Claude Code:
 - *"Extract all the copy from the Screens page."*
 - *"Add a drop shadow to the hero frame."*
 
-First run launches Chrome with remote debugging on port 9222.
+The first run launches Chrome with remote debugging on port 9222.
 
 ## Troubleshooting
 
-- `typeof figma` → `"undefined"`: open and close any Figma plugin to initialize the Plugin API.
-- `agent-browser --cdp 9222` won't connect: close other Chrome instances on port 9222, or use Chrome Canary.
+If `typeof figma` returns `"undefined"`, open and close any Figma plugin to initialize the Plugin API.
+
+If `agent-browser --cdp 9222` can't connect, close other Chrome instances on port 9222 or use Chrome Canary.
