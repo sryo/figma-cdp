@@ -107,6 +107,7 @@ References, loaded on demand:
 Before spawning a worker, verify every box:
 
 - [ ] Target nodes named with exact IDs, not descriptions
+- [ ] Each target ID verified to exist (`getNodeByIdAsync` returns a node, not null) before dispatch
 - [ ] End state is exact (no "make it better")
 - [ ] Assertions list every verifiable check
 - [ ] Worker template filled in: [Task], [Target Nodes], [Reference]

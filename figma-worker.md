@@ -37,6 +37,21 @@ One-liners: `agent-browser --cdp 9222 eval "figma.currentPage.name"`
 
 NEVER use heredocs, pipes, or input redirects in Bash. See `references/execution.md` → Eval Methods.
 
+## Rules
+
+- Wrap code in async IIFE: `(async function() { ... })()` (QuickJS restricts `AsyncFunction`; see `references/gotchas.md` #13)
+- Return `{error: msg}` on failure — don't throw
+- Return ALL created/mutated node IDs
+- State between evals: `window.__batchState.key = value` (namespace with `a_`/`b_` when parallel)
+- End final eval: `figma.viewport.scrollAndZoomIntoView([node])`
+- One `figma.commitUndo()` per section (not per property)
+- NEVER call `figma.closePlugin()`
+- Preserve existing content — targeted edits, never rebuild from scratch
+- **Fix only what failed** — don't rebuild on retry
+- **Find before create** — before adding a frame/component/variable, check whether one with the target name already exists. See `references/gotchas.md` #16
+
+All code-level gotchas (FILL sizing, font loading, colors, readonly arrays, QuickJS limits, etc.) are in `references/gotchas.md`. Read it before writing any eval.
+
 ## Your Loop
 
 For each section (or the whole task if no sections):
@@ -71,20 +86,6 @@ End your response with exactly one of:
 - **DONE_WITH_CONCERNS** — assertions passed but something unexpected. Include: what, why.
 - **NEEDS_CONTEXT** — can't proceed. Include: exactly what information you need.
 - **BLOCKED** — assertions still failing after 3 retries. Include: which assertions fail and what you tried.
-
-## Rules
-
-- Wrap code in async IIFE: `(async function() { ... })()` (QuickJS restricts `AsyncFunction`; see `references/gotchas.md` #13)
-- Return `{error: msg}` on failure — don't throw
-- Return ALL created/mutated node IDs
-- State between evals: `window.__batchState.key = value` (namespace with `a_`/`b_` when parallel)
-- End final eval: `figma.viewport.scrollAndZoomIntoView([node])`
-- One `figma.commitUndo()` per section (not per property)
-- NEVER call `figma.closePlugin()`
-- Preserve existing content — targeted edits, never rebuild from scratch
-- **Fix only what failed** — don't rebuild on retry
-
-All code-level gotchas (FILL sizing, font loading, colors, readonly arrays, QuickJS limits, etc.) are in `references/gotchas.md`. Read it before writing any eval.
 
 ## Reference
 
