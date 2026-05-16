@@ -1,0 +1,66 @@
+{
+  "skill_name": "figma-cdp",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a blue button component named Atoms/Button in my Figma file",
+      "expected_output": "A component node named Atoms/Button with blue fill and text child",
+      "expectations": [
+        "A ComponentNode or ComponentSetNode named 'Atoms/Button' exists on the page",
+        "The component has a blue fill (r < 0.3, g < 0.5, b > 0.8)",
+        "The component contains a TEXT child with characters 'Button'",
+        "Auto Layout is applied (layoutMode is HORIZONTAL or VERTICAL)",
+        "figma.commitUndo() was called"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Change the heading text in my login screen to 'Welcome'",
+      "expected_output": "The heading text node updated to 'Welcome' with font preserved",
+      "expectations": [
+        "Worker reads the current node state before modifying",
+        "Font was loaded before setting characters",
+        "Text node characters === 'Welcome'",
+        "Original font family and style are preserved",
+        "Worker verified the change after applying it"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Show me the structure of this Figma file",
+      "expected_output": "Page name, frame names, types, and IDs returned",
+      "expectations": [
+        "Returns the current page name",
+        "Returns all top-level frame names and IDs",
+        "Returns node types for each frame",
+        "Uses Plugin API (not REST) for reading",
+        "No mutations were made to the file"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Build a card component with a title, description, and image placeholder",
+      "expected_output": "A component with Auto Layout containing title text, description text, and an image rectangle",
+      "expectations": [
+        "A ComponentNode named with 'Card' exists",
+        "Has vertical Auto Layout with appropriate padding and gap",
+        "Contains a TEXT child for title (Bold font)",
+        "Contains a TEXT child for description (Regular font)",
+        "Contains a rectangle or frame for image placeholder",
+        "All children are properly parented (verified via parent.id check)"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Add a drop shadow to the main frame in my Figma file",
+      "expected_output": "The frame has a DROP_SHADOW effect applied",
+      "expectations": [
+        "Worker reads the current effects array before modifying",
+        "Effects array was cloned (not mutated in place)",
+        "A DROP_SHADOW effect exists in node.effects",
+        "Shadow has visible: true and reasonable radius/offset values",
+        "Existing effects on the node were preserved"
+      ]
+    }
+  ]
+}
