@@ -142,3 +142,19 @@ var t = figma.createText();
 parent.appendChild(t);
 window.__batchState.aId = t.id;                      // next eval: getNodeByIdAsync(aId)
 ```
+
+## 16. Find before create: don't duplicate on re-runs
+A worker can run twice (coordinator re-dispatch, checkpoint resume). Naive create code silently makes duplicates. Look up by name and type first; create only if missing.
+```js
+// WRONG: second run leaves two "Hero" frames at page root
+var hero = figma.createFrame();
+hero.name = 'Hero';
+// CORRECT: find first, create only if not present
+var hero = figma.currentPage.children.find(function(c) {
+  return c.name === 'Hero' && c.type === 'FRAME';
+});
+if (!hero) {
+  hero = figma.createFrame();
+  hero.name = 'Hero';
+}
+```
