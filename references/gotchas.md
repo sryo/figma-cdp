@@ -1,4 +1,4 @@
-# Figma Plugin API Gotchas
+# Figma Plugin API gotchas
 
 Single source of truth. Every rule has a WRONG/CORRECT example.
 
@@ -12,9 +12,9 @@ parent.appendChild(child);
 child.layoutSizingHorizontal = 'FILL';
 ```
 
-## 2. Fonts don't persist across evals — load every time
+## 2. Fonts don't persist across evals: load every time
 ```js
-// WRONG — assumes font loaded in previous eval
+// WRONG: assumes font loaded in previous eval
 node.characters = 'Hello';
 // CORRECT
 await figma.loadFontAsync(node.fontName);
@@ -25,7 +25,7 @@ node.characters = 'Hello';
 ```js
 // WRONG
 {r: 37, g: 99, b: 235}
-// CORRECT — divide by 255
+// CORRECT: divide by 255
 {r: 0.145, g: 0.388, b: 0.922}
 ```
 
@@ -37,7 +37,7 @@ node.fills = [{type: 'SOLID', color: {r: 0, g: 0, b: 0, a: 0.5}}];
 node.fills = [{type: 'SOLID', color: {r: 0, g: 0, b: 0}, opacity: 0.5}];
 ```
 
-## 5. Readonly arrays — clone before mutating
+## 5. Readonly arrays: clone before mutating
 ```js
 // WRONG
 node.fills.push(newFill);       // fills is readonly
@@ -47,28 +47,28 @@ f.push(newFill);
 node.fills = f;
 ```
 
-## 6. No ?. or ?? — QuickJS sandbox
+## 6. No ?. or ??: QuickJS sandbox
 ```js
 // WRONG
 var name = node?.parent?.name ?? 'none';
 // CORRECT
-var name = node && node.parent ? node.parent.name : 'none';
+var name = node && node.parent ? node.parent.name: 'none';
 ```
 
 ## 7. return {error: msg} not throw
 ```js
-// WRONG — throw crashes the eval, you lose context
+// WRONG: throw crashes the eval, you lose context
 if (!node) throw new Error('not found');
 // CORRECT
 if (!node) return {error: 'Node not found'};
 ```
 
-## 8. commitUndo() is expensive — once per user-visible change
+## 8. commitUndo() is expensive: once per user-visible change
 ```js
-// WRONG — calling per property
+// WRONG: calling per property
 node.name = 'X'; figma.commitUndo();
 node.fills = [...]; figma.commitUndo();
-// CORRECT — once after all mutations
+// CORRECT: once after all mutations
 node.name = 'X';
 node.fills = [...];
 figma.commitUndo();
@@ -76,10 +76,10 @@ figma.commitUndo();
 
 ## 9. Don't alternate ComponentNode writes + InstanceNode reads
 ```js
-// WRONG — Figma recalculates instances on every component change
+// WRONG: Figma recalculates instances on every component change
 comp.fills = [...]; var x = inst.width;
 comp.name = 'Y';   var y = inst.height;
-// CORRECT — batch all component writes, then read instances
+// CORRECT: batch all component writes, then read instances
 comp.fills = [...]; comp.name = 'Y';
 var x = inst.width; var y = inst.height;
 ```
@@ -93,18 +93,18 @@ textNode.lineHeight = {unit: 'PIXELS', value: 24};
 textNode.letterSpacing = {unit: 'PERCENT', value: 0};
 ```
 
-## 11. New top-level nodes default to (0,0) — position them
+## 11. New top-level nodes default to (0,0): position them
 ```js
-// WRONG — overlaps existing content at origin
+// WRONG: overlaps existing content at origin
 var frame = figma.createFrame();
 // CORRECT
 var frame = figma.createFrame();
 frame.x = 500; frame.y = 500;
 ```
 
-## 12. resize() before sizing modes — resize resets to FIXED
+## 12. resize() before sizing modes: resize resets to FIXED
 ```js
-// WRONG — resize after sizing mode resets it
+// WRONG: resize after sizing mode resets it
 child.layoutSizingHorizontal = 'FILL';
 child.resize(200, 40);  // resets to FIXED!
 // CORRECT
@@ -112,32 +112,32 @@ child.resize(200, 40);
 child.layoutSizingHorizontal = 'FILL';
 ```
 
-## 13. AsyncFunction constructor is restricted — use async IIFE
+## 13. AsyncFunction constructor is restricted: use async IIFE
 QuickJS blocks `new AsyncFunction(...)` and `Function('async ...')()`.
 ```js
 // WRONG
 new AsyncFunction('await foo()')();
-// CORRECT — async IIFE wrapper
+// CORRECT: async IIFE wrapper
 (async function() { await foo(); })();
 ```
 
-## 14. Verify parent after appendChild — silent reparenting
+## 14. Verify parent after appendChild: silent reparenting
 In long async scripts, `appendChild` can drop a node to page root with no error.
 ```js
-// WRONG — assume it worked
+// WRONG: assume it worked
 parent.appendChild(child);
 // CORRECT
 parent.appendChild(child);
 if (child.parent.id !== parent.id) return {error: 'reparent failed'};
 ```
 
-## 15. Append in the same eval that creates — orphan nodes get GC'd
-Pass node IDs across evals, not node references — orphans get garbage-collected.
+## 15. Append in the same eval that creates: orphan nodes get GC'd
+Pass node IDs across evals, not node references: orphans get garbage-collected.
 ```js
-// WRONG — split across evals; the orphan may be gone by step 2
+// WRONG: split across evals; the orphan may be gone by step 2
 window.__batchState.a = figma.createText();          // step 1
 parent.appendChild(window.__batchState.a);           // step 2: .removed === true
-// CORRECT — create + append in the same script, pass the ID
+// CORRECT: create + append in the same script, pass the ID
 var t = figma.createText();
 parent.appendChild(t);
 window.__batchState.aId = t.id;                      // next eval: getNodeByIdAsync(aId)

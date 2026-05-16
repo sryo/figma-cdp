@@ -1,8 +1,8 @@
-# Reading & Understanding Figma Designs
+# Reading and understanding Figma designs
 
-How to understand an existing design before modifying it. Always do this before making changes — understanding the current state prevents accidental destruction.
+How to understand an existing design before modifying it. Always do this before making changes: understanding the current state prevents accidental destruction.
 
-## Coordinator Reconnaissance
+## Coordinator reconnaissance
 
 The coordinator runs this single eval to get page structure before decomposing work. Uses Plugin API (not REST) for accurate, up-to-date data.
 
@@ -15,14 +15,14 @@ Write `/tmp/figma_eval.js`:
     frames: page.children.map(function(c) {
       return {id: c.id, name: c.name, type: c.type,
               w: c.width, h: c.height,
-              childCount: c.children ? c.children.length : 0};
+              childCount: c.children ? c.children.length: 0};
     })
   };
 })()
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
-If a specific node ID was provided, also inspect it — write `/tmp/figma_eval.js`:
+If a specific node ID was provided, also inspect it: write `/tmp/figma_eval.js`:
 ```js
 (async function() {
   var node = await figma.getNodeByIdAsync('NODE_ID');
@@ -43,7 +43,7 @@ If a specific node ID was provided, also inspect it — write `/tmp/figma_eval.j
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
-## Worker Deep Read
+## Worker deep read
 
 Workers run these before modifying anything. These give the full picture that REST API misses (fonts, overrides, auto layout state, component properties).
 
@@ -75,7 +75,7 @@ Write `/tmp/figma_eval.js`:
   // Typography (TextNode)
   if (node.type === 'TEXT') {
     info.text = node.characters;
-    info.font = node.fontName !== figma.mixed ? node.fontName : 'MIXED';
+    info.font = node.fontName !== figma.mixed ? node.fontName: 'MIXED';
     info.fontSize = node.fontSize;
     info.autoResize = node.textAutoResize;
   }
@@ -91,7 +91,7 @@ Write `/tmp/figma_eval.js`:
   // Component info
   if (node.type === 'INSTANCE') {
     var main = await node.getMainComponentAsync();
-    info.mainComponent = main ? {id: main.id, name: main.name} : null;
+    info.mainComponent = main ? {id: main.id, name: main.name}: null;
   }
   return info;
 })()
@@ -118,7 +118,7 @@ Write `/tmp/figma_eval.js`:
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
-## Pre-flight Workflow
+## Pre-flight workflow
 
 ### Via Plugin API (already connected)
 
@@ -130,21 +130,21 @@ Follow this systematic approach:
    if (!node) throw new Error('Node 1:2 not found');
    figma.viewport.scrollAndZoomIntoView([node]);
    ```
-2. **Inspect the node tree** — understand the hierarchy before touching anything:
+2. **Inspect the node tree**: understand the hierarchy before touching anything:
    ```js
    var info = node.children.map(function(c) {
      return {id: c.id, name: c.name, type: c.type, w: c.width, h: c.height};
    });
    JSON.stringify(info, null, 2);
    ```
-3. **Export a screenshot** for visual reference — this is your source of truth:
+3. **Export a screenshot** for visual reference: this is your source of truth:
    ```js
    var bytes = await node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}});
    figma.base64Encode(bytes);
    ```
 4. **Extract design values** from the node (typography, colors, spacing):
    ```js
-   // Colors (fills are readonly — read only)
+   // Colors (fills are readonly: read only)
    JSON.stringify(node.fills);
    // Typography (on TextNode)
    JSON.stringify({font: node.fontName, size: node.fontSize, align: node.textAlignHorizontal});
@@ -174,15 +174,15 @@ REST API provides read access to any file you have permission to view, without a
    This returns URLs to rendered PNGs.
 5. **Plan mutations** based on the read data, then execute via Plugin API.
 
-## Asset Handling
+## Asset handling
 
 When extracting images, icons, or SVGs from a design:
-- **Export actual assets** from nodes — use `node.exportAsync({format: 'SVG'})` or `node.exportAsync({format: 'PNG'})` to get real asset data.
+- **Export actual assets** from nodes: use `node.exportAsync({format: 'SVG'})` or `node.exportAsync({format: 'PNG'})` to get real asset data.
 - **Do NOT create placeholder images** when the actual asset is available in the node. Always extract what's already there.
 - **Do NOT import external icon packages** to replace icons that exist in the design. Extract the existing icon via `exportAsync` instead of adding a dependency.
-- **Image fills** contain an `imageHash` — retrieve the image data with `figma.getImageByHash(hash).getBytesAsync()`.
+- **Image fills** contain an `imageHash`: retrieve the image data with `figma.getImageByHash(hash).getBytesAsync()`.
 
-## Reading Variable Bindings
+## Reading variable bindings
 
 ```js
 // Check if a node has variable bindings
@@ -202,7 +202,7 @@ if (bindings) {
 }
 ```
 
-## Reading Instance State
+## Reading instance state
 
 ```js
 var inst = await figma.getNodeByIdAsync('INSTANCE_ID');
@@ -212,9 +212,9 @@ if (inst.type !== 'INSTANCE') return {error: 'Not an instance'};
 var main = await inst.getMainComponentAsync();
 var info = {
   instanceId: inst.id,
-  mainComponent: main ? {id: main.id, name: main.name, key: main.key} : null,
+  mainComponent: main ? {id: main.id, name: main.name, key: main.key}: null,
   scaleFactor: inst.scaleFactor,
-  overrides: inst.overrides,  // [{id, overriddenFields}] — direct overrides only
+  overrides: inst.overrides,  // [{id, overriddenFields}]: direct overrides only
   properties: inst.componentProperties  // current property values
 };
 
@@ -226,7 +226,7 @@ info.exposed = inst.exposedInstances.map(function(e) {
 return info;
 ```
 
-## Reading Prototype Reactions
+## Reading prototype reactions
 
 ```js
 var node = await figma.getNodeByIdAsync('NODE_ID');
@@ -241,14 +241,14 @@ var info = reactions.map(function(r) {
   return entry;
 });
 return info;
-// NOTE: With dynamic-page access, reactions is readonly — use setReactionsAsync() to modify
+// NOTE: With dynamic-page access, reactions is readonly: use setReactionsAsync() to modify
 ```
 
-## REST API Reference
+## REST API reference
 
 Read-only operations without a browser session. Supplementary to the Plugin API.
 
-### Auth Setup
+### Auth setup
 1. Generate a **personal access token** at `https://www.figma.com/developers/api#access-tokens`.
 2. Store it:
    ```bash
@@ -268,11 +268,11 @@ Read-only operations without a browser session. Supplementary to the Plugin API.
 | `POST /v1/files/:key/comments` | Add a comment |
 | `POST|PUT /v1/dev_resources` | Create / update dev resource |
 
-> **Variables REST endpoint** requires Figma Enterprise — not available on free/pro plans. Use the Plugin API `figma.variables.*` instead.
+> **Variables REST endpoint** requires Figma Enterprise: not available on free/pro plans. Use the Plugin API `figma.variables.*` instead.
 
-### Helper Script
+### Helper script
 
-Write `/tmp/figma_api.py` (symmetric with `figma_run.py` — pre-allowed; no permission prompts):
+Write `/tmp/figma_api.py` (symmetric with `figma_run.py`: pre-allowed; no permission prompts):
 
 ```python
 #!/usr/bin/env python3
@@ -313,6 +313,6 @@ python3 /tmp/figma_api.py "v1/files/ABC123xyz/nodes?ids=0:1,1:2"
 python3 /tmp/figma_api.py "v1/images/ABC123xyz?ids=1:2&format=png&scale=2"
 ```
 
-### Rate Limits & Staleness
-- **30 requests/minute** — batch node IDs into single calls where possible.
+### Rate limits and staleness
+- **30 requests/minute**: batch node IDs into single calls where possible.
 - REST reads may **lag a few seconds** behind Plugin API writes. After mutations, use Plugin API `exportAsync` for immediate verification.

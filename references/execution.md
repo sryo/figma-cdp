@@ -1,19 +1,19 @@
-# Execution: Connection & CDP Patterns
+# Execution: connection and CDP patterns
 
 How to connect to Figma's Plugin API via `agent-browser` and the eval patterns for all automation.
 
-All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)` — no permission prompts.
+All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no permission prompts.
 
 ## Connection
 
 ### Quick start
 
-1. **Test existing connection** — skip Chrome launch if `typeof figma` returns `"object"`:
+1. **Test existing connection**: skip Chrome launch if `typeof figma` returns `"object"`:
    ```bash
    agent-browser --cdp 9222 eval "typeof figma" 2>/dev/null && echo "connected"
    ```
 
-2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening — stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile once:
+2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening: stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile once:
    ```bash
    cp -R "$HOME/Library/Application Support/Google/Chrome Canary" /tmp/canary-cdp
    ```
@@ -24,9 +24,9 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)` — no 
      --user-data-dir=/tmp/canary-cdp \
      "FIGMA_URL_HERE" &
    ```
-   Regular Chrome works the same way. The `/tmp/canary-cdp` copy is ~640M and will be wiped on reboot — re-copy when needed.
+   Regular Chrome works the same way. The `/tmp/canary-cdp` copy is ~640M and will be wiped on reboot: re-copy when needed.
 
-3. **Create the eval helper** — copy `figma_run.py` to `/tmp/`, or write it inline:
+3. **Create the eval helper**: copy `figma_run.py` to `/tmp/`, or write it inline:
    ```python
    #!/usr/bin/env python3
    import base64, subprocess, sys
@@ -49,16 +49,16 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)` — no 
 If `typeof figma` returns `"undefined"`:
 1. Ensure user has **edit permissions** (or create a branch).
 2. Wait for page to fully load, retry.
-3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything — first available in the menu is fine.)
+3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
 
 If `agent-browser --cdp 9222` fails to connect:
 1. Check Chrome is running: `curl -s http://localhost:9222/json | head -1`
 2. Close other Chrome instances holding port 9222.
 3. Prefer Chrome Canary to avoid conflicts.
 
-## Eval Methods
+## Eval methods
 
-NEVER use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — they trigger Claude Code safety warnings even with permissions set.
+NEVER use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash: they trigger Claude Code safety warnings even with permissions set.
 
 ### From file via helper (recommended)
 
@@ -79,11 +79,11 @@ agent-browser --cdp 9222 eval "figma.currentPage.name"
 agent-browser --cdp 9222 eval "figma.currentPage.children.length"
 ```
 
-## State Between Evals
+## State between evals
 
 `window.__batchState` persists across separate eval calls (same browser tab).
 
-**Step 1** — Write `/tmp/figma_step1.js`:
+**Step 1**: Write `/tmp/figma_step1.js`:
 ```js
 (async function() {
   window.__batchState = window.__batchState || {};
@@ -99,7 +99,7 @@ agent-browser --cdp 9222 eval "figma.currentPage.children.length"
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_step1.js`
 
-**Step 2** — Write `/tmp/figma_step2.js`:
+**Step 2**: Write `/tmp/figma_step2.js`:
 ```js
 (async function() {
   var card = await figma.getNodeByIdAsync(window.__batchState.a_cardId);
@@ -115,7 +115,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_step1.js`
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_step2.js`
 
-**Step 3** — Write `/tmp/figma_step3.js`:
+**Step 3**: Write `/tmp/figma_step3.js`:
 ```js
 (async function() {
   var card = await figma.getNodeByIdAsync(window.__batchState.a_cardId);
@@ -128,7 +128,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_step3.js`
 
 Use namespaced keys when parallel workers share the same tab: `a_frameId`, `b_frameId`.
 
-## Verification Patterns
+## Verification patterns
 
 ### Property check
 
@@ -140,9 +140,9 @@ Write `/tmp/figma_eval.js`:
     name: node.name, type: node.type,
     layout: node.layoutMode,
     sizing: {h: node.layoutSizingHorizontal, v: node.layoutSizingVertical},
-    fills: node.fills !== figma.mixed ? node.fills : 'MIXED',
-    parent: node.parent ? {id: node.parent.id, name: node.parent.name} : null,
-    childCount: node.children ? node.children.length : 0
+    fills: node.fills !== figma.mixed ? node.fills: 'MIXED',
+    parent: node.parent ? {id: node.parent.id, name: node.parent.name}: null,
+    childCount: node.children ? node.children.length: 0
   };
 })()
 ```
@@ -173,18 +173,18 @@ agent-browser --cdp 9222 screenshot /tmp/figma_screenshot.png
 When the coordinator launches parallel workers:
 
 1. Workers use namespaced `window.__batchState` keys (e.g., `a_frameId`, `b_frameId`)
-2. Workers operate on **independent** areas — no concurrent writes to the same node
+2. Workers operate on **independent** areas: no concurrent writes to the same node
 3. Each worker runs its own read → execute → verify loop independently
 4. The coordinator collects results after all workers complete
 
-### When to Use Sessions vs Shared State
+### When to use sessions vs shared state
 
 - **Shared state (`window.__batchState`):** Workers on the **same file**, different frames/pages. All evals share one browser tab context.
 - **Sessions (`--session worker-a`):** Workers on **different Figma files**. Each session gets its own browser tab with separate Plugin API context.
 
 For same-file parallel work, `window.__batchState` with namespaced keys is correct. Sessions would require opening the same file in multiple tabs.
 
-## Error Handling
+## Error handling
 
 `agent-browser eval` exits with code 1 on error and prints the error to stderr.
 
@@ -195,7 +195,7 @@ Example error output:
 
 Check exit codes to detect failures in multi-step operations.
 
-## JSON Output
+## JSON output
 
 Use `--json` for structured output with success/error metadata:
 
@@ -208,7 +208,7 @@ Returns:
 {"success": true, "data": {"origin": "...", "result": "Page 1"}, "error": null}
 ```
 
-## Event Listener Injection
+## Event listener injection
 
 Write `/tmp/figma_listeners.js`:
 ```js
@@ -237,7 +237,7 @@ Read and drain events:
 agent-browser --cdp 9222 eval "JSON.stringify(window.__figmaEvents.splice(0))"
 ```
 
-## Large Operations
+## Large operations
 
 When processing many nodes in a single eval, yield to prevent freezing:
 
@@ -253,24 +253,24 @@ for (var i = 0; i < nodes.length; i += BATCH) {
 }
 ```
 
-## Error Recovery
+## Error recovery
 
 When an eval fails mid-loop, follow this pattern:
 
-1. **Read the error** — `agent-browser` exits with code 1 and prints the error to stderr
-2. **Don't retry blindly** — read the current state first to understand what succeeded
-3. **Return errors, don't throw** — `return {error: 'msg'}` keeps the eval alive. `throw` crashes it and you lose context.
+1. **Read the error**: `agent-browser` exits with code 1 and prints the error to stderr
+2. **Don't retry blindly**: read the current state first to understand what succeeded
+3. **Return errors, don't throw**: `return {error: 'msg'}` keeps the eval alive. `throw` crashes it and you lose context.
 
 ### Reading empty-ish results
 
-Eval can succeed but return values that signal "found nothing" — each means something different:
+Eval can succeed but return values that signal "found nothing": each means something different:
 
 - `null` → the node or resource doesn't exist (check the ID)
 - `undefined` → missing `return` statement in your IIFE (you ran code but emitted nothing)
 - `[]` → the search ran but matched nothing (check selector / criteria)
 - `{count: 0}` / `{length: 0}` → operation completed, matched zero items
 
-Recheck the query before retrying — don't loop on a wrong selector.
+Recheck the query before retrying: don't loop on a wrong selector.
 
 Pattern for safe mutations (`/tmp/figma_eval.js`):
 ```js
@@ -301,11 +301,11 @@ Pattern for safe mutations (`/tmp/figma_eval.js`):
 - **Max ~200 nodes per eval** before Figma slows noticeably. For larger operations, split into multiple evals with yielding.
 - **Yield between batches** in long loops: `await new Promise(function(r) { setTimeout(r, 0); })`
 - **Batch size: 50 nodes** is safe. 100+ may cause the UI thread to block.
-- **Avoid deep findAll** on pages with 1000+ nodes — use `findAllWithCriteria({types: ['TEXT']})` instead of `findAll(function(n) { return n.type === 'TEXT'; })`. The criteria version is native C++ and much faster.
-- **commitUndo() is expensive** — call once per user-visible change, not per property set.
-- **Don't alternate** between writing to a ComponentNode and reading from its InstanceNode — Figma recalculates instances on every component change. Batch all component writes first, then read instances.
+- **Avoid deep findAll** on pages with 1000+ nodes: use `findAllWithCriteria({types: ['TEXT']})` instead of `findAll(function(n) { return n.type === 'TEXT'; })`. The criteria version is native C++ and much faster.
+- **commitUndo() is expensive**: call once per user-visible change, not per property set.
+- **Don't alternate** between writing to a ComponentNode and reading from its InstanceNode: Figma recalculates instances on every component change. Batch all component writes first, then read instances.
 
-## Assertion Verification
+## Assertion verification
 
 Run assertions programmatically after building. Compare actual state against expected spec.
 
@@ -328,12 +328,12 @@ Write `/tmp/figma_verify.js`:
   // Root checks
   check('root.type', 'FRAME', node.type);
   check('root.name', 'Screens/Login', node.name);
-  check('root.childCount', 8, node.children ? node.children.length : 0);
+  check('root.childCount', 8, node.children ? node.children.length: 0);
 
   // Child checks
   var c = node.children || [];
   if (c[0]) check('child0.type', 'INSTANCE', c[0].type);
-  if (c[1]) check('child1.characters', 'Welcome back', c[1].type === 'TEXT' ? c[1].characters : null);
+  if (c[1]) check('child1.characters', 'Welcome back', c[1].type === 'TEXT' ? c[1].characters: null);
   // ... add one check per assertion in spec
 
   var passed = checks.filter(function(x) { return x.pass; }).length;
@@ -346,7 +346,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_verify.js`
 
 If `allPassed: false`, fix only the `failures` and re-verify. Max 3 retries before BLOCKED.
 
-## Section Checkpointing
+## Section checkpointing
 
 For large multi-section documents, save progress after each verified section:
 

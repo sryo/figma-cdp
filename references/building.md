@@ -1,14 +1,14 @@
-# Building & Mutating Figma Designs
+# Building and mutating Figma designs
 
 How to create and modify design nodes via the Plugin API.
 
-## Component Workflow
+## Component workflow
 
 See `references/conventions.md` for atomic design hierarchy, naming (`Atoms/…`, `Molecules/…`, `Screens/…`), and page structure. Always prefer `component.createInstance()` over recreating structures, and `instance.swapComponent(target)` over rebuilding nested components. Verify visually with `node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}})`.
 
-## Constraints & Sizing
+## Constraints and sizing
 
-### Auto Layout Components (preferred)
+### Auto Layout components (preferred)
 Most components should use Auto Layout. Set sizing on children, not constraints:
 ```js
 // Parent frame setup
@@ -31,7 +31,7 @@ child.layoutSizingHorizontal = 'HUG';
 child.layoutSizingVertical = 'HUG';
 ```
 
-### Common Component Patterns
+### Common component patterns
 ```js
 // Button: horizontal, centered, hug both axes
 btn.layoutMode = 'HORIZONTAL';
@@ -54,14 +54,14 @@ content.layoutSizingHorizontal = 'FILL'; // text area fills width
 
 Input/list/stack follow the same pattern: horizontal or vertical `layoutMode`, `counterAxisSizingMode = 'FIXED'` on parent, children `layoutSizingHorizontal = 'FILL'`.
 
-### Absolute Positioning in Auto Layout
+### Absolute positioning in Auto Layout
 For overlays, badges, or floating elements inside an auto layout frame:
 ```js
 badge.layoutPositioning = 'ABSOLUTE';    // opt out of auto layout flow
 badge.constraints = {horizontal: 'MAX', vertical: 'MIN'};  // pin top-right
 ```
 
-### Fixed Frame Constraints (no Auto Layout)
+### Fixed-frame constraints (no Auto Layout)
 When parent has `layoutMode = 'NONE'`, use `constraints` on children:
 ```js
 child.constraints = {horizontal: 'MIN', vertical: 'MIN'};       // pin top-left (default)
@@ -71,13 +71,13 @@ child.constraints = {horizontal: 'CENTER', vertical: 'CENTER'};   // center both
 child.constraints = {horizontal: 'MAX', vertical: 'MAX'};         // pin bottom-right
 ```
 
-### Key Rules
-- `constraints` is ignored when parent has auto layout — use `layoutSizing*` instead.
+### Key rules
+- `constraints` is ignored when parent has auto layout: use `layoutSizing*` instead.
 - `FILL` requires parent with auto layout; `HUG` requires the node to have children.
-- `layoutGrow = 1` is legacy FILL — prefer `layoutSizing*`.
+- `layoutGrow = 1` is legacy FILL: prefer `layoutSizing*`.
 - See `references/gotchas.md` for FILL-after-appendChild and resize-before-sizing-modes rules.
 
-## Post-Mutation Validation
+## Post-mutation validation
 
 After each mutation, verify before moving on. Assertion patterns live in `references/execution.md` → Assertion Verification. Spot-check: layout/padding/itemSpacing, typography (watch for `figma.mixed`), colors (0-1 range), hierarchy (`child.parent.id`), layoutSizing on auto-layout children, `imageHash` on image fills. Visual export:
 ```js
@@ -85,7 +85,7 @@ var bytes = await node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', v
 figma.base64Encode(bytes);
 ```
 
-## Component Variants
+## Component variants
 
 Pattern for creating a component set with variants:
 ```js
@@ -119,7 +119,7 @@ instance.setProperties({'Variant': 'Secondary'});  // switch variant
 // For BOOLEAN/TEXT props, use full name with #suffix from componentPropertyDefinitions
 ```
 
-## Instance Overrides
+## Instance overrides
 
 Reading and modifying instance overrides:
 ```js
@@ -150,11 +150,11 @@ if (icon) {
 inst.removeOverrides();
 ```
 
-## Image Fills
+## Image fills
 
 Applying images to nodes:
 ```js
-// From URL (may hit CORS — use bytes if blocked)
+// From URL (may hit CORS: use bytes if blocked)
 var image = await figma.createImageAsync('https://example.com/photo.jpg');
 var rect = figma.createRectangle();
 rect.resize(400, 300);
@@ -170,7 +170,7 @@ if (existingFill.type === 'IMAGE') {
 }
 ```
 
-## SVG Import
+## SVG import
 
 ```js
 // Create a node from SVG string
@@ -215,7 +215,7 @@ node.effects = [{
 }];
 ```
 
-## Gradient Fills
+## Gradient fills
 
 ```js
 // Linear gradient (top to bottom, blue to purple)

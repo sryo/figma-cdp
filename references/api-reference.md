@@ -1,9 +1,9 @@
-# Figma Plugin API Reference
+# Figma Plugin API reference
 
 Source: [`@figma/plugin-typings`](https://github.com/figma/plugin-typings/blob/master/plugin-api.d.ts)
 Notation: `[ro]` = readonly, `P<T>` = Promise<T>, types after `//` are abbreviated.
 
-## Quick Lookup — Most Used
+## Quick lookup: most used
 
 ```
 figma.createFrame(): FrameNode              figma.createText(): TextNode
@@ -22,14 +22,14 @@ node.exportAsync({format:'PNG', constraint:{type:'SCALE', value:2}}): P<Uint8Arr
 node.findAllWithCriteria({types:['TEXT']}): SceneNode[]  // fast native C++ filter
 ```
 
-## Table of Contents
+## Table of contents
 
-- [figma Global](#figma-global) — Properties, create nodes, find/navigate, fonts/images, styles, variables, events, lifecycle
-- [Mixins](#mixins) — BaseNode, SceneNode, Children, Layout, AutoLayout, Geometry, Blend, Corner, Constraint, Export
-- [Node Types](#node-types) — Document, Page, Frame, Text, Component, Instance, shapes
-- [Style Objects](#style-objects) — Paint, Text, Effect, Grid styles
-- [Variable Objects](#variable-objects) — Variable, VariableCollection, scopes, bindings
-- [Data Types](#data-types) — Paint, Effect, Prototype, Layout types
+- [figma Global](#figma-global): Properties, create nodes, find/navigate, fonts/images, styles, variables, events, lifecycle
+- [Mixins](#mixins): BaseNode, SceneNode, Children, Layout, AutoLayout, Geometry, Blend, Corner, Constraint, Export
+- [Node Types](#node-types): Document, Page, Frame, Text, Component, Instance, shapes
+- [Style Objects](#style-objects): Paint, Text, Effect, Grid styles
+- [Variable Objects](#variable-objects): Variable, VariableCollection, scopes, bindings
+- [Data Types](#data-types): Paint, Effect, Prototype, Layout types
 
 ## figma Global
 
@@ -50,7 +50,7 @@ figma.activeUsers: ActiveUser[] [ro]
 figma.skipInvisibleInstanceChildren: boolean
 ```
 
-### Create Nodes
+### Create nodes
 ```
 figma.createRectangle(): RectangleNode
 figma.createEllipse(): EllipseNode
@@ -71,7 +71,7 @@ figma.createNodeFromJSXAsync(jsx): P<SceneNode>
 figma.createTextPath(vectorNode, startSegment, startPosition): TextPathNode
 ```
 
-### Find & Navigate
+### Find and navigate
 ```
 figma.getNodeByIdAsync(id): P<BaseNode|null>
 figma.getNodesByIdAsync(ids): P<(BaseNode|null)[]>
@@ -80,7 +80,7 @@ figma.setCurrentPageAsync(page): P<void>
 figma.loadAllPagesAsync(): P<void>
 ```
 
-### Group & Boolean
+### Group and boolean
 ```
 figma.group(nodes, parent, index?): GroupNode
 figma.ungroup(node): SceneNode[]
@@ -124,13 +124,13 @@ figma.getSelectionColors(): {paints, styles}|null
 // ResolvedType: 'BOOLEAN'|'COLOR'|'FLOAT'|'STRING'
 ```
 
-### Team Library (`figma.teamLibrary`)
+### Team library (`figma.teamLibrary`)
 ```
 .getAvailableLibraryVariableCollectionsAsync(): P<LibraryVariableCollection[]>
 .getVariablesInLibraryCollectionAsync(key): P<LibraryVariable[]>
 ```
 
-### Client Storage (`figma.clientStorage`) — 5MB limit, local to machine
+### Client storage (`figma.clientStorage`): 5MB limit, local to machine
 ```
 .getAsync(key): P<any>
 .setAsync(key, value): P<void>
@@ -171,7 +171,7 @@ figma.on / .once / .off (event, callback)
 //   'timerstart'|'timerpause'|'timerresume'|'timerstop'|'timeradjust'|'timerdone'
 // 'drop' cb returns false to prevent default. DropEvent: {node, x, y, absoluteX, absoluteY, items, files, dropMetadata?}
 // DocumentChange: {type: CREATE|DELETE|PROPERTY_CHANGE|STYLE_*, id, node|style, origin: 'LOCAL'|'REMOTE'}
-// NOTE: callbacks run async — code after figma.on() executes before callback fires
+// NOTE: callbacks run async: code after figma.on() executes before callback fires
 ```
 
 ### Lifecycle
@@ -296,7 +296,7 @@ gridChildHorizontalAlign/gridChildVerticalAlign: 'MIN'|'CENTER'|'MAX'|'AUTO'
 
 ### GeometryMixin
 ```
-fills: Paint[]|mixed                             // READONLY array — reassign!
+fills: Paint[]|mixed                             // READONLY array: reassign!
 fillStyleId: string|mixed
 strokes: Paint[]
 strokeStyleId: string
@@ -349,7 +349,7 @@ exportAsync(settings: {format:'JSON_REST_V1'}): P<Object>
 // ExportSettings: {format:'PNG'|'JPG'|'SVG'|'PDF', constraint?: {type:'SCALE'|'WIDTH'|'HEIGHT', value}, contentsOnly?, suffix?}
 ```
 
-### Other Mixins
+### Other mixins
 ```
 // ReactionMixin: reactions [ro], setReactionsAsync(reactions)
 // PublishableMixin: description, descriptionMarkdown, documentationLinks [ro], remote [ro], key [ro], getPublishStatusAsync()
@@ -360,14 +360,14 @@ exportAsync(settings: {format:'JSON_REST_V1'}): P<Object>
 // AnnotationsMixin: annotations [ro]
 ```
 
-## Node Types
+## Node types
 
-### Mixin Inheritance (thin nodes)
-- `GroupNode` `'GROUP'` — Children, Blend, Layout, Export, Reaction, Container
-- `RectangleNode` `'RECTANGLE'` — Geometry, Blend, Layout, Constraint, Corner, RectangleCorner, IndividualStrokes, Export, Annotations
-- `SliceNode` `'SLICE'` — Layout, Export (no fills/strokes/effects)
-- `BooleanOperationNode` `'BOOLEAN_OPERATION'` — Children, Geometry, Blend, Corner. Extra: `booleanOperation: 'UNION'|'INTERSECT'|'SUBTRACT'|'EXCLUDE'`
-- `SectionNode` `'SECTION'` — Children, MinimalFills. Extra: `sectionContentsHidden: boolean`
+### Mixin inheritance (thin nodes)
+- `GroupNode` `'GROUP'`: Children, Blend, Layout, Export, Reaction, Container
+- `RectangleNode` `'RECTANGLE'`: Geometry, Blend, Layout, Constraint, Corner, RectangleCorner, IndividualStrokes, Export, Annotations
+- `SliceNode` `'SLICE'`: Layout, Export (no fills/strokes/effects)
+- `BooleanOperationNode` `'BOOLEAN_OPERATION'`: Children, Geometry, Blend, Corner. Extra: `booleanOperation: 'UNION'|'INTERSECT'|'SUBTRACT'|'EXCLUDE'`
+- `SectionNode` `'SECTION'`: Children, MinimalFills. Extra: `sectionContentsHidden: boolean`
 
 For full mixin inheritance, see `@figma/plugin-typings`.
 
@@ -421,7 +421,7 @@ arcData: {startingAngle, endingAngle, innerRadius}  // radians, innerRadius 0-1
 // All inherit Geometry, Blend, Layout, Constraint, Export
 // VectorPath: {windingRule: 'NONZERO'|'EVENODD'|'NONE', data: SVG-path-string}
 //   e.g. node.vectorPaths = [{windingRule: "EVENODD", data: "M 0 0 L 100 0 L 50 100 Z"}]
-// VectorNetwork (advanced): {vertices, segments, regions?} — cubic bezier with tangents
+// VectorNetwork (advanced): {vertices, segments, regions?}: cubic bezier with tangents
 // GOTCHA: VectorNode position auto-adjusts to fit vertices; coords relative to node position
 ```
 
@@ -469,11 +469,11 @@ type: 'COMPONENT' [ro]
 createInstance(): InstanceNode
 createSlot(): SlotNode
 getInstancesAsync(): P<InstanceNode[]>
-instances: InstanceNode[] [ro]                   // throws with dynamic-page — use getInstancesAsync
+instances: InstanceNode[] [ro]                   // throws with dynamic-page: use getInstancesAsync
 // VariantMixin.variantProperties (DEPRECATED, use componentProperties)
 // ComponentPropertiesMixin: componentPropertyDefinitions [ro], addComponentProperty/
 //   editComponentProperty/deleteComponentProperty. BOOLEAN/TEXT/INSTANCE_SWAP props
-//   auto-suffixed with #uniqueId — use full name (with #) in setProperties/editComponentProperty.
+//   auto-suffixed with #uniqueId: use full name (with #) in setProperties/editComponentProperty.
 //   VARIANT props have priority on name collision.
 ```
 
@@ -500,14 +500,14 @@ removeOverrides(): void                          // resetOverrides() is DEPRECAT
 // Inherits FrameNode + VariantMixin. PERF: don't alternate component writes + instance reads.
 ```
 
-## Style Objects
+## Style objects
 ```
 // BaseStyleMixin: id, name, type, remove() + PublishableMixin + consumers / getStyleConsumersAsync()
 // PaintStyle 'PAINT': paints. TextStyle 'TEXT': typography props + setBoundVariable.
 // EffectStyle 'EFFECT': effects. GridStyle 'GRID': layoutGrids. All: boundVariables [ro]
 ```
 
-## Variable Objects
+## Variable objects
 ```
 // Variable: id/key, name, description, resolvedType: 'BOOLEAN'|'COLOR'|'FLOAT'|'STRING',
 //   variableCollectionId, valuesByMode, scopes: VariableScope[], codeSyntax: {WEB?, ANDROID?, iOS?}
@@ -520,12 +520,12 @@ removeOverrides(): void                          // resetOverrides() is DEPRECAT
 // VariableScope: 'ALL_SCOPES'|'TEXT_CONTENT'|'CORNER_RADIUS'|'WIDTH_HEIGHT'|'GAP'|
 //   'FRAME_FILL'|'SHAPE_FILL'|'TEXT_FILL'|'STROKE_*'|'EFFECT_*'|'OPACITY'|'FONT_*'|
 //   'LINE_HEIGHT'|'LETTER_SPACING'|'PARAGRAPH_*'
-// Bindable fields: node — height/width/characters/itemSpacing/padding*/visible/*Radius/
+// Bindable fields: node: height/width/characters/itemSpacing/padding*/visible/*Radius/
 //   min|maxWidth|Height/counterAxisSpacing/stroke*Weight/opacity/gridRow|ColumnGap
-//   text — fontFamily/fontSize/fontStyle/fontWeight/letterSpacing/lineHeight/paragraph*
+//   text: fontFamily/fontSize/fontStyle/fontWeight/letterSpacing/lineHeight/paragraph*
 ```
 
-## Data Types
+## Data types
 
 ### Paint
 ```
@@ -543,10 +543,10 @@ InnerShadowEffect: {type:'INNER_SHADOW', color:RGBA, offset:{x,y}, radius, sprea
 BlurEffect: {type:'LAYER_BLUR'|'BACKGROUND_BLUR', radius, visible}
   // Progressive variant (Beta): {blurType:'PROGRESSIVE', startRadius, startOffset:Vector, endOffset:Vector}
   //   offsets normalized (0,0)=top-left, (1,1)=bottom-right
-// Beta effects (rare): NoiseEffect, TextureEffect, GlassEffect — see plugin-typings if needed
+// Beta effects (rare): NoiseEffect, TextureEffect, GlassEffect: see plugin-typings if needed
 ```
 
-### Prototype Types
+### Prototype types
 ```
 Reaction: {trigger, action?, actions?}
 Trigger: 'ON_CLICK'|'ON_HOVER'|'ON_PRESS'|'ON_DRAG'|{type:'AFTER_TIMEOUT'|'MOUSE_*'|'ON_KEY_DOWN'|'ON_MEDIA_*', ...}
@@ -556,7 +556,7 @@ Transition: {type:'DISSOLVE'|'SMART_ANIMATE'|'MOVE_IN'|'MOVE_OUT'|'PUSH'|'SLIDE_
 Easing: {type:'EASE_IN|OUT|IN_AND_OUT'|'LINEAR'|'GENTLE'|'QUICK'|'BOUNCY'|'SLOW'|'CUSTOM_CUBIC_BEZIER'|'CUSTOM_SPRING', ...}
 ```
 
-### Layout Types
+### Layout types
 ```
 LayoutGrid: {pattern:'ROWS'|'COLUMNS', alignment:'MIN'|'MAX'|'STRETCH'|'CENTER', gutterSize, count, sectionSize?, offset?, visible?, color?}
   | {pattern:'GRID', sectionSize, visible?, color?}
@@ -565,7 +565,7 @@ Vector: {x, y}   Rect: {x, y, width, height}
 RGB: {r, g, b}   RGBA: {r, g, b, a}   FontName: {family, style}
 ```
 
-### Other Types
+### Other types
 ```
 HyperlinkTarget: {type:'URL'|'NODE', value: string}
 TextListOptions: {type:'ORDERED'|'UNORDERED'|'NONE'}
@@ -583,8 +583,8 @@ SceneNode = SliceNode | FrameNode | GroupNode | ComponentSetNode | ComponentNode
   PolygonNode | RectangleNode | TextNode | TextPathNode | TransformGroupNode | SectionNode
 ```
 
-## Dynamic Page Access & Image Constraints
+## Dynamic page access and image constraints
 
 With `"documentAccess": "dynamic-page"`, use async variants: `getInstancesAsync()`, `getMainComponentAsync()`, `setVectorNetworkAsync()`, `setReactionsAsync()`, `setFillStyleIdAsync()` / `setStrokeStyleIdAsync()` / `setEffectStyleIdAsync()`, `getStyleConsumersAsync()`. Non-current pages need `page.loadAsync()` first.
 
-Images: PNG/JPG/GIF, max 4096×4096, live as node fills (not standalone). CORS can block `createImageAsync(url)` — use base64 bytes if so.
+Images: PNG/JPG/GIF, max 4096×4096, live as node fills (not standalone). CORS can block `createImageAsync(url)`: use base64 bytes if so.
