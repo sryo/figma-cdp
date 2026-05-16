@@ -272,7 +272,36 @@ Read-only operations without a browser session. Supplementary to the Plugin API.
 
 ### Helper Script
 
-Write `/tmp/figma_api.py` — a minimal script that reads `FIGMA_TOKEN` from env, takes an endpoint path as argv, sends `urllib.request` with header `X-Figma-Token`, and prints the JSON response (pretty by default, `--raw` for compact). Follow the same argv + stderr pattern as `figma_run.py`.
+Write `/tmp/figma_api.py` (symmetric with `figma_run.py` — pre-allowed; no permission prompts):
+
+```python
+#!/usr/bin/env python3
+"""Minimal Figma REST API helper. Usage: python3 /tmp/figma_api.py <endpoint> [--raw]"""
+import sys, os, json, urllib.request, urllib.error
+
+TOKEN = os.environ.get("FIGMA_TOKEN", "")
+if not TOKEN:
+    print("ERROR: Set FIGMA_TOKEN env var", file=sys.stderr); sys.exit(1)
+if len(sys.argv) < 2:
+    print("Usage: python3 /tmp/figma_api.py <endpoint> [--raw]", file=sys.stderr); sys.exit(1)
+
+endpoint = sys.argv[1].lstrip("/")
+url = f"https://api.figma.com/{endpoint}"
+req = urllib.request.Request(url, headers={"X-Figma-Token": TOKEN})
+try:
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.load(resp)
+except urllib.error.HTTPError as e:
+    body = e.read().decode()
+    print(f"HTTP {e.code}: {body}", file=sys.stderr); sys.exit(1)
+except Exception as e:
+    print(f"ERROR: {e}", file=sys.stderr); sys.exit(1)
+
+if "--raw" in sys.argv:
+    print(json.dumps(data))
+else:
+    print(json.dumps(data, indent=2))
+```
 
 Example usage:
 ```bash

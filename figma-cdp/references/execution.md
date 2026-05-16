@@ -261,6 +261,17 @@ When an eval fails mid-loop, follow this pattern:
 2. **Don't retry blindly** — read the current state first to understand what succeeded
 3. **Return errors, don't throw** — `return {error: 'msg'}` keeps the eval alive. `throw` crashes it and you lose context.
 
+### Reading empty-ish results
+
+Eval can succeed but return values that signal "found nothing" — each means something different:
+
+- `null` → the node or resource doesn't exist (check the ID)
+- `undefined` → missing `return` statement in your IIFE (you ran code but emitted nothing)
+- `[]` → the search ran but matched nothing (check selector / criteria)
+- `{count: 0}` / `{length: 0}` → operation completed, matched zero items
+
+Recheck the query before retrying — don't loop on a wrong selector.
+
 Pattern for safe mutations (`/tmp/figma_eval.js`):
 ```js
 (async function() {

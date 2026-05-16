@@ -74,7 +74,7 @@ End your response with exactly one of:
 
 ## Rules
 
-- Wrap code in async IIFE: `(async function() { ... })()`
+- Wrap code in async IIFE: `(async function() { ... })()` (QuickJS restricts `AsyncFunction`; see `references/gotchas.md` #13)
 - Return `{error: msg}` on failure — don't throw
 - Return ALL created/mutated node IDs
 - State between evals: `window.__batchState.key = value` (namespace with `a_`/`b_` when parallel)

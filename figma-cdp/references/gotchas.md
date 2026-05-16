@@ -111,3 +111,38 @@ child.resize(200, 40);  // resets to FIXED!
 child.resize(200, 40);
 child.layoutSizingHorizontal = 'FILL';
 ```
+
+## 13. AsyncFunction constructor is restricted — use async IIFE
+QuickJS blocks `new AsyncFunction(...)` and `Function('async ...')()`.
+```js
+// WRONG
+new AsyncFunction('await foo()')();
+// CORRECT — async IIFE wrapper
+(async function() { await foo(); })();
+```
+
+## 14. Verify parent after appendChild — silent reparenting
+In long async scripts, `appendChild` can drop a node to page root with no error.
+```js
+// WRONG — assume it worked
+parent.appendChild(child);
+// CORRECT
+parent.appendChild(child);
+if (child.parent.id !== parent.id) return {error: 'reparent failed'};
+```
+
+## 15. Append in the same eval that creates — orphan nodes get GC'd
+Nodes created but not appended within the same eval can be garbage-collected
+before a later eval references them. Don't split create/append across evals
+via `window.__batchState`. Pass node IDs across evals, not node references.
+```js
+// WRONG — Step 1 creates, Step 2 appends; the orphan may be gone
+// Step 1
+window.__batchState.a = figma.createText();
+// Step 2
+parent.appendChild(window.__batchState.a);  // .removed === true
+// CORRECT — create AND append in the same script
+var t = figma.createText();
+parent.appendChild(t);
+window.__batchState.aId = t.id;  // pass IDs, then getNodeByIdAsync next eval
+```
