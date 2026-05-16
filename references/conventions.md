@@ -230,3 +230,30 @@ From Figma's official figma-use skill:
 - [ ] `figma.commitUndo()` after logical work groups
 - [ ] `figma.viewport.scrollAndZoomIntoView()` at the end
 - [ ] New top-level nodes positioned away from (0,0)
+
+## Post-build audit
+
+After explicit assertions pass, run a convention audit on the same subtree. Assertions check the spec we wrote; the audit catches drift from the file's existing conventions that the spec didn't enumerate.
+
+What to check:
+
+- **Raw color paints.** Walk fills and strokes. Flag any `SOLID` paint missing `boundVariables.color`; it should resolve to a color variable from the file.
+- **Off-scale spacing.** Read the file's existing auto-layout values to derive the spacing scale. Flag `itemSpacing` or `padding*` values not in that set.
+- **Unbound typography.** For each `TEXT` node, check whether its `(fontName, fontSize, lineHeight, letterSpacing)` matches a defined text style. If not, flag.
+- **Should-be-instance.** Detect raw frames whose structure matches an existing component. Suggest converting via `component.createInstance()`.
+- **Contrast (optional).** For each `TEXT` over a known background fill, run an APCA Lc check. Defaults: ±60 for body, ±75 for small text. Skip when the background isn't resolvable.
+
+Return format:
+
+```js
+return {
+  audit: [
+    {nodeId: '1:23', issue: 'raw-color', suggestion: 'bind fills[0].color to color/bg/primary'},
+    {nodeId: '1:25', issue: 'off-scale-spacing', actual: 13, expected: [12, 16, 24]}
+  ]
+};
+```
+
+A worker that finds audit items should report `DONE_WITH_CONCERNS` (not `DONE`), with the audit list in its report. The coordinator decides whether to ask the user to accept the drift or to dispatch a fix worker.
+
+See `references/building.md` for the helpers needed to read variable bindings, scan auto-layout values, and resolve text styles.
