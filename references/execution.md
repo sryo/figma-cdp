@@ -13,18 +13,36 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no per
    agent-browser --cdp 9222 eval "typeof figma" 2>/dev/null && echo "connected"
    ```
 
-2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening; stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile once:
+2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening; stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile right before launching:
    ```bash
-   cp -R "$HOME/Library/Application Support/Google/Chrome Canary" /tmp/canary-cdp
+   rm -rf /tmp/canary-cdp && \
+     cp -R "$HOME/Library/Application Support/Google/Chrome Canary" /tmp/canary-cdp
    ```
    Then launch against the copy:
    ```bash
    /Applications/Google\ Chrome\ Canary.app/Contents/MacOS/Google\ Chrome\ Canary \
      --remote-debugging-port=9222 \
      --user-data-dir=/tmp/canary-cdp \
+     '--remote-allow-origins=*' \
      "FIGMA_URL_HERE" &
    ```
-   Regular Chrome works the same way. The `/tmp/canary-cdp` copy is ~640M and will be wiped on reboot: re-copy when needed.
+   Why these flags:
+   - `--user-data-dir`: Chrome 136+ won't expose CDP on the default profile path.
+   - `--remote-allow-origins=*`: Chrome 111+ silently rejects CDP requests without this; the rejection presents as a 404 on `/json/version` even though the port is listening. Quote the flag to stop the shell from globbing the `*`.
+   - Profile copy: preserves your Figma cookies so you don't have to re-log-in.
+
+   Re-copy each session. The copy is ~640M and goes stale over time (Chrome appears to rotate keys in the live profile, after which the copy stops being accepted). Stale-copy symptoms: `agent-browser --cdp 9222` reports "EOF while parsing" and `curl http://localhost:9222/json/version` returns an empty body / 404. Fix: kill Canary, re-copy, relaunch.
+
+   No saved Figma login? Use a fresh profile dir and log in once:
+   ```bash
+   rm -rf /tmp/canary-fresh
+   /Applications/Google\ Chrome\ Canary.app/Contents/MacOS/Google\ Chrome\ Canary \
+     --remote-debugging-port=9222 \
+     --user-data-dir=/tmp/canary-fresh \
+     --no-first-run --no-default-browser-check \
+     '--remote-allow-origins=*' \
+     "https://www.figma.com" &
+   ```
 
 3. **Create the eval helper**: copy `figma_run.py` to `/tmp/`, or write it inline:
    ```python
@@ -52,9 +70,9 @@ If `typeof figma` returns `"undefined"`:
 3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
 
 If `agent-browser --cdp 9222` fails to connect:
-1. Check Chrome is running: `curl -s http://localhost:9222/json | head -1`
+1. Check that CDP responds: `curl -s http://localhost:9222/json/version | head -2`. Expected: JSON starting with `"Browser": "Chrome/..."`. An empty body / 404 means Chrome's listening but disallowing CDP routes — usually a stale profile copy or a missing `--remote-allow-origins=*` flag. Re-copy the profile and relaunch.
 2. Close other Chrome instances holding port 9222.
-3. Prefer Chrome Canary to avoid conflicts.
+3. Prefer Chrome Canary to avoid conflicts with your regular Chrome.
 
 ## Eval methods
 
