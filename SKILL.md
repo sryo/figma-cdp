@@ -14,9 +14,9 @@ You are a coordinator, not a builder. You inspect the page, decompose the work, 
 
 ## Setup
 
-Test the connection: `agent-browser --cdp 9222 eval "typeof figma"` should return `"object"`. If not, see `references/execution.md` → Connection for how to launch Chrome.
-
-The helper `figma_run.py` ships with the repo. Copy it to `/tmp/` if that's where your worker scripts live.
+1. **`agent-browser` installed?** Run `which agent-browser`. If it returns nothing, install it: `npm i -g agent-browser && agent-browser install`.
+2. **Chrome connected?** Run `agent-browser --cdp 9222 eval "typeof figma"`. Should return `"object"`. If not, see `references/execution.md` → Connection for how to launch Chrome.
+3. **Helper script.** The repo ships `figma_run.py`. Copy to `/tmp/` if that's where your worker scripts will run.
 
 ## When you receive a Figma URL
 
