@@ -132,17 +132,13 @@ if (child.parent.id !== parent.id) return {error: 'reparent failed'};
 ```
 
 ## 15. Append in the same eval that creates — orphan nodes get GC'd
-Nodes created but not appended within the same eval can be garbage-collected
-before a later eval references them. Don't split create/append across evals
-via `window.__batchState`. Pass node IDs across evals, not node references.
+Pass node IDs across evals, not node references — orphans get garbage-collected.
 ```js
-// WRONG — Step 1 creates, Step 2 appends; the orphan may be gone
-// Step 1
-window.__batchState.a = figma.createText();
-// Step 2
-parent.appendChild(window.__batchState.a);  // .removed === true
-// CORRECT — create AND append in the same script
+// WRONG — split across evals; the orphan may be gone by step 2
+window.__batchState.a = figma.createText();          // step 1
+parent.appendChild(window.__batchState.a);           // step 2: .removed === true
+// CORRECT — create + append in the same script, pass the ID
 var t = figma.createText();
 parent.appendChild(t);
-window.__batchState.aId = t.id;  // pass IDs, then getNodeByIdAsync next eval
+window.__batchState.aId = t.id;                      // next eval: getNodeByIdAsync(aId)
 ```
