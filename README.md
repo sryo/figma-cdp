@@ -14,11 +14,10 @@ No Figma MCP required. It drives Figma's Plugin API directly via Chrome DevTools
 ## Install
 
 ```bash
-npm i -g agent-browser && agent-browser install
 git clone https://github.com/sryo/figma-cdp ~/.claude/skills/figma-cdp
 ```
 
-The skill activates on its own when you mention a Figma URL or ask for a mockup. Restart Claude Code if it doesn't.
+The skill activates on its own when you mention a Figma URL or ask for a mockup. Restart Claude Code if it doesn't. On first use it installs `agent-browser` for you.
 
 Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or comments. Generate a token at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
 
