@@ -171,7 +171,7 @@ figma.on / .once / .off (event, callback)
 //   'timerstart'|'timerpause'|'timerresume'|'timerstop'|'timeradjust'|'timerdone'
 // 'drop' cb returns false to prevent default. DropEvent: {node, x, y, absoluteX, absoluteY, items, files, dropMetadata?}
 // DocumentChange: {type: CREATE|DELETE|PROPERTY_CHANGE|STYLE_*, id, node|style, origin: 'LOCAL'|'REMOTE'}
-// NOTE: callbacks run async: code after figma.on() executes before callback fires
+// NOTE: callbacks run async; code after figma.on() executes before callback fires
 ```
 
 ### Lifecycle

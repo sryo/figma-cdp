@@ -240,7 +240,7 @@ if (label) {
 
 ## Designer-agent feedback loop
 
-An iterative comment-based workflow for reviewing copy with designers. The Plugin API has no comment support: use the REST API for all comment operations.
+An iterative comment-based workflow for reviewing copy with designers. The Plugin API has no comment support; use the REST API for all comment operations.
 
 ### The cycle
 
@@ -341,10 +341,10 @@ var tagged = figma.currentPage.findAllWithCriteria({
 ```
 
 ### 2. REST API Comments
-See the [Designer-Agent Feedback Loop](#designer-agent-feedback-loop) section above for the full comment workflow including posting, threading, polling, and deletion.
+See the [Designer-agent feedback loop](#designer-agent-feedback-loop) section above for the full comment workflow including posting, threading, polling, and deletion.
 
 ### 3. Annotations
-Structured review notes attached to nodes. The `annotations` array is readonly: clone with `.slice()`, push, and reassign:
+Structured review notes attached to nodes. The `annotations` array is readonly; clone with `.slice()`, push, and reassign:
 ```js
 var annots = node.annotations ? node.annotations.slice(): [];
 annots.push({ label: 'Copy Review', properties: { note: 'Tone too formal' } });

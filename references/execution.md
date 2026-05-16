@@ -13,7 +13,7 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no per
    agent-browser --cdp 9222 eval "typeof figma" 2>/dev/null && echo "connected"
    ```
 
-2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening: stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile once:
+2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening; stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile once:
    ```bash
    cp -R "$HOME/Library/Application Support/Google/Chrome Canary" /tmp/canary-cdp
    ```

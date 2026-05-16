@@ -183,7 +183,7 @@ Use consistent values from a scale. Read existing spacing from the file's Auto L
 
 ## Effects
 
-Match existing file effects when possible. Effects arrays are readonly: clone before mutating (see `references/gotchas.md`). See `references/building.md` for drop shadow / blur / inner shadow examples.
+Match existing file effects when possible. Effects arrays are readonly; clone before mutating (see `references/gotchas.md`). See `references/building.md` for drop shadow / blur / inner shadow examples.
 
 **Corner radius:** read existing radii from the file. Common patterns: small (inputs/buttons), medium (cards), full (avatars = width/2).
 
