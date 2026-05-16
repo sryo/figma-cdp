@@ -21,7 +21,7 @@ The helper `figma_run.py` ships with the repo. Copy it to `/tmp/` if that's wher
 ## When you receive a Figma URL
 
 1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and the node ID (query param, hyphens become colons).
-2. Reconnaissance: use `references/reading.md` to get the page structure.
+2. Reconnaissance: use the flat text tree pattern in `references/reading.md` to get the page structure. Switch to Full node inspection only when you need specific properties.
 3. Decompose the work into independent units.
 4. Fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], then pass it to the Agent tool. Run workers in parallel when their units share no state.
 5. Collect results and check each worker's status (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED).
