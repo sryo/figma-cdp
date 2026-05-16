@@ -43,6 +43,101 @@ If a specific node ID was provided, also inspect it: write `/tmp/figma_eval.js`:
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
+## Flat text tree (preferred recon shape)
+
+For understanding the structure of a page or subtree, this is faster to read than nested JSON and uses fewer tokens. The coordinator should reach for this first during recon.
+
+Write `/tmp/figma_eval.js`:
+```js
+(async function() {
+  var ROOT_ID = null;       // null = currentPage; set a node ID to scope
+  var MAX_DEPTH = 10;       // hard depth cap
+  var MAX_CHARS = 40000;    // hard output cap
+  var PREVIEW_MAX = 50;     // text characters preview length
+  var NAME_MAX = 80;        // node name length
+  var ELLIPSIS = '...';
+
+  function escape(s) { return s.replace(/"/g, '\\"').replace(/\n/g, ' '); }
+  function trunc(s, max) {
+    return s.length > max ? s.substring(0, max - ELLIPSIS.length) + ELLIPSIS : s;
+  }
+
+  function summarize(n) {
+    var parts = [];
+    if (n.type === 'TEXT') {
+      var c = n.characters !== figma.mixed ? n.characters : '<mixed>';
+      // Figma auto-syncs a text node's name to its characters; skip the preview when they match
+      if (c && c !== n.name) parts.push('"' + escape(trunc(c, PREVIEW_MAX)) + '"');
+      if (n.fontSize !== figma.mixed) parts.push('fontSize=' + n.fontSize);
+    }
+    if (n.type === 'INSTANCE' && n.mainComponent) {
+      parts.push('→ ' + n.mainComponent.name);
+    }
+    if ((n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'COMPONENT_SET' || n.type === 'SECTION')
+        && n.width && n.height) {
+      parts.push(Math.round(n.width) + '×' + Math.round(n.height));
+    }
+    if (n.layoutMode && n.layoutMode !== 'NONE') parts.push('layout=' + n.layoutMode);
+    if (n.locked) parts.push('[locked]');
+    if (n.visible === false) parts.push('[hidden]');
+    return parts.length ? ' ' + parts.join(' ') : '';
+  }
+
+  var lines = [];
+  var totalLen = 0;
+  var truncated = false;
+
+  function walk(n, depth) {
+    if (depth > MAX_DEPTH || n.type === 'SLICE') return;
+    if (totalLen > MAX_CHARS) { truncated = true; return; }
+    var name = n.name ? escape(trunc(n.name, NAME_MAX)) : '';
+    var line = '  '.repeat(depth) + n.type;
+    if (name) line += ' "' + name + '"';
+    line += ' [' + n.id + ']' + summarize(n);
+    lines.push(line);
+    totalLen += line.length + 1;
+    if (n.children) {
+      for (var i = 0; i < n.children.length; i++) walk(n.children[i], depth + 1);
+    }
+  }
+
+  var root = ROOT_ID ? await figma.getNodeByIdAsync(ROOT_ID) : figma.currentPage;
+  if (!root) return {error: 'Root node ' + ROOT_ID + ' not found'};
+  walk(root, 0);
+
+  var out = lines.join('\n');
+  if (truncated) {
+    return {
+      error: 'Output exceeds ' + MAX_CHARS + ' chars. ' +
+             'Lower MAX_DEPTH or set ROOT_ID to focus on a subtree.',
+      lineCount: lines.length,
+      preview: out.substring(0, MAX_CHARS)
+    };
+  }
+  return {tree: out, lineCount: lines.length};
+})()
+```
+Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
+
+Example output:
+```
+PAGE "Screens" [0:1]
+  FRAME "Screens/Login" [1:23] 1440×900 layout=VERTICAL
+    INSTANCE "Avatar/Default" [1:24] → Avatar 80×80
+    TEXT "Welcome back" [1:25] fontSize=28
+    TEXT "Sign in to your account" [1:26] fontSize=16
+    INSTANCE "Input/Email" [1:27] → Input
+    INSTANCE "Button/Primary" [1:29] → Button
+```
+
+When to use the text tree vs Full node inspection (below):
+- **Text tree:** "What's on this page?" or "What's inside frame 1:23?" Structure, hierarchy, names, IDs.
+- **Full node inspection:** "What are the exact properties of node 1:23?" Fills, layout details, font, padding, sizing modes.
+
+Drop into JSON inspection only when you need to read or modify specific properties.
+
+Cross-page note: if `ROOT_ID` is on a page other than `currentPage`, call `await figma.loadAllPagesAsync()` once before this script. `getNodeByIdAsync` returns `null` for nodes on unloaded pages.
+
 ## Worker deep read
 
 Workers run these before modifying anything. These give the full picture that REST API misses (fonts, overrides, auto layout state, component properties).
@@ -97,93 +192,6 @@ Write `/tmp/figma_eval.js`:
 })()
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
-
-### Flat text tree (preferred recon shape)
-
-For understanding the structure of a page or subtree, this is faster to read than nested JSON and uses fewer tokens.
-
-Write `/tmp/figma_eval.js`:
-```js
-(async function() {
-  var ROOT_ID = null;       // null = currentPage; set a node ID to scope
-  var MAX_DEPTH = 10;       // hard depth cap
-  var MAX_CHARS = 40000;    // hard output cap
-
-  function summarize(n) {
-    var parts = [];
-    if (n.type === 'TEXT') {
-      var c = n.characters !== figma.mixed ? n.characters : '<mixed>';
-      // Figma auto-syncs a text node's name to its characters; skip the preview when they match
-      if (c && c !== n.name) {
-        var preview = c.length > 50 ? c.substring(0, 47) + '...' : c;
-        parts.push('"' + preview.replace(/"/g, '\\"').replace(/\n/g, ' ') + '"');
-      }
-      if (n.fontSize !== figma.mixed) parts.push('fontSize=' + n.fontSize);
-    }
-    if (n.type === 'INSTANCE' && n.mainComponent) {
-      parts.push('→ ' + n.mainComponent.name);
-    }
-    if ((n.type === 'FRAME' || n.type === 'COMPONENT' || n.type === 'COMPONENT_SET' || n.type === 'SECTION')
-        && n.width && n.height) {
-      parts.push(Math.round(n.width) + '×' + Math.round(n.height));
-    }
-    if (n.layoutMode && n.layoutMode !== 'NONE') parts.push('layout=' + n.layoutMode);
-    if (n.locked) parts.push('[locked]');
-    if (n.visible === false) parts.push('[hidden]');
-    return parts.length ? ' ' + parts.join(' ') : '';
-  }
-
-  var lines = [];
-  function walk(n, depth) {
-    if (depth > MAX_DEPTH) return;
-    if (n.type === 'SLICE') return;
-    var name = (n.name || '').replace(/"/g, '\\"');
-    if (name.length > 80) name = name.substring(0, 77) + '...';
-    var line = '  '.repeat(depth) + n.type;
-    if (name) line += ' "' + name + '"';
-    line += ' [' + n.id + ']' + summarize(n);
-    lines.push(line);
-    if (n.children) {
-      for (var i = 0; i < n.children.length; i++) walk(n.children[i], depth + 1);
-    }
-  }
-
-  var root = ROOT_ID ? await figma.getNodeByIdAsync(ROOT_ID) : figma.currentPage;
-  if (!root) return {error: 'Root node ' + ROOT_ID + ' not found'};
-  walk(root, 0);
-
-  var out = lines.join('\n');
-  if (out.length > MAX_CHARS) {
-    return {
-      error: 'Output exceeds ' + MAX_CHARS + ' chars (' + out.length + '). ' +
-             'Lower MAX_DEPTH or set ROOT_ID to focus on a subtree.',
-      lineCount: lines.length,
-      preview: out.substring(0, MAX_CHARS)
-    };
-  }
-  return {tree: out, lineCount: lines.length};
-})()
-```
-Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
-
-Example output:
-```
-PAGE "Screens" [0:1]
-  FRAME "Screens/Login" [1:23] 1440×900 layout=VERTICAL
-    INSTANCE "Avatar/Default" [1:24] → Avatar 80×80
-    TEXT "Welcome back" [1:25] fontSize=28
-    TEXT "Sign in to your account" [1:26] fontSize=16
-    INSTANCE "Input/Email" [1:27] → Input
-    INSTANCE "Button/Primary" [1:29] → Button
-```
-
-When to use this vs Full node inspection above:
-- **Text tree (this):** "What's on this page?" / "What's inside frame 1:23?" — structure, hierarchy, names, IDs.
-- **Full node inspection (JSON):** "What are the exact properties of node 1:23?" — fills, layout details, font, padding, sizing modes.
-
-Reach for the text tree first during recon. Drop into JSON inspection only when you need to read or modify specific properties.
-
-Cross-page note: if `ROOT_ID` is on a page other than `currentPage`, call `await figma.loadAllPagesAsync()` once before this script. `getNodeByIdAsync` returns `null` for nodes on unloaded pages.
 
 ## Pre-flight workflow
 
