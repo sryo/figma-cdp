@@ -113,7 +113,8 @@ Write `/tmp/figma_eval.js`:
     var parts = [];
     if (n.type === 'TEXT') {
       var c = n.characters !== figma.mixed ? n.characters : '<mixed>';
-      if (c) {
+      // Figma auto-syncs a text node's name to its characters; skip the preview when they match
+      if (c && c !== n.name) {
         var preview = c.length > 50 ? c.substring(0, 47) + '...' : c;
         parts.push('"' + preview.replace(/"/g, '\\"').replace(/\n/g, ' ') + '"');
       }
