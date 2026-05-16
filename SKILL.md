@@ -1,15 +1,14 @@
 ---
 name: figma-cdp
-description: "Automate Figma design work via Chrome DevTools Protocol (agent-browser CLI) — no Figma MCP required. Drives Figma's in-browser Plugin API directly to create screens, build component libraries, edit text/copy, modify layouts, apply styles and effects, and manage design tokens. Uses a coordinator + parallel worker-subagent pattern with spec-driven verification loops. Trigger when the user shares a Figma URL, mentions a Figma file, asks to build or modify UI designs, wants to extract or update text in Figma, needs components created programmatically, or references design automation. Also trigger for design system work or working with design nodes."
+description: "Turns code, copy, and intent into Figma mockups — the reverse of Figma MCP (design → code). Builds screens, components, and design tokens; edits text and layouts; applies styles and effects. Drives Figma's Plugin API via Chrome DevTools Protocol (agent-browser CLI). Trigger on Figma URLs, building or modifying UI in Figma, converting HTML/code to mockups, extracting or updating copy, and design system work."
 allowed-tools: Bash(agent-browser:*)
 ---
 
 # Figma Design Automation
 
-Automate Figma designs through iterative read → modify → verify loops via `agent-browser` CLI.
+Code → Figma. The reverse of Figma MCP. Drives Figma's Plugin API via `agent-browser` through iterative read → modify → verify loops.
 
-**Plugin API** (`agent-browser --cdp 9222 eval`) for all reads, mutations, and verification.
-**REST API** (HTTP) only for image rendering and comments.
+Plugin API (`agent-browser --cdp 9222 eval`) for everything. REST API only for image rendering and comments.
 
 ## Setup
 
