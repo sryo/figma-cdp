@@ -2,7 +2,7 @@
 
 Extracting, updating, diffing, and reviewing text content in Figma designs.
 
-> REST API examples use the `/tmp/figma_api.py` helper: see `reading.md` → REST API Reference.
+> REST API examples use the `/tmp/figma_api.py` helper: see `references/rest-api.md`.
 
 ## Copy-specific rules
 
@@ -231,7 +231,8 @@ Overriding text in an instance creates an override: the instance stays linked to
 ```js
 var inst = await figma.getNodeByIdAsync('1:2');
 if (!inst) throw new Error('Instance 1:2 not found');
-var label = inst.findOne(function(n) { return n.name === 'Label' && n.type === 'TEXT'; });
+// findAllWithCriteria pushes the type filter to native C++ (much faster on large trees)
+var label = inst.findAllWithCriteria({types: ['TEXT']}).find(function(n) { return n.name === 'Label'; });
 if (label) {
   // Load fonts (see Font Loading Pattern above): use label's actual fontName
   label.characters = 'New Label Text';

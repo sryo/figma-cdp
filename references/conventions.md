@@ -1,17 +1,14 @@
 # Figma design conventions
 
-Standards for structuring Figma files programmatically. Based on Figma's official skill patterns (figma-use, figma-generate-library) and atomic design methodology.
+Standards for structuring Figma files. Based on Figma's official skills (figma-use, figma-generate-library) and atomic design (atoms → molecules → organisms → screens).
 
 **Everything below is a rule or a pattern. Specific values (colors, fonts, sizes, spacing) are EXAMPLES only: always discover the file's actual values first.**
 
 ## Rule zero: discover before creating
 
-**Always inspect the file before creating anything.** Different files use different naming conventions, variable structures, and component patterns. Match what's already there.
+Different files use different naming conventions, variable structures, and component patterns. Match what's already there. See `references/reading.md` for inspection scripts (pages, components, fonts, colors, spacing).
 
-See `references/reading.md` for inspection scripts (pages, components, fonts, colors, spacing).
-
-**When to use defaults below:** Only when the file is empty or has no consistent patterns.
-**When to match existing:** Always. If the file uses Roboto, use Roboto. If it uses 4px spacing, use 4px.
+Defaults below apply only when the file has no consistent patterns. Otherwise match what's there (e.g. if the file uses 4px spacing, use 4px).
 
 ## Atomic design hierarchy
 
@@ -42,7 +39,7 @@ Build bottom-up: atoms first, then molecules from atom instances, then screens f
 **Variant property names** should match code props where possible.
 **Variant values** use Title Case in Figma.
 
-**Always check existing naming in the file first.** If the file uses `button-primary` or `btn/primary`, follow that pattern.
+Match existing naming (e.g. `button-primary`, `btn/primary`).
 
 ## Component structure
 
@@ -167,7 +164,7 @@ Critical ordering and common gotchas live in `references/gotchas.md`. Patterns b
 
 ## Color rules
 
-0-1 range, opacity on paint (not in color): see `references/gotchas.md`. **Always read existing colors from the file** before applying new ones; match the palette.
+0-1 range, opacity on paint: see `gotchas.md` #3, #4. Read existing colors first; match the palette.
 
 ## Typography rules
 
@@ -207,12 +204,10 @@ Screen Frame (sized to target device, vertical auto layout)
 
 ## Incremental workflow
 
-From Figma's official figma-use skill:
-
 1. **Inspect first**: discover what exists before creating
 2. **One thing per eval**: create variables, then components, then layouts in separate calls
 3. **Return ALL node IDs**: `return {createdNodeIds: [...], mutatedNodeIds: [...]}`
-4. **Validate after each step**: read back properties, export screenshots
+4. **Validate after each section/checkpoint** (not each property set): the section's assertion block covers per-property checks. Per-step validation pays one `agent-browser` cold-start each — batch reads.
 5. **Fix before moving on**: don't build on a broken foundation
 
 ## Pre-flight checklist
@@ -256,4 +251,26 @@ return {
 
 A worker that finds audit items should report `DONE_WITH_CONCERNS` (not `DONE`), with the audit list in its report. The coordinator decides whether to ask the user to accept the drift or to dispatch a fix worker.
 
-See `references/building.md` for the helpers needed to read variable bindings, scan auto-layout values, and resolve text styles.
+See `references/reading.md` → Reading variable bindings for the helper that resolves `boundVariables` on a node.
+
+## Source → Figma primitives
+
+When translating source code (HTML, SwiftUI, Compose, Flutter, etc.) or prose descriptions into Figma, map source constructs to their nearest Figma primitive rather than translating literally. The mapping is the same regardless of source language:
+
+| Source construct (any language) | Figma primitive |
+|---|---|
+| Vertical container / column / stack | `layoutMode = 'VERTICAL'` |
+| Horizontal container / row | `layoutMode = 'HORIZONTAL'` |
+| Z-stack / overlay | child with `layoutPositioning: 'ABSOLUTE'` |
+| Padding modifier | `paddingTop` / `paddingLeft` / `paddingRight` / `paddingBottom` |
+| Spacing between children | `itemSpacing = N` |
+| Fixed-size constraint | `resize(w, h)` + `layoutSizing*: 'FIXED'` |
+| Fill-available constraint | `layoutSizingHorizontal/Vertical: 'FILL'` |
+| Hug-content constraint | `layoutSizingHorizontal/Vertical: 'HUG'` |
+| Background color | `fills = [figma.util.solidPaint('#hex')]` |
+| Border / stroke | `strokes = [figma.util.solidPaint('#hex')]` + `strokeWeight = N` |
+| Corner radius | `cornerRadius = N` |
+| Shadow / elevation | `effects = [{type: 'DROP_SHADOW', ...}]` |
+| Reusable subview / partial | check for existing component; otherwise `figma.createComponent()` + `.createInstance()` |
+
+If a source construct doesn't map cleanly, prefer the closest Auto Layout shape and document the divergence in the worker's report rather than forcing a literal translation.

@@ -1,16 +1,16 @@
 {
   "skill_name": "figma-cdp",
+  "_notes": "Assertions check Plugin API state after the run. No transcript-introspection (workflow expectations belong in SKILL.md and figma-worker.md, not here). Each assertion is a JS predicate against figma.* state. A runner should batch all predicates per eval into one IIFE returning {predicate: bool, ...} so the suite pays one agent-browser cold-start per eval, not one per predicate.",
   "evals": [
     {
       "id": 1,
-      "prompt": "Create a blue button component named Atoms/Button in my Figma file",
-      "expected_output": "A component node named Atoms/Button with blue fill and text child",
+      "prompt": "Create a button component named Atoms/Button in my Figma file",
+      "expected_output": "A ComponentNode named Atoms/Button with Auto Layout and a Button text child",
       "expectations": [
-        "A ComponentNode or ComponentSetNode named 'Atoms/Button' exists on the page",
-        "The component has a blue fill (r < 0.3, g < 0.5, b > 0.8)",
-        "The component contains a TEXT child with characters 'Button'",
-        "Auto Layout is applied (layoutMode is HORIZONTAL or VERTICAL)",
-        "figma.commitUndo() was called"
+        "A ComponentNode with name === 'Atoms/Button' exists on the current page",
+        "node.layoutMode === 'HORIZONTAL' || node.layoutMode === 'VERTICAL'",
+        "node.fills.length >= 1",
+        "node.children.some(c => c.type === 'TEXT' && c.characters === 'Button')"
       ]
     },
     {
@@ -18,11 +18,11 @@
       "prompt": "Change the heading text in my login screen to 'Welcome'",
       "expected_output": "The heading text node updated to 'Welcome' with font preserved",
       "expectations": [
-        "Worker reads the current node state before modifying",
-        "Font was loaded before setting characters",
-        "Text node characters === 'Welcome'",
-        "Original font family and style are preserved",
-        "Worker verified the change after applying it"
+        "The target TEXT node still exists (same id)",
+        "node.characters === 'Welcome'",
+        "node.fontName.family === preState.fontName.family",
+        "node.fontName.style === preState.fontName.style",
+        "node.hasMissingFont === false"
       ]
     },
     {
@@ -30,11 +30,10 @@
       "prompt": "Show me the structure of this Figma file",
       "expected_output": "Page name, frame names, types, and IDs returned",
       "expectations": [
-        "Returns the current page name",
-        "Returns all top-level frame names and IDs",
-        "Returns node types for each frame",
-        "Uses Plugin API (not REST) for reading",
-        "No mutations were made to the file"
+        "Response includes current page name (non-empty string)",
+        "Response includes an array of top-level children with id, name, type for each",
+        "No mutations occurred: figma.currentPage.children.length === preState.childCount",
+        "No mutations occurred: every child id in preState still exists post-run"
       ]
     },
     {
@@ -42,24 +41,22 @@
       "prompt": "Build a card component with a title, description, and image placeholder",
       "expected_output": "A component with Auto Layout containing title text, description text, and an image rectangle",
       "expectations": [
-        "A ComponentNode named with 'Card' exists",
-        "Has vertical Auto Layout with appropriate padding and gap",
-        "Contains a TEXT child for title (Bold font)",
-        "Contains a TEXT child for description (Regular font)",
-        "Contains a rectangle or frame for image placeholder",
-        "All children are properly parented (verified via parent.id check)"
+        "A ComponentNode with name === 'Card' exists",
+        "node.layoutMode === 'VERTICAL'",
+        "node.paddingTop > 0 && node.itemSpacing > 0",
+        "node.children.some(c => c.type === 'TEXT')",
+        "node.children.some(c => c.type === 'RECTANGLE' || c.type === 'FRAME')",
+        "every child satisfies child.parent.id === node.id"
       ]
     },
     {
       "id": 5,
       "prompt": "Add a drop shadow to the main frame in my Figma file",
-      "expected_output": "The frame has a DROP_SHADOW effect applied",
+      "expected_output": "The frame has a DROP_SHADOW effect applied with existing effects preserved",
       "expectations": [
-        "Worker reads the current effects array before modifying",
-        "Effects array was cloned (not mutated in place)",
-        "A DROP_SHADOW effect exists in node.effects",
-        "Shadow has visible: true and reasonable radius/offset values",
-        "Existing effects on the node were preserved"
+        "node.effects.length >= preState.effects.length",
+        "node.effects.some(e => e.type === 'DROP_SHADOW' && e.visible === true && e.radius > 0)",
+        "every effect in preState.effects exists in node.effects (preserved, not replaced)"
       ]
     }
   ]

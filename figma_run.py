@@ -4,10 +4,9 @@
 Reads a .js file, base64-encodes it, and passes to agent-browser eval.
 Avoids shell syntax (heredocs, pipes, redirects) that trigger Claude Code warnings.
 
-Usage: python3 figma_run.py <js_file>
-   or: python3 /tmp/figma_run.py <js_file>  (if copied to /tmp)
+Set FIGMA_CDP_PORT to use a port other than 9222 (e.g. for Mode A attach).
 """
-import base64, subprocess, sys
+import base64, os, subprocess, sys
 
 if len(sys.argv) < 2:
     print("Usage: python3 figma_run.py <js_file>", file=sys.stderr)
@@ -16,8 +15,9 @@ if len(sys.argv) < 2:
 with open(sys.argv[1], 'rb') as f:
     b64 = base64.b64encode(f.read()).decode()
 
+port = os.environ.get('FIGMA_CDP_PORT', '9222')
 r = subprocess.run(
-    ['agent-browser', '--cdp', '9222', 'eval', '-b', b64],
+    ['agent-browser', '--cdp', port, 'eval', '-b', b64],
     capture_output=True, text=True
 )
 

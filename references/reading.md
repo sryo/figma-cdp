@@ -45,7 +45,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
 ## Flat text tree (preferred recon shape)
 
-For understanding the structure of a page or subtree, this is faster to read than nested JSON and uses fewer tokens. The coordinator should reach for this first during recon.
+**Reach for this first during recon.** It renders the page or subtree as an indented text outline — easier to skim than nested JSON and cheaper in tokens.
 
 Write `/tmp/figma_eval.js`:
 ```js
@@ -62,6 +62,7 @@ Write `/tmp/figma_eval.js`:
     return s.length > max ? s.substring(0, max - ELLIPSIS.length) + ELLIPSIS : s;
   }
 
+  // `figma.mixed` is Figma's sentinel for "this property has different values across child ranges" (e.g., a text node with two fonts).
   function summarize(n) {
     var parts = [];
     if (n.type === 'TEXT') {
@@ -230,23 +231,13 @@ Follow this systematic approach:
 
 ### Via REST API (supplementary)
 
-REST API provides read access to any file you have permission to view, without a browser session. See "REST API Reference" at the bottom of this file for endpoints and the helper script.
+REST API provides read access to any file you have permission to view, without a browser session. See `references/rest-api.md` for endpoints, auth, and the `figma_api.py` helper.
 
+Workflow:
 1. **Extract the file key** from the Figma URL.
-2. **Read the file tree**:
-   ```bash
-   python3 /tmp/figma_api.py "v1/files/<FILE_KEY>?depth=2"
-   ```
-   This returns pages, top-level frames, and their IDs.
-3. **Inspect target nodes** (use comma-separated node IDs):
-   ```bash
-   python3 /tmp/figma_api.py "v1/files/<FILE_KEY>/nodes?ids=<NODE_IDS>"
-   ```
-4. **Render current state** (useful for visual comparison):
-   ```bash
-   python3 /tmp/figma_api.py "v1/images/<FILE_KEY>?ids=<NODE_IDS>&format=png&scale=2"
-   ```
-   This returns URLs to rendered PNGs.
+2. **Read the file tree**: `python3 /tmp/figma_api.py "v1/files/<FILE_KEY>?depth=2"` — returns pages, top-level frames, and their IDs.
+3. **Inspect target nodes**: `python3 /tmp/figma_api.py "v1/files/<FILE_KEY>/nodes?ids=<NODE_IDS>"`.
+4. **Render current state** (useful for visual comparison): `python3 /tmp/figma_api.py "v1/images/<FILE_KEY>?ids=<NODE_IDS>&format=png&scale=2"` — returns URLs to rendered PNGs.
 5. **Plan mutations** based on the read data, then execute via Plugin API.
 
 ## Asset handling
@@ -319,75 +310,6 @@ return info;
 // NOTE: With dynamic-page access, reactions is readonly: use setReactionsAsync() to modify
 ```
 
-## REST API reference
+## REST API
 
-Read-only operations without a browser session. Supplementary to the Plugin API.
-
-### Auth setup
-1. Generate a **personal access token** at `https://www.figma.com/developers/api#access-tokens`.
-2. Store it:
-   ```bash
-   export FIGMA_TOKEN="figd_..."
-   ```
-
-### Endpoints
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /v1/files/:key` | Full file tree (pages, frames, nodes) |
-| `GET /v1/files/:key/nodes?ids=X,Y` | Specific node subtrees |
-| `GET /v1/images/:key?ids=X,Y&format=png` | Render nodes as images |
-| `GET /v1/files/:key/components` | Published components |
-| `GET /v1/files/:key/styles` | Published styles |
-| `GET /v1/files/:key/versions` | Version history |
-| `POST /v1/files/:key/comments` | Add a comment |
-| `POST|PUT /v1/dev_resources` | Create / update dev resource |
-
-> **Variables REST endpoint** requires Figma Enterprise: not available on free/pro plans. Use the Plugin API `figma.variables.*` instead.
-
-### Helper script
-
-Write `/tmp/figma_api.py` (symmetric with `figma_run.py`: pre-allowed; no permission prompts):
-
-```python
-#!/usr/bin/env python3
-"""Minimal Figma REST API helper. Usage: python3 /tmp/figma_api.py <endpoint> [--raw]"""
-import sys, os, json, urllib.request, urllib.error
-
-TOKEN = os.environ.get("FIGMA_TOKEN", "")
-if not TOKEN:
-    print("ERROR: Set FIGMA_TOKEN env var", file=sys.stderr); sys.exit(1)
-
-args = [a for a in sys.argv[1:] if a != "--raw"]
-raw = "--raw" in sys.argv
-if not args:
-    print("Usage: python3 /tmp/figma_api.py <endpoint> [--raw]", file=sys.stderr); sys.exit(1)
-
-url = f"https://api.figma.com/{args[0].lstrip('/')}"
-req = urllib.request.Request(url, headers={"X-Figma-Token": TOKEN})
-try:
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.load(resp)
-except urllib.error.HTTPError as e:
-    print(f"HTTP {e.code}: {e.read().decode()}", file=sys.stderr); sys.exit(1)
-except Exception as e:
-    print(f"ERROR: {e}", file=sys.stderr); sys.exit(1)
-
-print(json.dumps(data) if raw else json.dumps(data, indent=2))
-```
-
-Example usage:
-```bash
-# Read file structure
-python3 /tmp/figma_api.py "v1/files/ABC123xyz"
-
-# Inspect specific nodes
-python3 /tmp/figma_api.py "v1/files/ABC123xyz/nodes?ids=0:1,1:2"
-
-# Render a node as PNG
-python3 /tmp/figma_api.py "v1/images/ABC123xyz?ids=1:2&format=png&scale=2"
-```
-
-### Rate limits and staleness
-- **30 requests/minute**: batch node IDs into single calls where possible.
-- REST reads may **lag a few seconds** behind Plugin API writes. After mutations, use Plugin API `exportAsync` for immediate verification.
+The REST API reference (auth, endpoints, `figma_api.py` helper, comment operations, rate limits) lives in `references/rest-api.md`.

@@ -2,7 +2,7 @@
 
 How to connect to Figma's Plugin API via `agent-browser` and the eval patterns for all automation.
 
-All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no permission prompts.
+`agent-browser` commands are pre-allowed (`Bash(agent-browser:*)`) — no prompts.
 
 ## Connection
 
@@ -28,9 +28,14 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no per
       # Canary:  ~/Library/Application Support/Google/Chrome Canary/DevToolsActivePort
       ```
    3. Use that port in place of 9222 — e.g. if it printed `54321`, run `agent-browser --cdp 54321 eval "typeof figma"`.
-   4. The first time the agent touches a tab, Chrome may show an "Allow debugging?" prompt. Accept once per tab.
+   4. Export the port for the helper scripts so they pick it up automatically:
+      ```bash
+      export FIGMA_CDP_PORT=54321
+      ```
+      Both `figma_run.py` and `figma_batch_run.py` read `FIGMA_CDP_PORT` (default 9222 if unset).
+   5. The first time the agent touches a tab, Chrome may show an "Allow debugging?" prompt. Accept once per tab.
 
-   Trade-offs: requires the one-time toggle; the port changes between Chrome restarts (read `DevToolsActivePort` each time). If you can't enable the toggle (managed Chrome, etc.), use Mode B.
+   Trade-offs: requires the one-time toggle; the port changes between Chrome restarts (re-read `DevToolsActivePort` and re-export `FIGMA_CDP_PORT`). If you can't enable the toggle (managed Chrome, etc.), use Mode B.
 
    #### Mode B — Launch a dedicated Chrome Canary (fallback)
 
@@ -75,21 +80,7 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no per
      "https://www.figma.com" &
    ```
 
-3. **Create the eval helper**: copy `figma_run.py` to `/tmp/`, or write it inline:
-   ```python
-   #!/usr/bin/env python3
-   import base64, subprocess, sys
-   if len(sys.argv) < 2:
-       print("Usage: python3 /tmp/figma_run.py <js_file>", file=sys.stderr); sys.exit(1)
-   with open(sys.argv[1], 'rb') as f:
-       b64 = base64.b64encode(f.read()).decode()
-   r = subprocess.run(['agent-browser', '--cdp', '9222', 'eval', '-b', b64],
-                      capture_output=True, text=True)
-   print(r.stdout, end='')
-   if r.stderr:
-       print(r.stderr, end='', file=sys.stderr)
-   sys.exit(r.returncode)
-   ```
+3. **Copy the helpers to `/tmp/`**: `figma_run.py` (single eval) and `figma_batch_run.py` (multiple evals in one CLI invocation). Both read `FIGMA_CDP_PORT` (default 9222), base64-encode the JS, and shell out to `agent-browser eval -b` / `agent-browser batch`.
 
    Install `agent-browser` once: `npm i -g agent-browser && agent-browser install`.
 
@@ -112,7 +103,7 @@ If Mode A attach fails:
 
 ## Eval methods
 
-NEVER use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash: they trigger Claude Code safety warnings even with permissions set.
+Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — they trigger Claude Code safety warnings even with permissions set.
 
 ### From file via helper (recommended)
 
@@ -133,9 +124,26 @@ agent-browser --cdp 9222 eval "figma.currentPage.name"
 agent-browser --cdp 9222 eval "figma.currentPage.children.length"
 ```
 
+### Batched evals
+
+For ≥3 sequential evals with no intermediate user feedback or state inspection, batch them — one `agent-browser` invocation saves ~200ms per extra script (CLI cold-start).
+
+Write the steps as separate `.js` files, then:
+```bash
+python3 /tmp/figma_batch_run.py /tmp/step1.js /tmp/step2.js /tmp/step3.js
+```
+
+Output is the three results separated by blank lines. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` invocations.
+
+For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), switch to `agent-browser batch`'s stdin JSON mode directly — see `agent-browser batch --help`.
+
+When NOT to batch: when step N needs to read the result of step N-1 before deciding what step N+1 should do, or when parallel workers each have their own chain (each parallel worker calls `figma_run.py` for its own chain; you don't batch across workers).
+
 ## State between evals
 
 `window.__batchState` persists across separate eval calls (same browser tab).
+
+> The three-step example below demonstrates persistence — useful when you need to observe intermediate state. In real worker code, **fold the steps into one eval** unless you need that observation. For sequential steps you can't merge, use `figma_batch_run.py` (one CLI cold-start instead of three).
 
 **Step 1**: Write `/tmp/figma_step1.js`:
 ```js
@@ -233,8 +241,16 @@ When the coordinator launches parallel workers:
 
 ### Coordinator vs worker roles
 
-- **Coordinator** (the parent agent invoking `figma-worker.md`): reads file structure, creates target frames up front, assigns each worker a specific frame/page, distributes the component IDs each worker needs, and calls `figma.commitUndo()` after each logical unit of work so rollbacks are clean.
-- **Workers**: build only within their assigned frame. Between operations, poll `window.__figmaEvents` (see Event listener injection below) to detect external changes (user moved the selection, another worker landed a change, etc.) and bail or re-read state if so. After each `appendChild`, verify `child.parent.id === expectedParent.id` — silent reparenting is a real failure mode in long async scripts (see `gotchas.md` #14).
+**Coordinator** (the parent agent invoking `figma-worker.md`):
+- Reads file structure and creates target frames up front
+- Assigns each worker a specific frame or page
+- Distributes the component IDs each worker needs
+- Calls `figma.commitUndo()` after each logical unit so rollbacks are clean
+
+**Workers**:
+- Build only within their assigned frame
+- Between operations, poll `window.__figmaEvents` (see Event listener injection below) to detect external changes (user moved the selection, another worker landed a change) and bail or re-read state if so
+- After each `appendChild`, verify `child.parent.id === expectedParent.id` — silent reparenting is a real failure mode in long async scripts (see `gotchas.md` #14)
 
 ### When to use sessions vs shared state
 
@@ -346,7 +362,7 @@ Pattern for safe mutations (`/tmp/figma_eval.js`):
   if (!node) return {error: 'Node TARGET_ID not found'};
   if (node.type !== 'TEXT') return {error: 'Expected TEXT, got ' + node.type};
 
-  // Safe font loading
+  // Load fonts — see references/copy.md → Font loading pattern (handles mixed)
   try {
     if (node.fontName !== figma.mixed) {
       await figma.loadFontAsync(node.fontName);
@@ -368,7 +384,7 @@ Pattern for safe mutations (`/tmp/figma_eval.js`):
 - **Max ~200 nodes per eval** before Figma slows noticeably. For larger operations, split into multiple evals with yielding.
 - **Yield between batches** in long loops: `await new Promise(function(r) { setTimeout(r, 0); })`
 - **Batch size: 50 nodes** is safe. 100+ may cause the UI thread to block.
-- **Avoid deep findAll** on pages with 1000+ nodes: use `findAllWithCriteria({types: ['TEXT']})` instead of `findAll(function(n) { return n.type === 'TEXT'; })`. The criteria version is native C++ and much faster.
+- **Avoid `findAll(cb)` and `findOne(cb)` with type-only predicates** on pages with 1000+ nodes: use `findAllWithCriteria({types: ['TEXT']})` instead of `findAll(n => n.type === 'TEXT')`. For `findOne`, take the first element: `findAllWithCriteria({types: ['INSTANCE']})[0]`. The criteria version is native C++ and 10–50× faster.
 - **commitUndo() is expensive**: call once per user-visible change, not per property set.
 - **Don't alternate** between writing to a ComponentNode and reading from its InstanceNode: Figma recalculates instances on every component change. Batch all component writes first, then read instances.
 

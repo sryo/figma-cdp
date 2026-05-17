@@ -85,18 +85,18 @@ var main = await inst.getMainComponentAsync();
 // Read current overrides
 var overrides = inst.overrides; // [{id, overriddenFields}]
 
-// Find nested text and override it
-var label = inst.findOne(function(n) { return n.name === 'Label' && n.type === 'TEXT'; });
+// Find nested text and override it (compound predicate: filter by type natively, then by name in JS)
+var label = inst.findAllWithCriteria({types: ['TEXT']}).find(function(n) { return n.name === 'Label'; });
 if (label) {
-  // Load the instance's actual font, not a hardcoded one
+  // Load the instance's actual font, not a hardcoded one (for mixed fonts: copy.md → Font loading pattern)
   if (label.fontName !== figma.mixed) {
     await figma.loadFontAsync(label.fontName);
   }
   label.characters = 'New Label';
 }
 
-// Swap a nested component instance
-var icon = inst.findOne(function(n) { return n.type === 'INSTANCE'; });
+// Swap a nested component instance (type-only predicate)
+var icon = inst.findAllWithCriteria({types: ['INSTANCE']})[0];
 if (icon) {
   var newComp = await figma.importComponentByKeyAsync('COMPONENT_KEY');
   icon.swapComponent(newComp); // preserves overrides

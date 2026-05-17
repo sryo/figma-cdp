@@ -24,7 +24,7 @@ Example format:
 ## Sections (for large tasks)
 [COORDINATOR: if the task has multiple independent parts, list them as sections]
 
-Each section has its own assertions. Complete and verify one section before starting the next.
+Each section has its own assertions; verify before starting the next.
 
 ## How to Execute
 
@@ -33,24 +33,26 @@ Write `.js` files and run via the helper:
 python3 /tmp/figma_run.py /tmp/figma_eval.js
 ```
 
-One-liners: `agent-browser --cdp 9222 eval "figma.currentPage.name"`
+For ≥3 sequential evals with no intermediate inspection, batch:
+```bash
+python3 /tmp/figma_batch_run.py /tmp/step1.js /tmp/step2.js /tmp/step3.js
+```
+See `references/execution.md` → Batched evals.
 
-NEVER use heredocs, pipes, or input redirects in Bash. See `references/execution.md` → Eval Methods.
+One-liners: `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.name"`
+
+No heredocs, pipes, or input redirects in Bash — see `references/execution.md` → Eval methods.
 
 ## Rules
 
-- Wrap code in async IIFE: `(async function() { ... })()` (QuickJS restricts `AsyncFunction`; see `references/gotchas.md` #13)
-- Return `{error: msg}` on failure — don't throw
-- Return ALL created/mutated node IDs
+Worker-only:
 - State between evals: `window.__batchState.key = value` (namespace with `a_`/`b_` when parallel)
 - End final eval: `figma.viewport.scrollAndZoomIntoView([node])`
-- One `figma.commitUndo()` per section (not per property)
+- Return ALL created/mutated node IDs
 - NEVER call `figma.closePlugin()`
-- Preserve existing content — targeted edits, never rebuild from scratch
 - **Fix only what failed** — don't rebuild on retry
-- **Find before create** — before adding a frame/component/variable, check whether one with the target name already exists. See `references/gotchas.md` #16
 
-All code-level gotchas (FILL sizing, font loading, colors, readonly arrays, QuickJS limits, etc.) are in `references/gotchas.md`. Read it before writing any eval.
+Read `gotchas.md` before writing any eval. Worker-critical: #7 (return errors not throw), #8 (one `commitUndo` per logical unit), #13 (async IIFE), #15 (create+append in same eval), #16 (find before create).
 
 ## Your Loop
 
@@ -60,27 +62,18 @@ For each section (or the whole task if no sections):
 Inspect the target before touching anything. See `references/execution.md` → Verification Patterns → Property check.
 
 ### 2. PLAN
-Decide mutations based on what you read. Check `references/conventions.md` for naming/structure rules and `references/gotchas.md` before writing code.
+Decide mutations based on what you read. Check `references/conventions.md` for naming/structure rules.
 
 ### 3. EXECUTE
 Apply mutations. Return ALL created/mutated node IDs: `{createdNodeIds: [...], mutatedNodeIds: [...], rootId: ...}`. End with `figma.commitUndo()`.
 
-### 4. VERIFY
-**Critical step.** Run each assertion from the spec — don't just re-read properties. See `references/execution.md` → Assertion Verification for the pattern. Return `{passed, total, allPassed, failures}`.
+### 4. VERIFY + RETRY
+Run each assertion from the spec — don't just re-read properties. See `references/execution.md` → Assertion Verification. Return `{passed, total, allPassed, failures}`. If `allPassed: false`, write a targeted fix script for ONLY the failures and re-verify. **Max 3 retries per section.** After 3 failures, report BLOCKED.
 
-### 5. FIX & RETRY
-If `allPassed: false`:
-1. Read the `failures` array — each has `what`, `expected`, `actual`
-2. Write a targeted fix script addressing ONLY the failures
-3. Re-run verification
-4. **Max 3 retries per section.** After 3 failures, report BLOCKED.
+### 5. CHECKPOINT (multi-section only)
+Save progress after a section passes. See `references/execution.md` → Section Checkpointing.
 
-Do NOT rebuild everything — fix only what failed.
-
-### 6. CHECKPOINT
-For multi-section tasks, save progress after a section passes. See `references/execution.md` → Section Checkpointing.
-
-### 7. REPORT
+### 6. REPORT
 End your response with exactly one of:
 - **DONE** — all assertions passed. Include: node IDs, section summary.
 - **DONE_WITH_CONCERNS** — assertions passed but something unexpected. Include: what, why.
@@ -90,10 +83,26 @@ End your response with exactly one of:
 ## Reference
 
 [COORDINATOR: inline the relevant reference file content based on the task type]
+
+Per-file picker:
 - Design conventions → `references/conventions.md` (always include)
 - Gotchas → `references/gotchas.md` (always include)
-- Node creation/layout → `references/building.md`
-- Text/copy work → `references/copy.md`
+- Node creation/effects → `references/building.md`
+- Layout patterns → `references/layout-recipes.md`
+- Text/copy work → `references/copy.md` + `references/api-text.md`
 - Design inspection → `references/reading.md`
+- REST endpoints (image rendering, comments) → `references/rest-api.md`
 - Execution patterns → `references/execution.md`
-- API types/methods → `references/api-reference.md`
+- Universal API (figma global, find/navigate, base mixins) → `references/api-reference.md`
+- Layout / shape APIs → `references/api-layout.md`
+- Component / variant / variable APIs → `references/api-components.md`
+- Color / effect / prototype APIs → `references/api-styling.md`
+
+Common recipe combos (avoid over-loading):
+- **Copy edit:** conventions + gotchas + copy + api-text
+- **Build a component or screen:** conventions + gotchas + building + layout-recipes + api-reference + api-layout (+ api-components if creating variants, + api-styling if adding effects)
+- **Recon only:** conventions + reading + api-reference
+- **Add shadow / restyle:** conventions + gotchas + building + api-styling
+- **Image rendering or comments:** rest-api (+ copy if posting comments on text nodes)
+
+If your task plausibly needs 3+ topical API files, prefer `api-reference.md` plus the 1-2 most-touched topical files. Don't load all five.

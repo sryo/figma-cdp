@@ -1,6 +1,6 @@
 # Figma Plugin API gotchas
 
-Single source of truth. Every rule has a WRONG/CORRECT example.
+Every rule has a WRONG/CORRECT example.
 
 ## 1. FILL sizing MUST be set AFTER appendChild
 ```js
@@ -47,7 +47,7 @@ f.push(newFill);
 node.fills = f;
 ```
 
-## 6. No ?. or ??: QuickJS sandbox
+## 6. Optional chaining (`?.`) and nullish coalescing (`??`) aren't supported — Figma's QuickJS sandbox
 ```js
 // WRONG
 var name = node?.parent?.name ?? 'none';
@@ -55,7 +55,7 @@ var name = node?.parent?.name ?? 'none';
 var name = node && node.parent ? node.parent.name: 'none';
 ```
 
-## 7. return {error: msg} not throw
+## 7. Return errors instead of throwing — `throw` crashes the eval and you lose context
 ```js
 // WRONG: throw crashes the eval, you lose context
 if (!node) throw new Error('not found');
@@ -112,7 +112,7 @@ child.resize(200, 40);
 child.layoutSizingHorizontal = 'FILL';
 ```
 
-## 13. AsyncFunction constructor is restricted: use async IIFE
+## 13. Async helpers like `new AsyncFunction(...)` are blocked — wrap code in an async IIFE
 QuickJS blocks `new AsyncFunction(...)` and `Function('async ...')()`.
 ```js
 // WRONG
@@ -132,7 +132,6 @@ if (child.parent.id !== parent.id) return {error: 'reparent failed'};
 ```
 
 ## 15. Append in the same eval that creates: orphan nodes get GC'd
-Pass node IDs across evals, not node references: orphans get garbage-collected.
 ```js
 // WRONG: split across evals; the orphan may be gone by step 2
 window.__batchState.a = figma.createText();          // step 1
@@ -144,7 +143,7 @@ window.__batchState.aId = t.id;                      // next eval: getNodeByIdAs
 ```
 
 ## 16. Find before create: don't duplicate on re-runs
-A worker can run twice (coordinator re-dispatch, checkpoint resume). Naive create code silently makes duplicates. Look up by name and type first; create only if missing.
+Workers can run twice (re-dispatch, resume). Naive creates duplicate; look up by name+type first.
 ```js
 // WRONG: second run leaves two "Hero" frames at page root
 var hero = figma.createFrame();

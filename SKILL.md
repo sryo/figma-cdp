@@ -8,81 +8,44 @@ allowed-tools: Bash(agent-browser:*)
 
 Code → Figma. The reverse of Figma MCP. Drives Figma's Plugin API via `agent-browser` in a read → modify → verify loop.
 
-Plugin API (`agent-browser --cdp 9222 eval`) for everything. REST is only for image rendering and comments.
+Plugin API (`agent-browser --cdp <port> eval`) for everything. REST is only for image rendering and comments.
 
-You are a coordinator, not a builder. You inspect the page, decompose the work, write specs with verifiable assertions, and hand each spec to a worker subagent. The workers do the actual Plugin API calls. You orchestrate and verify.
+You are a coordinator. For non-trivial work, you inspect the page, decompose into independent units, write specs with verifiable assertions, and dispatch each spec to a worker subagent. For trivial work (single eval, single node, no assertions), run inline — workers pay off at scale, not on renames.
 
 ## Setup
 
 1. **`agent-browser` installed?** Run `which agent-browser`. If it returns nothing, install it: `npm i -g agent-browser && agent-browser install`.
-2. **Chrome connected?** Run `agent-browser --cdp 9222 eval "typeof figma"`. Should return `"object"`. If not, see `references/execution.md` → Connection for how to launch Chrome.
-3. **Helper script.** The repo ships `figma_run.py`. Copy to `/tmp/` if that's where your worker scripts will run.
+2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/execution.md` → Connection (Mode A attach vs Mode B launch). Mode A: export `FIGMA_CDP_PORT` from `DevToolsActivePort` so the helpers pick it up.
+3. **Helper scripts.** Copy `figma_run.py` (single eval) and `figma_batch_run.py` (multi-eval) to `/tmp/`.
 
 ## When you receive a Figma URL
 
 1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and the node ID (query param, hyphens become colons).
-2. Reconnaissance: use the flat text tree pattern in `references/reading.md` to get the page structure. Switch to Full node inspection only when you need specific properties.
-3. Decompose the work into independent units.
-4. Fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], then pass it to the Agent tool. Run workers in parallel when their units share no state.
-5. Collect results and check each worker's status (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED).
-6. Summarize back to the user:
-   - Sections completed (with worker status for each)
-   - Node IDs created or modified
-   - Any assertions that needed retries (and why)
-   - Anything that escalated to NEEDS_CONTEXT or BLOCKED
-   - Suggested next steps if the work isn't finished
+2. Reconnaissance: use the flat text tree pattern in `references/reading.md` → Flat text tree to get the page structure. Switch to Full node inspection only when you need specific properties.
+3. Decide whether to dispatch a worker (see Work decomposition) or run inline.
+4. If dispatching: fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], pass to the Agent tool. Run workers in parallel when their units share no state.
+5. Collect results and check each worker's status (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED — `figma-worker.md` defines the emit contract).
+6. Summarize back to the user: sections completed, node IDs created/modified, assertions that needed retries, escalations, next steps.
 
 ## Work decomposition
 
-One worker when units overlap, run sequentially, or stay under 20 operations. Parallel workers for independent areas (different pages or frames) that share no state. Never parallelize the same nodes, or chains where one worker depends on another's output.
+**Skip the worker** for tasks under ~5 operations or ~3 assertions — run inline. Single-property dispatch pays overhead without buying verification.
 
-If a worker's task list exceeds 20 operations or its assertion block exceeds 25 items, split it. This is a hard rule. Don't override it because "it's all related".
+**One worker** when units overlap, run sequentially, or stay under 20 operations. **Parallel workers** for independent areas (different pages or frames) that share no state. Never parallelize the same nodes, or chains where one worker depends on another's output.
+
+If a worker's task list exceeds 20 operations or its assertion block exceeds 25 items, split it. Hard rule.
 
 ### Task boundaries
 
-Each worker gets explicit, self-contained instructions: real node IDs like `1:23 (TextNode "Hero Heading")` instead of "the heading", an exact end state instead of "make it better", verifiable assertions to run after building, and no TBDs. Everything the worker needs goes in the prompt.
+Each worker gets explicit, self-contained instructions: real node IDs like `1:23 (TextNode "Hero Heading")` instead of "the heading", an exact end state instead of "make it better", verifiable assertions to run after building, and no TBDs.
 
-### Structured spec with assertions
+### Spec format with assertions
 
-The coordinator provides verifiable assertions, not just prose. Workers check against them after building. This is what stops requirements from getting lost in long documents.
-
-```
-## Task
-Build a login screen.
-
-## Assertions (worker verifies ALL after building)
-- node ROOT: type=FRAME, childCount=8, name="Screens/Login"
-- child 0: type=INSTANCE, name contains "Avatar"
-- child 1: type=TEXT, characters="Welcome back", fontSize=28
-- child 2: type=TEXT, characters="Sign in to your account"
-- child 3: type=INSTANCE, name contains "Input"
-- child 4: type=INSTANCE, name contains "Input"
-- child 5: type=INSTANCE, name contains "Button"
-- child 6: type=INSTANCE, name contains "Text Link"
-- child 7: type=INSTANCE, name contains "Text Link"
-```
-
-Workers run assertions programmatically, fix failures (max 3 retries), then report DONE or BLOCKED.
+Coordinator provides verifiable assertions; workers check after building. The full spec template (Task / Target Nodes / Assertions / Sections) lives in `figma-worker.md`.
 
 ### Large documents: section checkpointing
 
-For large tasks (e.g., converting an HTML site to Figma), break into sections:
-
-```
-## Sections
-1. Component library (atoms + molecules) — assertions: [...]
-2. Screen: Login — assertions: [...]
-3. Screen: Dashboard — assertions: [...]
-```
-
-Workers complete and verify one section at a time, checkpoint progress in `window.__batchState.checkpoint`, and resume from the last completed section if re-launched. See `figma-worker.md` for the checkpoint pattern.
-
-### Worker status protocol
-
-- **DONE** — completed and verified. Collect result.
-- **DONE_WITH_CONCERNS** — completed but unexpected. Review before accepting.
-- **NEEDS_CONTEXT** — can't proceed. Provide missing info, re-launch.
-- **BLOCKED** — unrecoverable. Reassess the task.
+For large tasks (e.g., converting an HTML site to Figma), break into sections. Workers complete and verify one section at a time, checkpoint progress in `window.__batchState.checkpoint`, and resume from the last completed section if re-launched. See `figma-worker.md` for the checkpoint pattern.
 
 ## Files
 
@@ -96,40 +59,31 @@ References, loaded on demand:
 |------|----------|
 | `references/conventions.md` | Atomic design, naming, spacing, colors, typography. Always include for workers |
 | `references/gotchas.md` | WRONG/CORRECT examples for common API pitfalls. Always include for workers |
-| `references/reading.md` | Understanding design before modifying (also contains the REST API reference) |
+| `references/reading.md` | Understanding design before modifying |
+| `references/rest-api.md` | REST endpoints for image rendering and comments |
 | `references/building.md` | Creating or modifying nodes, components, images, effects |
-| `references/copy.md` | Text extraction, updates, font loading patterns |
-| `references/execution.md` | Connection setup, eval patterns, state persistence, error recovery, performance |
 | `references/layout-recipes.md` | Auto Layout patterns for Button, Card, Input, List + constraints decision table |
-| `references/api-reference.md` | Plugin API methods, types, properties |
-| `references/cdp-escape-hatch.md` | Raw CDP via Python WebSocket if `agent-browser` is unavailable; general (non-Figma) CDP patterns |
+| `references/copy.md` | Text extraction, updates, font loading patterns |
+| `references/execution.md` | Connection setup, eval patterns, batched evals, state persistence, error recovery, performance |
+| `references/api-reference.md` | Universal API: `figma` global, find/navigate, lifecycle, events, viewport, base mixins. Start here, then load topical files below |
+| `references/api-text.md` | TextNode + range methods + font loading. Load for copy/text work |
+| `references/api-layout.md` | FrameNode, shape nodes, Layout / AutoLayout / Grid / Constraint mixins. Load for building screens |
+| `references/api-components.md` | Component, ComponentSet, Instance, Variables, Styles. Load for component / variant / design-system work |
+| `references/api-styling.md` | Geometry & Blend mixins, Paint, Effect, Prototype types. Load for color / shadow / prototype work |
 
-## Pre-dispatch checklist
-
-Before spawning a worker, verify every box:
+## Before dispatch
 
 - [ ] Target nodes named with exact IDs, not descriptions
-- [ ] Each target ID verified to exist (`getNodeByIdAsync` returns a node, not null) before dispatch
+- [ ] Each target ID verified to exist (`getNodeByIdAsync` returns a node, not null)
 - [ ] End state is exact (no "make it better")
 - [ ] Assertions list every verifiable check
-- [ ] Worker template filled in: [Task], [Target Nodes], [Reference]
-- [ ] References loaded: `gotchas.md` and `conventions.md` always; topic-specific files as needed
 - [ ] Task fits under the complexity budget (20 ops, 25 assertions)
 
 ## Rules
 
-- Explain in plain English what you're about to do.
+- Explain in plain English what you'll do.
 - Never use Chrome MCP tools (`mcp__claude-in-chrome__*`). Always use `agent-browser`.
 - Read state before writing. Inspect the Plugin API before mutating anything.
-- Preserve existing behavior unless asked to change it.
-- Make targeted edits. Don't rebuild from scratch.
+- Preserve existing behavior unless asked.
+- Make targeted edits; don't rebuild.
 - Follow Figma conventions: components, Auto Layout, consistent naming, proper hierarchy.
-
-## Anti-patterns (what NOT to do)
-
-- **Don't spawn a worker without a spec.** "Build a nice login screen" goes wrong every time. The spec with assertions is the contract.
-- **Don't bundle unrelated work into one worker.** A copy edit and a layout change in the same worker means neither gets verified properly.
-- **Don't parallelize on the same nodes.** Two workers writing to `1:23` race each other and silently overwrite.
-- **Don't skip the read step.** Inspecting the current Plugin API state takes one eval and saves three re-do cycles.
-- **Don't retry failed evals blindly.** Read state first, then retry the specific failure (see `references/execution.md` → Error Recovery).
-- **Don't rebuild from scratch.** Figma designers iterate on real artifacts. Clobbering their work breaks trust.
