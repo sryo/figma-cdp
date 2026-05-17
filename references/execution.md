@@ -8,17 +8,38 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no per
 
 ### Quick start
 
-1. **Test existing connection**: skip Chrome launch if `typeof figma` returns `"object"`:
+1. **Test existing connection**: skip the rest if `typeof figma` returns `"object"`:
    ```bash
    agent-browser --cdp 9222 eval "typeof figma" 2>/dev/null && echo "connected"
    ```
 
-2. **Launch Chrome Canary** with remote debugging. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening; stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile right before launching:
+2. **Connect to Chrome.** Two paths — try Mode A first.
+
+   #### Mode A — Attach to your running Chrome (recommended)
+
+   No relaunch, no profile copy, no flags. Works with your already-logged-in Figma session.
+
+   1. In your normal Chrome window, open `chrome://inspect/#remote-debugging` once and enable "Discover network targets". Chrome now exposes CDP on a local port for the lifetime of the browser session.
+   2. Find the port (Chrome writes it on launch):
+      ```bash
+      cat "$HOME/Library/Application Support/Google/Chrome/DevToolsActivePort" | head -1
+      # Linux:   ~/.config/google-chrome/DevToolsActivePort
+      # Brave:   ~/Library/Application Support/BraveSoftware/Brave-Browser/DevToolsActivePort
+      # Canary:  ~/Library/Application Support/Google/Chrome Canary/DevToolsActivePort
+      ```
+   3. Use that port in place of 9222 — e.g. if it printed `54321`, run `agent-browser --cdp 54321 eval "typeof figma"`.
+   4. The first time the agent touches a tab, Chrome may show an "Allow debugging?" prompt. Accept once per tab.
+
+   Trade-offs: requires the one-time toggle; the port changes between Chrome restarts (read `DevToolsActivePort` each time). If you can't enable the toggle (managed Chrome, etc.), use Mode B.
+
+   #### Mode B — Launch a dedicated Chrome Canary (fallback)
+
+   Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening; stops malicious pages from connecting to a logged-in session), so you must pass `--user-data-dir`. To preserve your Figma login, copy your default Canary profile right before launching:
    ```bash
    rm -rf /tmp/canary-cdp && \
      cp -R "$HOME/Library/Application Support/Google/Chrome Canary" /tmp/canary-cdp
    ```
-   Then launch against the copy:
+   Launch against the copy:
    ```bash
    /Applications/Google\ Chrome\ Canary.app/Contents/MacOS/Google\ Chrome\ Canary \
      --remote-debugging-port=9222 \
@@ -26,6 +47,16 @@ All `agent-browser` commands are pre-allowed via `Bash(agent-browser:*)`: no per
      '--remote-allow-origins=*' \
      "FIGMA_URL_HERE" &
    ```
+   Wait for CDP to be ready before the first eval (Chrome opens the port before it's actually answering):
+   ```bash
+   for i in $(seq 1 60); do
+     curl -sf http://127.0.0.1:9222/json/version > /dev/null && break
+     sleep 0.5
+   done
+   curl -sf http://127.0.0.1:9222/json/version > /dev/null \
+     || { echo "CDP never came up on 9222" >&2; exit 1; }
+   ```
+   Without the post-loop check, a 30s timeout exits cleanly and the next `agent-browser` call fails with an opaque CDP error.
    Why these flags:
    - `--user-data-dir`: Chrome 136+ won't expose CDP on the default profile path.
    - `--remote-allow-origins=*`: Chrome 111+ silently rejects CDP requests without this; the rejection presents as a 404 on `/json/version` even though the port is listening. Quote the flag to stop the shell from globbing the `*`.
@@ -69,10 +100,15 @@ If `typeof figma` returns `"undefined"`:
 2. Wait for page to fully load, retry.
 3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
 
-If `agent-browser --cdp 9222` fails to connect:
+If `agent-browser --cdp 9222` fails to connect (Mode B):
 1. Check that CDP responds: `curl -s http://localhost:9222/json/version | head -2`. Expected: JSON starting with `"Browser": "Chrome/..."`. An empty body / 404 means Chrome's listening but disallowing CDP routes — usually a stale profile copy or a missing `--remote-allow-origins=*` flag. Re-copy the profile and relaunch.
 2. Close other Chrome instances holding port 9222.
 3. Prefer Chrome Canary to avoid conflicts with your regular Chrome.
+
+If Mode A attach fails:
+1. Confirm the toggle is enabled at `chrome://inspect/#remote-debugging`.
+2. Re-read `DevToolsActivePort` — the port changes on every Chrome restart.
+3. If the "Allow debugging?" modal didn't appear, try clicking the Figma tab to bring it foreground, then retry.
 
 ## Eval methods
 
@@ -195,6 +231,11 @@ When the coordinator launches parallel workers:
 3. Each worker runs its own read → execute → verify loop independently
 4. The coordinator collects results after all workers complete
 
+### Coordinator vs worker roles
+
+- **Coordinator** (the parent agent invoking `figma-worker.md`): reads file structure, creates target frames up front, assigns each worker a specific frame/page, distributes the component IDs each worker needs, and calls `figma.commitUndo()` after each logical unit of work so rollbacks are clean.
+- **Workers**: build only within their assigned frame. Between operations, poll `window.__figmaEvents` (see Event listener injection below) to detect external changes (user moved the selection, another worker landed a change, etc.) and bail or re-read state if so. After each `appendChild`, verify `child.parent.id === expectedParent.id` — silent reparenting is a real failure mode in long async scripts (see `gotchas.md` #14).
+
 ### When to use sessions vs shared state
 
 - **Shared state (`window.__batchState`):** Workers on the **same file**, different frames/pages. All evals share one browser tab context.
@@ -232,17 +273,23 @@ Write `/tmp/figma_listeners.js`:
 ```js
 (async function() {
   if (!window.__figmaEvents) {
+    var MAX = 100;
     window.__figmaEvents = [];
+    function push(e) {
+      window.__figmaEvents.push(e);
+      if (window.__figmaEvents.length > MAX) window.__figmaEvents.shift();
+    }
     figma.on('selectionchange', function() {
       var sel = figma.currentPage.selection.map(function(n) {
         return {id: n.id, name: n.name, type: n.type};
       });
-      window.__figmaEvents.push({type: 'selection', nodes: sel, ts: Date.now()});
-      if (window.__figmaEvents.length > 100) window.__figmaEvents.shift();
+      push({type: 'selection', nodes: sel, ts: Date.now()});
+    });
+    figma.on('currentpagechange', function() {
+      push({type: 'page', name: figma.currentPage.name, ts: Date.now()});
     });
     figma.on('documentchange', function(e) {
-      window.__figmaEvents.push({type: 'docchange', count: e.documentChanges.length, ts: Date.now()});
-      if (window.__figmaEvents.length > 100) window.__figmaEvents.shift();
+      push({type: 'docchange', count: e.documentChanges.length, ts: Date.now()});
     });
   }
   return {ok: true, msg: 'event listeners active'};
@@ -254,6 +301,8 @@ Read and drain events:
 ```bash
 agent-browser --cdp 9222 eval "JSON.stringify(window.__figmaEvents.splice(0))"
 ```
+
+Drain at 1-2s intervals, not faster — each `agent-browser` invocation cold-starts the CLI (~200ms). The ring buffer holds 100 events, so 1s polling tolerates 100 events/sec without loss.
 
 ## Large operations
 

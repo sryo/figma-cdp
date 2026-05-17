@@ -31,51 +31,7 @@ child.layoutSizingHorizontal = 'HUG';
 child.layoutSizingVertical = 'HUG';
 ```
 
-### Common component patterns
-```js
-// Button: horizontal, centered, hug both axes
-btn.layoutMode = 'HORIZONTAL';
-btn.primaryAxisAlignItems = 'CENTER';
-btn.counterAxisAlignItems = 'CENTER';
-btn.paddingLeft = btn.paddingRight = 16;
-btn.paddingTop = btn.paddingBottom = 8;
-btn.itemSpacing = 8;
-btn.primaryAxisSizingMode = 'AUTO';      // hug width
-btn.counterAxisSizingMode = 'AUTO';      // hug height
-
-// Card: vertical, fixed width, image fills width
-card.layoutMode = 'VERTICAL';
-card.counterAxisSizingMode = 'FIXED';    // fixed width
-card.primaryAxisSizingMode = 'AUTO';     // hug height
-image.layoutSizingHorizontal = 'FILL';   // stretch to card width
-image.layoutSizingVertical = 'FIXED';    // fixed height
-content.layoutSizingHorizontal = 'FILL'; // text area fills width
-```
-
-Input/list/stack follow the same pattern: horizontal or vertical `layoutMode`, `counterAxisSizingMode = 'FIXED'` on parent, children `layoutSizingHorizontal = 'FILL'`.
-
-### Absolute positioning in Auto Layout
-For overlays, badges, or floating elements inside an auto layout frame:
-```js
-badge.layoutPositioning = 'ABSOLUTE';    // opt out of auto layout flow
-badge.constraints = {horizontal: 'MAX', vertical: 'MIN'};  // pin top-right
-```
-
-### Fixed-frame constraints (no Auto Layout)
-When parent has `layoutMode = 'NONE'`, use `constraints` on children:
-```js
-child.constraints = {horizontal: 'MIN', vertical: 'MIN'};       // pin top-left (default)
-child.constraints = {horizontal: 'STRETCH', vertical: 'MIN'};   // stretch width, pin top
-child.constraints = {horizontal: 'STRETCH', vertical: 'STRETCH'}; // fill parent
-child.constraints = {horizontal: 'CENTER', vertical: 'CENTER'};   // center both axes
-child.constraints = {horizontal: 'MAX', vertical: 'MAX'};         // pin bottom-right
-```
-
-### Key rules
-- `constraints` is ignored when parent has auto layout: use `layoutSizing*` instead.
-- `FILL` requires parent with auto layout; `HUG` requires the node to have children.
-- `layoutGrow = 1` is legacy FILL: prefer `layoutSizing*`.
-- See `references/gotchas.md` for FILL-after-appendChild and resize-before-sizing-modes rules.
+For named component recipes (Button, Card, Input, List), absolute positioning, fixed-frame constraints (when parent is `layoutMode = 'NONE'`), and the key sizing rules (`FILL` requires auto-layout parent, `HUG` requires children, legacy `layoutGrow`), see `references/layout-recipes.md`. For `FILL`-after-`appendChild` and `resize`-before-sizing-modes, see `references/gotchas.md` #1 and #12.
 
 ## Post-mutation validation
 
@@ -238,3 +194,12 @@ node.fills = [{
   gradientTransform: [[0.5, 0, 0.25], [0, 0.5, 0.25]]
 }];
 ```
+
+## Hex colors
+
+Use the built-ins instead of hand-rolling the hex → 0-1 conversion (`gotchas.md` #3):
+```js
+node.fills = [figma.util.solidPaint('#6366f1')];          // hex → SolidPaint
+node.fills = [figma.util.solidPaint('#6366f1', {opacity: 0.5})];
+```
+See `references/api-reference.md` → `figma.util` for `rgb`, `rgba`, and `solidPaint` signatures.

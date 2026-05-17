@@ -100,7 +100,9 @@ References, loaded on demand:
 | `references/building.md` | Creating or modifying nodes, components, images, effects |
 | `references/copy.md` | Text extraction, updates, font loading patterns |
 | `references/execution.md` | Connection setup, eval patterns, state persistence, error recovery, performance |
+| `references/layout-recipes.md` | Auto Layout patterns for Button, Card, Input, List + constraints decision table |
 | `references/api-reference.md` | Plugin API methods, types, properties |
+| `references/cdp-escape-hatch.md` | Raw CDP via Python WebSocket if `agent-browser` is unavailable; general (non-Figma) CDP patterns |
 
 ## Pre-dispatch checklist
 

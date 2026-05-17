@@ -2,11 +2,6 @@
 
 Code → Figma. The reverse of Figma MCP.
 
-|  | direction |
-|---|---|
-| Figma MCP | design → code |
-| figma-cdp | code → design |
-
 Figma MCP reads designs out of Figma and turns them into code. This goes the other way: you describe what you want, or paste in HTML, and Claude Code builds it in Figma for you.
 
 No Figma MCP required. It drives Figma's Plugin API directly via Chrome DevTools Protocol.
@@ -31,10 +26,10 @@ Talk to Claude Code:
 - *"Extract all the copy from the Screens page."*
 - *"Add a drop shadow to the hero frame."*
 
-The first run launches Chrome with remote debugging on port 9222.
+The first run either attaches to your existing Chrome (via the `chrome://inspect/#remote-debugging` toggle) or launches a dedicated Chrome Canary with remote debugging — whichever you have set up. See `references/execution.md` → Connection.
 
 ## Troubleshooting
 
 If `typeof figma` returns `"undefined"`, open and close any Figma plugin to initialize the Plugin API.
 
-If `agent-browser --cdp 9222` can't connect, close other Chrome instances on port 9222 or use Chrome Canary.
+If `agent-browser --cdp <port>` can't connect, see `references/execution.md` → Troubleshooting.
