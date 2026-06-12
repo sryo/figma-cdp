@@ -147,7 +147,7 @@ When the coordinator launches parallel workers:
 
 Coordinator-side dispatch duties (pre-creating target frames, distributing component IDs) live in `SKILL.md`. Workers:
 - Call `figma.commitUndo()` after completing each logical unit (sets an undo checkpoint)
-- Between operations, poll `window.__figmaEvents` (see Event listener injection below) to detect external changes (user moved the selection, another worker landed a change) and bail or re-read state if so
+- Between operations, read `window.__figmaEvents` via your own cursor (see Event listener injection below — the coordinator injects the listeners; never drain the buffer) to detect external changes (user moved the selection, another worker landed a change) and bail or re-read state if so. Bail = report **BLOCKED** (or **DONE_WITH_CONCERNS** if the unit completed), including what changed
 - After each `appendChild`, verify `child.parent.id === expectedParent.id` — silent reparenting is a real failure mode in long async scripts (see `gotchas.md` #14)
 
 ### When to use sessions vs shared state
@@ -183,15 +183,21 @@ Returns:
 
 ## Event listener injection
 
+The COORDINATOR injects the listeners once during recon; workers only read.
+
 Write `/tmp/figma_listeners.js`:
 ```js
 (async function() {
   if (!window.__figmaEvents) {
     var MAX = 100;
     window.__figmaEvents = [];
+    window.__figmaEventsShed = 0; // total entries trimmed off the front of the ring
     function push(e) {
       window.__figmaEvents.push(e);
-      if (window.__figmaEvents.length > MAX) window.__figmaEvents.shift();
+      if (window.__figmaEvents.length > MAX) {
+        window.__figmaEvents.shift();
+        window.__figmaEventsShed++;
+      }
     }
     figma.on('selectionchange', function() {
       var sel = figma.currentPage.selection.map(function(n) {
@@ -211,12 +217,24 @@ Write `/tmp/figma_listeners.js`:
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_listeners.js`
 
-Read and drain events:
-```bash
-agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "JSON.stringify(window.__figmaEvents.splice(0))"
-```
+Reading is non-destructive: never `splice(0)` the buffer — with multiple consumers, a drain steals everyone else's events. Each consumer keeps its own cursor: a position in the monotonically-growing virtual stream (`__figmaEventsShed + buffer length`). The ring sheds oldest entries, so convert the cursor to a buffer index by subtracting the shed count.
 
-Drain at 1-2s intervals, not faster — each `agent-browser` invocation cold-starts the CLI (~200ms). The ring buffer holds 100 events, so 1s polling tolerates 100 events/sec without loss.
+Write `/tmp/figma_events_read.js`:
+```js
+(function() {
+  var NS = 'a_'; // this consumer's namespace prefix
+  window.__batchState = window.__batchState || {};
+  var cursor = window.__batchState[NS + 'evCursor'] || 0;
+  var shed = window.__figmaEventsShed || 0;
+  var events = window.__figmaEvents.slice(Math.max(cursor - shed, 0));
+  var missed = Math.max(shed - cursor, 0); // trimmed before this consumer read them
+  window.__batchState[NS + 'evCursor'] = shed + window.__figmaEvents.length;
+  return {events: events, missed: missed};
+})()
+```
+Run: `python3 /tmp/figma_run.py /tmp/figma_events_read.js`
+
+Poll at 1-2s intervals, not faster — each `agent-browser` invocation cold-starts the CLI (~200ms). The ring buffer holds 100 events, so 1s polling tolerates 100 events/sec before `missed` goes nonzero.
 
 ## Large operations
 
@@ -324,17 +342,18 @@ Fix only the `failures` and re-verify.
 
 ## Section checkpointing
 
-For large multi-section documents, save progress after each verified section:
+For large multi-section documents, save progress after each verified section. Namespace the checkpoint key with the worker's coordinator-assigned prefix (`NS`, e.g. `'a_'`), same as other `__batchState` keys:
 
 ```js
 // Save checkpoint after section passes
 (async function() {
+  var NS = 'a_'; // coordinator-assigned namespace prefix
   window.__batchState = window.__batchState || {};
-  var cp = window.__batchState.checkpoint || {completedSections: [], nodeIds: {}};
+  var cp = window.__batchState[NS + 'checkpoint'] || {completedSections: [], nodeIds: {}};
   cp.completedSections.push('login');
   cp.nodeIds.login = {frameId: '2:24'};
   cp.currentSection = 'signup'; // next section
-  window.__batchState.checkpoint = cp;
+  window.__batchState[NS + 'checkpoint'] = cp;
   return cp;
 })()
 ```
@@ -342,9 +361,19 @@ For large multi-section documents, save progress after each verified section:
 ```js
 // Read checkpoint on resume (start of worker)
 (async function() {
-  var cp = window.__batchState && window.__batchState.checkpoint;
+  var NS = 'a_'; // coordinator-assigned namespace prefix
+  var cp = window.__batchState && window.__batchState[NS + 'checkpoint'];
   return cp || {completedSections: [], nodeIds: {}, currentSection: null};
 })()
 ```
 
-Skip sections in `completedSections`. Resume from `currentSection`. Use `nodeIds` to reference nodes created in earlier sections.
+Skip sections in `completedSections`. Resume from `currentSection`. Use `nodeIds` to reference nodes created in earlier sections. `__batchState` dies with the browser tab — if a multi-section worker dies, the coordinator re-dispatches the same spec and the new worker resumes from the checkpoint (or from scratch if the tab itself was lost).
+
+## Rollback
+
+The coordinator runs `figma.saveVersionHistoryAsync('pre <task>')` before any mutating dispatches. On a BLOCKED worker, two options:
+
+- **Targeted:** delete the worker's returned `createdNodeIds` (this is why workers return them).
+- **Nuclear:** restore the saved version. Restoring discards ALL concurrent work — only when the file is otherwise quiescent (no other workers or users mid-flight).
+
+`commitUndo()` checkpoints live on the per-client undo stack — NOT a rollback mechanism. That's why the version snapshot exists.

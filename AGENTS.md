@@ -30,7 +30,7 @@ figma_batch_run.py → agent-browser CLI → CDP WebSocket → Figma's Plugin AP
 (QuickJS sandbox) → JSON return.
 ```
 
-**Coordinator vs worker.** The coordinator inspects, decomposes, dispatches, and verifies. Workers execute one self-contained spec and emit a status. Operational thresholds (when to inline vs dispatch, complexity caps per worker, the four statuses) live in `SKILL.md` and `figma-worker.md` — single source of truth.
+**Coordinator vs worker.** The coordinator inspects, decomposes, dispatches, and verifies. Workers execute one self-contained spec and emit a status. Operational thresholds (when to inline vs dispatch, complexity caps per worker) live in `SKILL.md`'s Work decomposition section; the four statuses live in `figma-worker.md` — single source of truth for each. One deliberate exception to dedup: `figma-worker.md` inlines the property-check and assertion-verification skeletons from `references/execution.md` as dispatch-cost duplication (saves every worker a reference load; the copies carry keep-in-sync comments and are maintained manually).
 
 **Token-cost tiers.** `SKILL.md` is loaded into every conversation that triggers the skill; every line is per-conversation cost. `figma-worker.md` plus its inlined references are loaded into every spawned worker; per-dispatch cost. Other `references/*.md` files load on demand.
 
@@ -41,7 +41,7 @@ figma_batch_run.py → agent-browser CLI → CDP WebSocket → Figma's Plugin AP
 - **Always-load with workers:** `conventions.md`, `gotchas.md`.
 - **Task-shaped on-demand:** `building.md`, `copy.md`, `reading.md`, `execution.md`, `rest-api.md`.
 - **Coordinator-only setup:** `connection.md` (Mode A attach, Mode B Canary launch, troubleshooting) — loaded during setup; workers receive a working connection.
-- **API reference split 5 ways** so workers load only what their task touches: `api-reference.md` (universal core), `api-text.md`, `api-layout.md`, `api-components.md`, `api-styling.md`. Per-file "load for" descriptions live in `SKILL.md`'s references table.
+- **API reference split 5 ways** so workers load only what their task touches: `api-reference.md` (universal core — including GeometryMixin fills/strokes and the hex helper, so solid color work needs no extra file), `api-text.md`, `api-layout.md`, `api-components.md`, `api-styling.md`. Per-file "load for" descriptions and the per-task combo list live in `SKILL.md`.
 
 Don't add a reference file unless it would otherwise live as a too-large section in another file. Cross-link aggressively before splitting.
 
@@ -54,6 +54,7 @@ The only subcommands we depend on:
 - `batch --json "<cmd1>" "<cmd2>" ...` — run multiple commands in one CLI invocation, results as a JSON array
 - `screenshot <path>` — full-page PNG capture
 - `--cdp <port>` — target port (default 9222, overridden by `FIGMA_CDP_PORT`)
+- `--session <name>` — per-worker browser tab/session isolation; `references/execution.md` → "When to use sessions vs shared state" prescribes it for parallel workers on *different* Figma files (same-file workers share one tab via namespaced `window.__batchState`)
 
 If any of these break, that's the integration boundary to fix. The other ~140 agent-browser subcommands are irrelevant to this skill.
 
@@ -65,7 +66,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - **Source-language framing stays generic.** Don't add per-language mapping tables (SwiftUI / Compose / Flutter / etc.). The `conventions.md` → "Source → Figma primitives" table is the format — name the *kind* of source construct, not the language syntax. The skill should work with any source the user can throw at it.
 - **Helpers honor `FIGMA_CDP_PORT`.** New helpers must resolve the port in this order: `FIGMA_CDP_PORT` if set, then the browser's `DevToolsActivePort` file, then 9222. Never hardcode the port in a helper.
 - **`gotchas.md` uses WRONG/CORRECT pairs.** Each numbered gotcha earns its slot — only add ones that have actually bitten the skill. Nice-to-have caveats belong in the reference doc they're about, not in gotchas.
-- **Worker Loop step descriptions stay explicit.** READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
+- **Worker Loop step descriptions stay explicit.** DISCOVER, READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
 - **No new references without table updates.** Any new `references/*.md` must land in `SKILL.md`'s references table with a distinct "load for" description. Orphans get pruned.
 - **No backwards-compat shims.** If a file's shape changes, update every caller. Don't ship deprecated aliases or "kept for compatibility" sections.
 - **`tests/evals.json` assertions are state-only.** Don't add transcript-introspection assertions ("worker reads state before modifying") — the eval framework can't observe agent behavior, only the resulting Figma state.
@@ -74,7 +75,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 
 - **Live UI overlays in Figma.** Would need a real Figma plugin, not Plugin API via CDP. The Plugin API runs server-side in Figma's sandbox; it can mutate the document but can't render arbitrary UI in the user's viewport.
 - **REST writes other than comments.** No current need; comments are the only POST. Other writes go through the Plugin API.
-- **Sub-second design event streams.** Polling `window.__figmaEvents` at 1-2s is the floor — `agent-browser` cold-start makes anything faster wasteful. For real-time observation, write listeners that buffer into a ring and drain on a sensible cadence.
+- **Sub-second design event streams.** Polling `window.__figmaEvents` at 1-2s is the floor — `agent-browser` cold-start makes anything faster wasteful. For real-time observation, the injected listeners buffer into a ring that consumers read non-destructively via per-consumer cursors (never drained — see `references/execution.md`).
 - **Bypassing Chrome 136+'s default-profile restriction.** Mode B's profile-copy dance is the documented workaround; we don't try to defeat the security hardening any further.
 - **Port discovery beyond `DevToolsActivePort` in Mode A.** Chrome assigns a new debugging port each launch; the helpers handle that by falling back to the `DevToolsActivePort` file when `FIGMA_CDP_PORT` is unset. Anything past that file — scanning Chrome processes, probing ports — is out of scope; the docs spell out the fallback's limits.
 - **A test harness for `tests/evals.json`.** The file is currently a hand-verifiable spec, not an automated test suite. Building a runner is separate work.
