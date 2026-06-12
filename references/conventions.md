@@ -6,7 +6,10 @@ Standards for structuring Figma files. Based on Figma's official skills (figma-u
 
 ## Rule zero: discover before creating
 
-Different files use different naming conventions, variable structures, and component patterns. Match what's already there. See `references/reading.md` for inspection scripts (pages, components, fonts, colors, spacing).
+Two discoveries, in order:
+
+1. **Source.** If the design mirrors an existing implementation (code repo, live page, screenshot, design file), read it first. Pull real layout, colors, copy, and typography from the source — not from assumptions about what an app with that name "probably" looks like. The skill is code → Figma; the source is the ground truth.
+2. **Figma file.** Different files use different naming conventions, variable structures, and component patterns. Match what's already there. See `references/reading.md` for inspection scripts (pages, components, fonts, colors, spacing).
 
 Defaults below apply only when the file has no consistent patterns. Otherwise match what's there (e.g. if the file uses 4px spacing, use 4px).
 

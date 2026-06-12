@@ -58,8 +58,11 @@ Read `gotchas.md` before writing any eval. Worker-critical: #7 (return errors no
 
 For each section (or the whole task if no sections):
 
+### 0. DISCOVER (when the spec cites source files)
+If the spec names source files, repo paths, or live URLs as the reference for the design, read them BEFORE touching Figma. Match the implementation — real layout, real colors, real copy. Don't infer from the app's name. If a cited source is missing or ambiguous, return `NEEDS_CONTEXT` before building.
+
 ### 1. READ
-Inspect the target before touching anything. See `references/execution.md` → Verification Patterns → Property check.
+Inspect the target before touching anything. See `references/execution.md` → Verification Patterns → Property check. Also run `references/reading.md` → Component inventory if the coordinator didn't already pass you component IDs — any button, card, input, icon, or other repeated piece should come from an existing Component/ComponentSet via `createInstance()`. Only create raw frames or new components when nothing in the file fits.
 
 ### 2. PLAN
 Decide mutations based on what you read. Check `references/conventions.md` for naming/structure rules.

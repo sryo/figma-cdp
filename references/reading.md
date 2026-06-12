@@ -194,6 +194,41 @@ Write `/tmp/figma_eval.js`:
 ```
 Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
+## Component inventory (run before building anything new)
+
+Lists every local Component and ComponentSet in the file, with property definitions and key. Use this before deciding to create a new component or a raw frame — if a matching component (or a variant of one) already exists, instantiate it.
+
+Write `/tmp/figma_eval.js`:
+```js
+(async function() {
+  await figma.loadAllPagesAsync();
+  var out = {components: [], componentSets: []};
+  var nodes = figma.root.findAllWithCriteria({types: ['COMPONENT', 'COMPONENT_SET']});
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    var entry = {
+      id: n.id,
+      name: n.name,
+      key: n.key,
+      w: Math.round(n.width),
+      h: Math.round(n.height),
+      page: n.parent && n.parent.type === 'PAGE' ? n.parent.name :
+            (n.type === 'COMPONENT' && n.parent && n.parent.type === 'COMPONENT_SET' ? '(variant)' : '(nested)'),
+      props: n.componentPropertyDefinitions || null
+    };
+    if (n.type === 'COMPONENT_SET') {
+      entry.variants = n.children.map(function(c) { return {id: c.id, name: c.name}; });
+      out.componentSets.push(entry);
+    } else if (n.parent && n.parent.type !== 'COMPONENT_SET') {
+      out.components.push(entry);
+    }
+  }
+  return out;
+})()
+```
+
+If nothing comes back, the file has no local library — proceed to create. If matches exist, pick the closest one and instantiate with `component.createInstance()` (then override text/icons as needed). Use `instance.setProperties({...})` to switch variants. See `references/api-components.md` for property formats.
+
 ## Pre-flight workflow
 
 ### Via Plugin API (already connected)

@@ -22,10 +22,22 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 
 1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and the node ID (query param, hyphens become colons).
 2. Reconnaissance: use the flat text tree pattern in `references/reading.md` → Flat text tree to get the page structure. Switch to Full node inspection only when you need specific properties.
-3. Decide whether to dispatch a worker (see Work decomposition) or run inline.
-4. If dispatching: fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], pass to the Agent tool. Run workers in parallel when their units share no state.
-5. Collect results and check each worker's status (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED — `figma-worker.md` defines the emit contract).
-6. Summarize back to the user: sections completed, node IDs created/modified, assertions that needed retries, escalations, next steps.
+3. Inventory local components: run `references/reading.md` → Component inventory. Note every Component / ComponentSet that exists; any worker that needs a button, card, input, icon, etc. should instantiate the matching one instead of building raw frames. New components only when nothing fits.
+4. Decide whether to dispatch a worker (see Work decomposition) or run inline.
+5. If dispatching: fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], pass to the Agent tool. List the component IDs the worker should reuse so it doesn't rebuild from scratch. Run workers in parallel when their units share no state.
+6. Collect results and check each worker's status (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED — `figma-worker.md` defines the emit contract).
+7. Summarize back to the user: sections completed, node IDs created/modified, assertions that needed retries, escalations, next steps.
+
+## When you receive a mockup request without a source URL
+
+Triggers: "build a mockup of <app>", "design <project>'s dashboard", "make a Figma file for coro / avis / stow / etc." — anything that names an existing app, screen, or feature instead of pointing at a Figma file.
+
+The skill is **code → Figma**: the source artifact already exists. Discover it before designing.
+
+1. **Locate the source.** Check `~/Documents/<name>` (case-insensitive — `coro` may live in `~/Documents/concerto`, `stow` in `~/Documents/Stow`). If not there, ask the user for the repo path or fetch the GitHub URL. Treat portfolio blurbs and README descriptions as hints, not substitutes for the code.
+2. **Read the actual UI** — components, routes, styles, screenshots, design tokens. Get the real layout, real colors, real typography, real copy. The mockup mirrors the implementation; do not generate from the app's name or category.
+3. **If the app has no UI yet** (a CLI, a library, a backend service), say so and ask the user what surface to design — don't invent screens.
+4. **Then proceed from step 3 of the Figma-URL branch** (decompose, dispatch workers). Each worker spec must cite the specific source files it should mirror (e.g. `concerto/dashboard/src/components/column.tsx`).
 
 ## Work decomposition
 
@@ -84,6 +96,7 @@ References, loaded on demand:
 - Explain in plain English what you'll do.
 - Never use Chrome MCP tools (`mcp__claude-in-chrome__*`). Always use `agent-browser`.
 - Read state before writing. Inspect the Plugin API before mutating anything.
+- **Code → Figma means the source artifact already exists.** Before designing, locate and read it — repo, component file, README screenshots, or live page. Never generate from the app's name or category alone.
 - Preserve existing behavior unless asked.
 - Make targeted edits; don't rebuild.
 - Follow Figma conventions: components, Auto Layout, consistent naming, proper hierarchy.

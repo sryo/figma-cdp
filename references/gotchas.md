@@ -142,10 +142,10 @@ parent.appendChild(t);
 window.__batchState.aId = t.id;                      // next eval: getNodeByIdAsync(aId)
 ```
 
-## 16. Find before create: don't duplicate on re-runs
-Workers can run twice (re-dispatch, resume). Naive creates duplicate; look up by name+type first.
+## 16. Find before create: reuse existing nodes and components
+Two failure modes: (a) re-running a worker creates duplicate top-level nodes; (b) building raw structures when a local component or variant already covers the case. Inventory first (see `references/reading.md` → Component inventory), then create only if nothing matches.
 ```js
-// WRONG: second run leaves two "Hero" frames at page root
+// WRONG #1: second worker run leaves two "Hero" frames at page root
 var hero = figma.createFrame();
 hero.name = 'Hero';
 // CORRECT: find first, create only if not present
@@ -155,5 +155,18 @@ var hero = figma.currentPage.children.find(function(c) {
 if (!hero) {
   hero = figma.createFrame();
   hero.name = 'Hero';
+}
+
+// WRONG #2: rebuilding a button as raw frame + text when a Button component exists
+var btn = figma.createFrame(); btn.layoutMode = 'HORIZONTAL'; /* ...20 more lines... */
+// CORRECT: instantiate the existing component, override props
+var buttonComp = figma.root
+  .findAllWithCriteria({types: ['COMPONENT', 'COMPONENT_SET']})
+  .find(function(c) { return c.name === 'Button' || c.name.indexOf('Button') === 0; });
+if (buttonComp) {
+  var inst = buttonComp.type === 'COMPONENT_SET'
+    ? buttonComp.defaultVariant.createInstance()
+    : buttonComp.createInstance();
+  // For COMPONENT_SET, switch variant: inst.setProperties({'Style': 'Primary'})
 }
 ```
