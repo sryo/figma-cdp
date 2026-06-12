@@ -1,7 +1,7 @@
 ---
 name: figma-cdp
 description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API via the agent-browser CLI over Chrome DevTools Protocol. Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
-allowed-tools: Bash(agent-browser:*)
+allowed-tools: Bash(agent-browser:*), Bash(python3 /tmp/figma_run.py:*), Bash(python3 /tmp/figma_batch_run.py:*)
 ---
 
 # Figma design automation
@@ -15,7 +15,7 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 ## Setup
 
 1. **`agent-browser` installed?** Run `which agent-browser`. If it returns nothing, install it: `npm i -g agent-browser && agent-browser install`.
-2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/execution.md` → Connection (Mode A attach vs Mode B launch). Mode A: export `FIGMA_CDP_PORT` from `DevToolsActivePort` so the helpers pick it up.
+2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/execution.md` → Connection (Mode A attach vs Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
 3. **Helper scripts.** Copy `figma_run.py` (single eval) and `figma_batch_run.py` (multi-eval) to `/tmp/`.
 
 ## When you receive a Figma URL

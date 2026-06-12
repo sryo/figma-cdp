@@ -2,7 +2,7 @@
 
 How to connect to Figma's Plugin API via `agent-browser` and the eval patterns for all automation.
 
-`agent-browser` commands are pre-allowed (`Bash(agent-browser:*)`) — no prompts.
+`agent-browser` commands and the `python3 /tmp/figma_*.py` helper invocations are pre-allowed (`Bash(agent-browser:*)`, `Bash(python3 /tmp/figma_run.py:*)`, `Bash(python3 /tmp/figma_batch_run.py:*)`) — no prompts.
 
 ## Connection
 
@@ -28,14 +28,14 @@ How to connect to Figma's Plugin API via `agent-browser` and the eval patterns f
       # Canary:  ~/Library/Application Support/Google/Chrome Canary/DevToolsActivePort
       ```
    3. Use that port in place of 9222 — e.g. if it printed `54321`, run `agent-browser --cdp 54321 eval "typeof figma"`.
-   4. Export the port for the helper scripts so they pick it up automatically:
+   4. Optionally export the port for the helper scripts:
       ```bash
       export FIGMA_CDP_PORT=54321
       ```
-      Both `figma_run.py` and `figma_batch_run.py` read `FIGMA_CDP_PORT` (default 9222 if unset).
+      Both `figma_run.py` and `figma_batch_run.py` read `FIGMA_CDP_PORT` when set; when unset they fall back to reading `DevToolsActivePort` themselves (then 9222). So the export is optional for the helpers — but raw `agent-browser` one-liners don't do the fallback, so they still need the env var (or an explicit `--cdp <port>`).
    5. The first time the agent touches a tab, Chrome may show an "Allow debugging?" prompt. Accept once per tab.
 
-   Trade-offs: requires the one-time toggle; the port changes between Chrome restarts (re-read `DevToolsActivePort` and re-export `FIGMA_CDP_PORT`). If you can't enable the toggle (managed Chrome, etc.), use Mode B.
+   Trade-offs: requires the one-time toggle; the port changes between Chrome restarts (the helpers re-read `DevToolsActivePort` on their own; raw `agent-browser` one-liners need the new port re-read and re-exported). If you can't enable the toggle (managed Chrome, etc.), use Mode B.
 
    #### Mode B — Launch a dedicated Chrome Canary (fallback)
 

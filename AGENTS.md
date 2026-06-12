@@ -50,7 +50,7 @@ Don't add a reference file unless it would otherwise live as a too-large section
 
 The only subcommands we depend on:
 - `eval -b <base64>` — run a JS script in the page
-- `batch "<cmd1>" "<cmd2>" ...` — run multiple commands in one CLI invocation
+- `batch --json "<cmd1>" "<cmd2>" ...` — run multiple commands in one CLI invocation, results as a JSON array
 - `screenshot <path>` — full-page PNG capture
 - `--cdp <port>` — target port (default 9222, overridden by `FIGMA_CDP_PORT`)
 
@@ -62,7 +62,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - **figma-worker.md is per-dispatch.** Every line is per-worker token cost. Compress hedging and meta-narration; preserve imperatives (READ before doing, find before creating, fix only what failed, don't rebuild).
 - **References stay task-shaped.** Don't merge files because they're conceptually related. Don't split files because they're long — split only when independent tasks would load disjoint subsets.
 - **Source-language framing stays generic.** Don't add per-language mapping tables (SwiftUI / Compose / Flutter / etc.). The `conventions.md` → "Source → Figma primitives" table is the format — name the *kind* of source construct, not the language syntax. The skill should work with any source the user can throw at it.
-- **Helpers honor `FIGMA_CDP_PORT`.** New helpers must read `os.environ.get('FIGMA_CDP_PORT', '9222')`. Never hardcode the port in a helper.
+- **Helpers honor `FIGMA_CDP_PORT`.** New helpers must resolve the port in this order: `FIGMA_CDP_PORT` if set, then the browser's `DevToolsActivePort` file, then 9222. Never hardcode the port in a helper.
 - **`gotchas.md` uses WRONG/CORRECT pairs.** Each numbered gotcha earns its slot — only add ones that have actually bitten the skill. Nice-to-have caveats belong in the reference doc they're about, not in gotchas.
 - **Worker Loop step descriptions stay explicit.** READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
 - **No new references without table updates.** Any new `references/*.md` must land in `SKILL.md`'s references table with a distinct "load for" description. Orphans get pruned.
@@ -75,5 +75,5 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - **REST writes other than comments.** No current need; comments are the only POST. Other writes go through the Plugin API.
 - **Sub-second design event streams.** Polling `window.__figmaEvents` at 1-2s is the floor — `agent-browser` cold-start makes anything faster wasteful. For real-time observation, write listeners that buffer into a ring and drain on a sensible cadence.
 - **Bypassing Chrome 136+'s default-profile restriction.** Mode B's profile-copy dance is the documented workaround; we don't try to defeat the security hardening any further.
-- **Persistent browser state across Chrome restarts in Mode A.** Chrome assigns a new debugging port each launch; the helpers depend on `FIGMA_CDP_PORT` being re-exported by the user. We don't paper over that with discovery logic — the docs spell it out.
+- **Port discovery beyond `DevToolsActivePort` in Mode A.** Chrome assigns a new debugging port each launch; the helpers handle that by falling back to the `DevToolsActivePort` file when `FIGMA_CDP_PORT` is unset. Anything past that file — scanning Chrome processes, probing ports — is out of scope; the docs spell out the fallback's limits.
 - **A test harness for `tests/evals.json`.** The file is currently a hand-verifiable spec, not an automated test suite. Building a runner is separate work.
