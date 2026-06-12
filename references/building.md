@@ -26,12 +26,12 @@ child.layoutSizingVertical = 'HUG';
 child.layoutSizingHorizontal = 'FIXED';
 child.layoutSizingVertical = 'FIXED';
 
-// Child hugs its own content (only works if child has children)
+// Child hugs its own content. `HUG` is only valid on auto-layout frames (`layoutMode != 'NONE'`) and text nodes; setting it elsewhere throws.
 child.layoutSizingHorizontal = 'HUG';
 child.layoutSizingVertical = 'HUG';
 ```
 
-For named component recipes (Button, Card, Input, List), absolute positioning, fixed-frame constraints (when parent is `layoutMode = 'NONE'`), and the key sizing rules (`FILL` requires auto-layout parent, `HUG` requires children, legacy `layoutGrow`), see `references/layout-recipes.md`. For `FILL`-after-`appendChild` and `resize`-before-sizing-modes, see `references/gotchas.md` #1 and #12.
+For named component recipes (Button, Card, Input, List), absolute positioning, fixed-frame constraints (when parent is `layoutMode = 'NONE'`), and the key sizing rules (`FILL` requires auto-layout parent, `HUG` only valid on auto-layout frames and text nodes, legacy `layoutGrow`), see `references/layout-recipes.md`. For `FILL`-after-`appendChild` and `resize`-before-sizing-modes, see `references/gotchas.md` #1 and #12.
 
 ## Post-mutation validation
 
@@ -43,11 +43,11 @@ figma.base64Encode(bytes);
 
 ## Component variants
 
-Pattern for creating a component set with variants:
+Pattern for creating a component set with variants. VARIANT properties derive from `Prop=Value` node names set BEFORE combining; BOOLEAN/TEXT/INSTANCE_SWAP properties are added on the ComponentSet AFTER combining (they cannot be added to a variant inside a set):
 ```js
-// Create variant components
+// Create variant components — name them 'Prop=Value' BEFORE combining
 var primary = figma.createComponent();
-primary.name = 'Button/Primary';
+primary.name = 'Style=Primary';
 primary.resize(120, 40);
 primary.layoutMode = 'HORIZONTAL';
 primary.primaryAxisAlignItems = 'CENTER';
@@ -56,14 +56,14 @@ primary.fills = [{type: 'SOLID', color: {r: 0.15, g: 0.4, b: 0.95}}];
 primary.cornerRadius = 8;
 
 var secondary = primary.clone();
-secondary.name = 'Button/Secondary';
+secondary.name = 'Style=Secondary';
 secondary.fills = [{type: 'SOLID', color: {r: 0.9, g: 0.9, b: 0.9}}];
 
 // Combine into variant set
 var buttonSet = figma.combineAsVariants([primary, secondary], figma.currentPage);
 buttonSet.name = 'Button';
 
-// Add a boolean property
+// Add a boolean property — on the ComponentSet, AFTER combining
 buttonSet.addComponentProperty('Disabled', 'BOOLEAN', false);
 // NOTE: returns name with #id suffix, e.g. 'Disabled#1:23'
 ```
@@ -71,7 +71,7 @@ buttonSet.addComponentProperty('Disabled', 'BOOLEAN', false);
 Working with instances:
 ```js
 var instance = primary.createInstance();
-instance.setProperties({'Variant': 'Secondary'});  // switch variant
+instance.setProperties({'Style': 'Secondary'});  // switch variant
 // For BOOLEAN/TEXT props, use full name with #suffix from componentPropertyDefinitions
 ```
 

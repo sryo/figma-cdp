@@ -108,7 +108,8 @@ Easing: {type:'EASE_IN|OUT|IN_AND_OUT'|'LINEAR'|'GENTLE'|'QUICK'|'BOUNCY'|'SLOW'
 ## Enums
 
 ```
-BlendMode: 'NORMAL'|'MULTIPLY'|'SCREEN'|'OVERLAY'|'DARKEN'|'LIGHTEN'|... (16 total)
+BlendMode: 'PASS_THROUGH'|'NORMAL'|'MULTIPLY'|'SCREEN'|'OVERLAY'|'DARKEN'|'LIGHTEN'|...
+           (19 total; PASS_THROUGH is the default for frames/groups)
 StrokeCap: 'NONE'|'ROUND'|'SQUARE'|'ARROW_LINES'|'ARROW_EQUILATERAL'|
            'DIAMOND_FILLED'|'TRIANGLE_FILLED'|'CIRCLE_FILLED'
 StrokeJoin: 'MITER'|'BEVEL'|'ROUND'

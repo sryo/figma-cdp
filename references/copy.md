@@ -165,7 +165,7 @@ if (node.fontName !== figma.mixed) {
 
 ### Find-and-replace (global)
 
-Uses `split/join` instead of regex: avoids QuickJS `String.replace` only-first-match behavior:
+Uses `split/join` instead of regex: `String.replace` with a string pattern only replaces the first match (standard JS behavior):
 
 ```js
 var textNodes = figma.currentPage.findAllWithCriteria({types: ['TEXT']});
@@ -345,10 +345,10 @@ var tagged = figma.currentPage.findAllWithCriteria({
 See the [Designer-agent feedback loop](#designer-agent-feedback-loop) section above for the full comment workflow including posting, threading, polling, and deletion.
 
 ### 3. Annotations
-Structured review notes attached to nodes. The `annotations` array is readonly; clone with `.slice()`, push, and reassign:
+Structured review notes attached to nodes. The `annotations` array is readonly; clone with `.slice()`, push, and reassign. Note text goes in `label` — `properties` is `ReadonlyArray<{type: <nodePropertyName>}>` (pinned node properties), not free text:
 ```js
 var annots = node.annotations ? node.annotations.slice(): [];
-annots.push({ label: 'Copy Review', properties: { note: 'Tone too formal' } });
+annots.push({label: 'Copy Review: tone too formal'});
 node.annotations = annots;
 ```
 

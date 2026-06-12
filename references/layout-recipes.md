@@ -75,7 +75,7 @@ child.constraints = {horizontal: 'MAX', vertical: 'MAX'};         // pin bottom-
 ## Key rules
 
 - `FILL` requires the parent to have Auto Layout.
-- `HUG` requires the node to have children (frames/components only).
+- `HUG` is only valid on auto-layout frames (`layoutMode != 'NONE'`) and text nodes; setting it elsewhere throws.
 - `layoutGrow = 1` is the legacy way to set FILL. Prefer `layoutSizing*` properties.
 - Set `primaryAxisSizingMode = 'AUTO'` on the parent for hug behavior on the main axis.
 - `resize()` after a sizing mode resets the child to `FIXED`. Always resize first, then set sizing modes (see `gotchas.md` #12).

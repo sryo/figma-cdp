@@ -29,7 +29,7 @@ node.findAllWithCriteria({types:['TEXT']})   // native C++ filter — fast
 ```
 figma.root: DocumentNode [ro]
 figma.currentPage: PageNode
-figma.editorType: 'figma'|'figjam'|'dev'|'slides' [ro]
+figma.editorType: 'figma'|'figjam'|'dev'|'slides'|'buzz' [ro]
 figma.fileKey: string|undefined [ro]           // private plugins only
 figma.apiVersion: string [ro]
 figma.pluginId: string [ro]

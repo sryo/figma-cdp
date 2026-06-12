@@ -131,11 +131,12 @@ parent.appendChild(child);
 if (child.parent.id !== parent.id) return {error: 'reparent failed'};
 ```
 
-## 15. Append in the same eval that creates: orphan nodes get GC'd
+## 15. Append in the same eval that creates: node objects go stale across evals
+Created nodes are parented to `currentPage` automatically, so nothing is lost — but a node *object* held from a previous eval can go stale. Store IDs in `window.__batchState`, re-fetch with `getNodeByIdAsync`.
 ```js
-// WRONG: split across evals; the orphan may be gone by step 2
+// WRONG: split across evals; the held object may be stale by step 2
 window.__batchState.a = figma.createText();          // step 1
-parent.appendChild(window.__batchState.a);           // step 2: .removed === true
+parent.appendChild(window.__batchState.a);           // step 2: stale reference
 // CORRECT: create + append in the same script, pass the ID
 var t = figma.createText();
 parent.appendChild(t);
@@ -160,6 +161,7 @@ if (!hero) {
 // WRONG #2: rebuilding a button as raw frame + text when a Button component exists
 var btn = figma.createFrame(); btn.layoutMode = 'HORIZONTAL'; /* ...20 more lines... */
 // CORRECT: instantiate the existing component, override props
+await figma.loadAllPagesAsync();  // findAllWithCriteria misses unloaded pages otherwise
 var buttonComp = figma.root
   .findAllWithCriteria({types: ['COMPONENT', 'COMPONENT_SET']})
   .find(function(c) { return c.name === 'Button' || c.name.indexOf('Button') === 0; });

@@ -10,7 +10,7 @@ How to connect to Figma's Plugin API via `agent-browser` and the eval patterns f
 
 1. **Test existing connection**: skip the rest if `typeof figma` returns `"object"`:
    ```bash
-   agent-browser --cdp 9222 eval "typeof figma" 2>/dev/null && echo "connected"
+   agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma" 2>/dev/null && echo "connected"
    ```
 
 2. **Connect to Chrome.** Two paths — try Mode A first.
@@ -113,15 +113,15 @@ Write `.js` with the Write tool (no Bash needed), then execute:
 python3 /tmp/figma_run.py /tmp/figma_eval.js
 ```
 
-The helper base64-encodes the script and passes it to `agent-browser --cdp 9222 eval -b`.
+The helper reads `FIGMA_CDP_PORT` (default 9222), base64-encodes the script, and passes it to `agent-browser eval -b`.
 
 ### Simple expressions
 
 For one-liners (no helper needed):
 
 ```bash
-agent-browser --cdp 9222 eval "figma.currentPage.name"
-agent-browser --cdp 9222 eval "figma.currentPage.children.length"
+agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.name"
+agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.children.length"
 ```
 
 ### Batched evals
@@ -227,7 +227,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 For full-page screenshots without Plugin API:
 
 ```bash
-agent-browser --cdp 9222 screenshot /tmp/figma_screenshot.png
+agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" screenshot /tmp/figma_screenshot.png
 ```
 
 ## Parallelization
@@ -245,10 +245,10 @@ When the coordinator launches parallel workers:
 - Reads file structure and creates target frames up front
 - Assigns each worker a specific frame or page
 - Distributes the component IDs each worker needs
-- Calls `figma.commitUndo()` after each logical unit so rollbacks are clean
 
 **Workers**:
 - Build only within their assigned frame
+- Call `figma.commitUndo()` after completing each logical unit (sets an undo checkpoint)
 - Between operations, poll `window.__figmaEvents` (see Event listener injection below) to detect external changes (user moved the selection, another worker landed a change) and bail or re-read state if so
 - After each `appendChild`, verify `child.parent.id === expectedParent.id` — silent reparenting is a real failure mode in long async scripts (see `gotchas.md` #14)
 
@@ -275,7 +275,7 @@ Check exit codes to detect failures in multi-step operations.
 Use `--json` for structured output with success/error metadata:
 
 ```bash
-agent-browser --cdp 9222 eval "figma.currentPage.name" --json
+agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.name" --json
 ```
 
 Returns:
@@ -315,7 +315,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_listeners.js`
 
 Read and drain events:
 ```bash
-agent-browser --cdp 9222 eval "JSON.stringify(window.__figmaEvents.splice(0))"
+agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "JSON.stringify(window.__figmaEvents.splice(0))"
 ```
 
 Drain at 1-2s intervals, not faster — each `agent-browser` invocation cold-starts the CLI (~200ms). The ring buffer holds 100 events, so 1s polling tolerates 100 events/sec without loss.

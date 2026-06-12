@@ -49,6 +49,9 @@ componentProperties [ro], scaleFactor, exposedInstances [ro], isExposedInstance
 overrides: [{id, overriddenFields}] [ro]         // direct only, not inherited
 removeOverrides(): void                          // resetOverrides() is DEPRECATED
 // Inherits FrameNode + VariantMixin. PERF: don't alternate component writes + instance reads.
+// Subtree is structurally frozen — no appendChild/insertChild/remove/reorder inside an
+//   instance. Use overrides, setProperties, swapComponent, edit the main component, or
+//   detachInstance() as a last resort.
 ```
 
 ## ComponentPropertiesMixin
@@ -99,6 +102,8 @@ overlayBackgroundInteraction: 'NONE'|'CLOSE_ON_CLICK_OUTSIDE' [ro]
 .importVariableByKeyAsync(key): P<Variable>
 .extendLibraryCollectionByKeyAsync(key, name): P<...>   // Enterprise
 .setBoundVariableForPaint|Effect|LayoutGrid(item, field, variable|null)
+//   Each RETURNS A NEW object — reassign the result into fills/effects/layoutGrids,
+//   or the binding is a silent no-op.
 // ResolvedType: 'BOOLEAN'|'COLOR'|'FLOAT'|'STRING'
 ```
 
@@ -193,5 +198,7 @@ annotations: Annotation[] [ro]
 
 ```
 figma.combineAsVariants(components: ComponentNode[], parent, index?): ComponentSetNode
-// ADD componentProperties to each variant BEFORE combining.
+// VARIANT properties derive from 'Prop=Value' node names set BEFORE combining.
+// BOOLEAN/TEXT/INSTANCE_SWAP properties: add on the ComponentSet AFTER combining
+//   (they cannot be added to a variant inside a set).
 ```
