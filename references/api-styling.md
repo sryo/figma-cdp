@@ -1,27 +1,10 @@
-# API: Styling (fills, strokes, effects, images, prototype)
+# API: Styling (paints, effects, images, prototype)
 
 Load for any task touching colors, shadows, blurs, images, or prototype reactions. See `references/building.md` → Effects / Gradient fills / Image fills for end-to-end patterns.
 
-Cross-refs: `references/api-reference.md` for base mixins and `figma.util` color helpers; `references/api-layout.md` for shape nodes that use these mixins; `references/api-components.md` for PaintStyle / EffectStyle objects.
+Cross-refs: `references/api-reference.md` for base mixins, GeometryMixin (fills/strokes), and `figma.util` color helpers; `references/api-layout.md` for shape nodes that use these mixins; `references/api-components.md` for PaintStyle / EffectStyle objects.
 
-## GeometryMixin (fills, strokes)
-
-```
-fills: Paint[]|mixed                             // READONLY array — reassign, don't push!
-fillStyleId: string|mixed
-strokes: Paint[]
-strokeStyleId: string
-strokeWeight: number|mixed
-strokeAlign: 'CENTER'|'INSIDE'|'OUTSIDE'
-strokeCap: StrokeCap|mixed
-strokeJoin: StrokeJoin|mixed
-strokeMiterLimit: number
-dashPattern: number[]
-fillGeometry/strokeGeometry: VectorPaths [ro]
-outlineStroke(): VectorNode|null
-setFillStyleIdAsync(id)/setStrokeStyleIdAsync(id): P<void>
-setFillsAsync(paints)/setStrokesAsync(strokes): P<void>
-```
+GeometryMixin (fills, strokes): see `references/api-reference.md` → GeometryMixin (fills, strokes).
 
 ## BlendMixin (effects, opacity, blend mode, masks)
 
@@ -42,10 +25,19 @@ reactions: Reaction[] [ro]
 setReactionsAsync(reactions): P<void>
 ```
 
+## FramePrototypingMixin (on frames/components)
+
+```
+overflowDirection: 'NONE'|'HORIZONTAL'|'VERTICAL'|'BOTH'
+numberOfFixedChildren: number
+overlayPositionType: OverlayPositionType [ro]
+overlayBackground: OverlayBackground [ro]
+overlayBackgroundInteraction: 'NONE'|'CLOSE_ON_CLICK_OUTSIDE' [ro]
+```
+
 ## Paint types
 
 ```
-SolidPaint: {type:'SOLID', color:{r,g,b}, opacity?, visible?, blendMode?}
 GradientPaint: {type:'GRADIENT_LINEAR'|'GRADIENT_RADIAL'|'GRADIENT_ANGULAR'|'GRADIENT_DIAMOND',
                 gradientStops:[{position:0-1, color:{r,g,b,a}}], gradientTransform}
 ImagePaint: {type:'IMAGE', scaleMode:'FILL'|'FIT'|'CROP'|'TILE', imageHash,
@@ -53,7 +45,7 @@ ImagePaint: {type:'IMAGE', scaleMode:'FILL'|'FIT'|'CROP'|'TILE', imageHash,
 VideoPaint: {type:'VIDEO', scaleMode, videoHash}
 ```
 
-Hex → SolidPaint: `figma.util.solidPaint('#6366f1')` (see `api-reference.md` → Utility).
+SolidPaint + the `figma.util.solidPaint` hex helper: see `references/api-reference.md` → GeometryMixin (fills, strokes).
 
 ## Effect types
 

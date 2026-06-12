@@ -15,7 +15,7 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 ## Setup
 
 1. **`agent-browser` installed?** Run `which agent-browser`. If it returns nothing, install it: `npm i -g agent-browser && agent-browser install`.
-2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/execution.md` → Connection (Mode A attach vs Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
+2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/connection.md` (Mode A attach vs Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
 3. **Helper scripts.** Copy `figma_run.py` (single eval) and `figma_batch_run.py` (multi-eval) to `/tmp/`.
 
 ## When you receive a Figma URL
@@ -24,7 +24,7 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 2. Reconnaissance: use the flat text tree pattern in `references/reading.md` → Flat text tree to get the page structure. Switch to Full node inspection only when you need specific properties.
 3. Inventory local components: run `references/reading.md` → Component inventory. Note every Component / ComponentSet that exists; any worker that needs a button, card, input, icon, etc. should instantiate the matching one instead of building raw frames. New components only when nothing fits.
 4. Decide whether to dispatch a worker (see Work decomposition) or run inline.
-5. If dispatching: fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], pass to the Agent tool. List the component IDs the worker should reuse so it doesn't rebuild from scratch. Run workers in parallel when their units share no state.
+5. If dispatching: pre-create the target frames and assign each worker a specific frame or page — a worker builds only within its assigned frame. Fill in `figma-worker.md` with [Task], [Target Nodes], and [Reference], pass to the Agent tool. List the component IDs the worker should reuse so it doesn't rebuild from scratch. Run workers in parallel when their units share no state.
 6. Collect results and check each worker's status (DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED — `figma-worker.md` defines the emit contract).
 7. Summarize back to the user: sections completed, node IDs created/modified, assertions that needed retries, escalations, next steps.
 
@@ -73,15 +73,15 @@ References, loaded on demand:
 | `references/gotchas.md` | WRONG/CORRECT examples for common API pitfalls. Always include for workers |
 | `references/reading.md` | Understanding design before modifying |
 | `references/rest-api.md` | REST endpoints for image rendering and comments |
-| `references/building.md` | Creating or modifying nodes, components, images, effects |
-| `references/layout-recipes.md` | Auto Layout patterns for Button, Card, Input, List + constraints decision table |
+| `references/building.md` | Creating or modifying nodes, components, images, effects + Auto Layout patterns for Button, Card, Input, List + constraints decision table |
 | `references/copy.md` | Text extraction, updates, font loading patterns |
-| `references/execution.md` | Connection setup, eval patterns, batched evals, state persistence, error recovery, performance |
-| `references/api-reference.md` | Universal API: `figma` global, find/navigate, lifecycle, events, viewport, base mixins. Start here, then load topical files below |
+| `references/connection.md` | Connection setup: Mode A attach, Mode B Canary launch, troubleshooting. Coordinator-only — load during setup |
+| `references/execution.md` | Eval patterns, batched evals, state persistence, error recovery, performance |
+| `references/api-reference.md` | Universal API: `figma` global, find/navigate, lifecycle, events, viewport, base mixins, GeometryMixin (fills/strokes) + hex helper. Start here, then load topical files below |
 | `references/api-text.md` | TextNode + range methods + font loading. Load for copy/text work |
 | `references/api-layout.md` | FrameNode, shape nodes, Layout / AutoLayout / Grid / Constraint mixins. Load for building screens |
 | `references/api-components.md` | Component, ComponentSet, Instance, Variables, Styles. Load for component / variant / design-system work |
-| `references/api-styling.md` | Geometry & Blend mixins, Paint, Effect, Prototype types. Load for color / shadow / prototype work |
+| `references/api-styling.md` | Blend mixin, gradient/image paints, Effect, Reaction + FramePrototypingMixin, Prototype types. Load for color / shadow / prototype work (solid fills/strokes live in api-reference.md) |
 
 ## Before dispatch
 

@@ -4,7 +4,7 @@ Read-only file operations and the comment workflow, without a browser session. S
 
 For where to use REST inside a workflow, see:
 - `references/reading.md` → Pre-flight workflow → Via REST API
-- `references/copy.md` → Designer-agent feedback loop (comment posting/polling)
+- `references/copy.md` → Designer-agent feedback loop (the review cycle built on comments)
 
 ## Auth setup
 
@@ -108,9 +108,11 @@ curl -s -X DELETE \
   "https://api.figma.com/v1/files/$FIGMA_FILE_KEY/comments/COMMENT_ID"
 ```
 
+To poll for replies, list comments with the GET helper (`v1/files/:key/comments?as_md=true`, see Examples above). Each entry in `comments[]` carries `id`, `message`, `client_meta.node_id`, `created_at`, `resolved_at`, `user`: filter by `created_at` > your last-seen timestamp to find new replies.
+
 > **`resolved_at` is read-only**: there's no API to resolve or unresolve comments. Only designers can resolve in the Figma UI.
 
 ## Rate limits and staleness
 
-- **30 requests/minute**: batch node IDs into single calls where possible.
+- **~30 requests/minute**: batch node IDs into single calls where possible, and pace comment posting accordingly.
 - REST reads may **lag a few seconds** behind Plugin API writes. After mutations, use Plugin API `exportAsync` for immediate verification instead of polling REST.

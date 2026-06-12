@@ -62,7 +62,7 @@ For each section (or the whole task if no sections):
 If the spec names source files, repo paths, or live URLs as the reference for the design, read them BEFORE touching Figma. Match the implementation — real layout, real colors, real copy. Don't infer from the app's name. If a cited source is missing or ambiguous, return `NEEDS_CONTEXT` before building.
 
 ### 1. READ
-Inspect the target before touching anything. See `references/execution.md` → Verification Patterns → Property check. Also run `references/reading.md` → Component inventory if the coordinator didn't already pass you component IDs — any button, card, input, icon, or other repeated piece should come from an existing Component/ComponentSet via `createInstance()`. Only create raw frames or new components when nothing in the file fits.
+Inspect the target before touching anything. See `references/execution.md` → Verification patterns → Property check. Also run `references/reading.md` → Component inventory if the coordinator didn't already pass you component IDs — any button, card, input, icon, or other repeated piece should come from an existing Component/ComponentSet via `createInstance()`. Only create raw frames or new components when nothing in the file fits.
 
 ### 2. PLAN
 Decide mutations based on what you read. Check `references/conventions.md` for naming/structure rules.
@@ -71,10 +71,10 @@ Decide mutations based on what you read. Check `references/conventions.md` for n
 Apply mutations. Return ALL created/mutated node IDs: `{createdNodeIds: [...], mutatedNodeIds: [...], rootId: ...}`. End with `figma.commitUndo()`.
 
 ### 4. VERIFY + RETRY
-Run each assertion from the spec — don't just re-read properties. See `references/execution.md` → Assertion Verification. Return `{passed, total, allPassed, failures}`. If `allPassed: false`, write a targeted fix script for ONLY the failures and re-verify. **Max 3 retries per section.** After 3 failures, report BLOCKED.
+Run each assertion from the spec — don't just re-read properties. See `references/execution.md` → Assertion verification. Return `{passed, total, allPassed, failures}`. If `allPassed: false`, write a targeted fix script for ONLY the failures and re-verify. **Max 3 retries per section.** After 3 failures, report BLOCKED.
 
 ### 5. CHECKPOINT (multi-section only)
-Save progress after a section passes. See `references/execution.md` → Section Checkpointing.
+Save progress after a section passes. See `references/execution.md` → Section checkpointing.
 
 ### 6. REPORT
 End your response with exactly one of:
@@ -91,7 +91,7 @@ Per-file picker:
 - Design conventions → `references/conventions.md` (always include)
 - Gotchas → `references/gotchas.md` (always include)
 - Node creation/effects → `references/building.md`
-- Layout patterns → `references/layout-recipes.md`
+- Layout patterns → `references/building.md` → Layout recipes
 - Text/copy work → `references/copy.md` + `references/api-text.md`
 - Design inspection → `references/reading.md`
 - REST endpoints (image rendering, comments) → `references/rest-api.md`
@@ -103,7 +103,7 @@ Per-file picker:
 
 Common recipe combos (avoid over-loading):
 - **Copy edit:** conventions + gotchas + copy + api-text
-- **Build a component or screen:** conventions + gotchas + building + layout-recipes + api-reference + api-layout (+ api-components if creating variants, + api-styling if adding effects)
+- **Build a component or screen:** conventions + gotchas + building + api-reference + api-layout (+ api-components if creating variants, + api-styling if adding effects)
 - **Recon only:** conventions + reading + api-reference
 - **Add shadow / restyle:** conventions + gotchas + building + api-styling
 - **Image rendering or comments:** rest-api (+ copy if posting comments on text nodes)

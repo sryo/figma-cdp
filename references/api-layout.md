@@ -1,8 +1,8 @@
 # API: Layout + shape nodes
 
-Load for building screens, frames, shapes, and any task touching Auto Layout / sizing / constraints. See `references/layout-recipes.md` for ready-to-paste patterns (Button, Card, Input, List) and `references/building.md` for end-to-end build flows.
+Load for building screens, frames, shapes, and any task touching Auto Layout / sizing / constraints. See `references/building.md` → Layout recipes for ready-to-paste patterns (Button, Card, Input, List) and the rest of that file for end-to-end build flows.
 
-Cross-refs: `references/api-reference.md` for base mixins; `references/api-styling.md` for fills/strokes/effects; `references/api-components.md` for ComponentNode (which extends FrameNode).
+Cross-refs: `references/api-reference.md` for base mixins and GeometryMixin (fills/strokes); `references/api-styling.md` for effects/blend/prototype; `references/api-components.md` for ComponentNode (which extends FrameNode).
 
 ## Create nodes (top-level)
 
@@ -115,9 +115,9 @@ expanded: boolean
 ### FrameNode
 ```
 type: 'FRAME' [ro]
-// Inherits: AutoLayoutMixin, GeometryMixin (api-styling.md), BlendMixin (api-styling.md),
+// Inherits: AutoLayoutMixin, GeometryMixin (api-reference.md), BlendMixin (api-styling.md),
 //   LayoutMixin, ChildrenMixin, CornerMixin, RectangleCornerMixin, IndividualStrokesMixin,
-//   ConstraintMixin, ExportMixin, ReactionMixin (api-styling.md), FramePrototypingMixin (api-components.md)
+//   ConstraintMixin, ExportMixin, ReactionMixin (api-styling.md), FramePrototypingMixin (api-styling.md)
 clipsContent: boolean
 layoutGrids: LayoutGrid[]
 gridStyleId: string
@@ -149,7 +149,7 @@ arcData: {startingAngle, endingAngle, innerRadius}  // radians, innerRadius 0-1
 ```
 // LineNode 'LINE' (height always 0); PolygonNode 'POLYGON' (pointCount);
 // StarNode 'STAR' (pointCount, innerRadius 0-1); VectorNode 'VECTOR' (+ VectorLikeMixin)
-// All inherit Geometry (api-styling.md), Blend (api-styling.md), Layout, Constraint, Export
+// All inherit Geometry (api-reference.md), Blend (api-styling.md), Layout, Constraint, Export
 // VectorPath: {windingRule: 'NONZERO'|'EVENODD'|'NONE', data: SVG-path-string}
 //   e.g. node.vectorPaths = [{windingRule: "EVENODD", data: "M 0 0 L 100 0 L 50 100 Z"}]
 // VectorNetwork (advanced): {vertices, segments, regions?}: cubic bezier with tangents

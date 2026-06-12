@@ -246,54 +246,13 @@ An iterative comment-based workflow for reviewing copy with designers. The Plugi
 ### The cycle
 
 1. AI reads all text and prepares suggestions.
-2. AI posts review comments pinned to specific text nodes (see below).
+2. AI posts review comments pinned to specific text nodes.
 3. Designer sees comments natively in Figma UI, replies or edits text directly.
 4. AI polls for new replies: filter by `created_at` > last-known timestamp.
 5. AI applies accepted changes or posts revised suggestions.
 6. Repeat until designer resolves all comments in the Figma UI.
 
-### Post a comment pinned to a node
-
-```bash
-curl -s -X POST \
-  -H "X-Figma-Token: $FIGMA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Suggestion: more action-oriented heading",
-       "client_meta": {"node_id": "1:2", "node_offset": {"x": 0, "y": 0}}}' \
-  "https://api.figma.com/v1/files/$FIGMA_FILE_KEY/comments"
-```
-
-### List comments (for polling)
-
-```bash
-curl -s -H "X-Figma-Token: $FIGMA_TOKEN" \
-  "https://api.figma.com/v1/files/$FIGMA_FILE_KEY/comments?as_md=true"
-```
-
-Response includes `comments[]` with `id`, `message`, `client_meta.node_id`, `created_at`, `resolved_at`, `user`. Filter by `created_at` > your last-seen timestamp to find new replies.
-
-### Reply to a comment (threading)
-
-```bash
-curl -s -X POST \
-  -H "X-Figma-Token: $FIGMA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Updated: how about: Ship faster with confidence?",
-       "comment_id": "PARENT_COMMENT_ID"}' \
-  "https://api.figma.com/v1/files/$FIGMA_FILE_KEY/comments"
-```
-
-### Delete a comment
-
-```bash
-curl -s -X DELETE \
-  -H "X-Figma-Token: $FIGMA_TOKEN" \
-  "https://api.figma.com/v1/files/$FIGMA_FILE_KEY/comments/COMMENT_ID"
-```
-
-> **`resolved_at` is read-only**: there is no API to resolve or unresolve comments. Only designers can resolve comments in the Figma UI.
-
-> **Rate limit:** ~30 requests/minute. Batch comment posting accordingly.
+For the API calls (post pinned to a node, list/poll, reply, delete) and the `resolved_at` / rate-limit caveats, see `references/rest-api.md` → Comment operations.
 
 ## Track changes
 
@@ -342,7 +301,7 @@ var tagged = figma.currentPage.findAllWithCriteria({
 ```
 
 ### 2. REST API Comments
-See the [Designer-agent feedback loop](#designer-agent-feedback-loop) section above for the full comment workflow including posting, threading, polling, and deletion.
+See the [Designer-agent feedback loop](#designer-agent-feedback-loop) section above for the review cycle; the API calls live in `references/rest-api.md` → Comment operations.
 
 ### 3. Annotations
 Structured review notes attached to nodes. The `annotations` array is readonly; clone with `.slice()`, push, and reassign. Note text goes in `label` — `properties` is `ReadonlyArray<{type: <nodePropertyName>}>` (pinned node properties), not free text:

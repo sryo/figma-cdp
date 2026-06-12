@@ -24,10 +24,10 @@ Talk to Claude Code:
 - *"Extract all the copy from the Screens page."*
 - *"Add a drop shadow to the hero frame."*
 
-On first run, the skill connects to Chrome two ways: attach to your existing Chrome (flip the toggle at `chrome://inspect/#remote-debugging`), or launch a fresh Chrome Canary for debugging. See `references/execution.md` → Connection.
+On first run, the skill connects to Chrome two ways: attach to your existing Chrome (flip the toggle at `chrome://inspect/#remote-debugging`), or launch a fresh Chrome Canary for debugging. See `references/connection.md`.
 
 ## Troubleshooting
 
 If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet — open and close any Figma plugin once to wake it up.
 
-If `agent-browser --cdp <port>` can't connect, see `references/execution.md` → Troubleshooting.
+If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.

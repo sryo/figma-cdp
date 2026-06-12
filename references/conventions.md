@@ -53,33 +53,13 @@ Match existing naming (e.g. `button-primary`, `btn/primary`).
 - **Descriptive name**: match existing naming convention
 
 ### Creating variants
-```js
-// Name encodes variant properties: match existing naming pattern in file
-var primary = figma.createComponent();
-primary.name = 'Size=Medium, Style=Primary';
 
-var secondary = figma.createComponent();
-secondary.name = 'Size=Medium, Style=Secondary';
-
-var cs = figma.combineAsVariants([primary, secondary], figma.currentPage);
-cs.name = 'Button';
-
-// CRITICAL: position children after combining (they stack at 0,0)
-cs.children.forEach(function(child, i) { child.x = i * 150; child.y = 0; });
-// Resize component set to fit
-var maxX = 0;
-for (var i = 0; i < cs.children.length; i++) {
-  var right = cs.children[i].x + cs.children[i].width;
-  if (right > maxX) maxX = right;
-}
-cs.resizeWithoutConstraints(maxX + 40, cs.children[0].height + 40);
-```
+Variant component names encode properties as `Property=Value` pairs, e.g. `Size=Medium, Style=Primary`: match the existing naming pattern in the file. Full walkthrough (naming before combining, post-combine positioning, adding properties): see `references/building.md` → Component variants.
 
 ### Component properties
 ```js
-// addComponentProperty returns a KEY STRING: never hardcode it
+// addComponentProperty returns an #id-suffixed key — never hardcode it: see references/api-components.md → ComponentPropertiesMixin
 var labelKey = comp.addComponentProperty('Label', 'TEXT', 'Default');
-// labelKey === "Label#4:0" (unpredictable suffix)
 
 // Link property to child node (REQUIRED or property does nothing)
 textNode.componentPropertyReferences = { characters: labelKey };
@@ -116,31 +96,7 @@ Utilities
 
 ## Variable / token naming
 
-Use slash-separated hierarchy: `{category}/{subcategory}/{role}`, e.g. `color/bg/primary`, `spacing/md`, `radius/lg`. Adapt names and values to the project.
-
-### Primitives vs Semantic
-- **Primitives**: raw values, hidden scope (`[]`): e.g. `blue/500`, `gray/100`
-- **Semantic**: alias primitives, specific scopes: e.g. `color/bg/primary` → alias of primitive
-
-### Variable scopes (always set explicitly)
-```js
-// Default ALL_SCOPES pollutes every picker: never use it
-bgVar.scopes = ['FRAME_FILL', 'SHAPE_FILL'];      // backgrounds
-textColorVar.scopes = ['TEXT_FILL'];                 // text colors
-spacingVar.scopes = ['GAP', 'WIDTH_HEIGHT'];         // spacing
-radiusVar.scopes = ['CORNER_RADIUS'];                // radii
-borderVar.scopes = ['STROKE_COLOR'];                 // borders
-```
-
-### Code syntax mapping
-```js
-// Figma name → Code name (different audiences, different conventions)
-// color/bg/primary → var(--color-bg-primary)     [WEB]
-// color/bg/primary → colorBgPrimary              [ANDROID]
-// color/bg/primary → Color.bgPrimary             [iOS]
-v.setVariableCodeSyntax('WEB', 'var(--color-bg-primary)');
-// CRITICAL: var() wrapper REQUIRED for WEB or Dev Mode shows raw hex
-```
+Naming hierarchy, primitives vs semantic, scopes, and code-syntax mapping: see `references/api-components.md` → Variables.
 
 ## Style naming
 
@@ -231,30 +187,7 @@ Screen Frame (sized to target device, vertical auto layout)
 
 ## Post-build audit
 
-After explicit assertions pass, run a convention audit on the same subtree. Assertions check the spec we wrote; the audit catches drift from the file's existing conventions that the spec didn't enumerate.
-
-What to check:
-
-- **Raw color paints.** Walk fills and strokes. Flag any `SOLID` paint missing `boundVariables.color`; it should resolve to a color variable from the file.
-- **Off-scale spacing.** Read the file's existing auto-layout values to derive the spacing scale. Flag `itemSpacing` or `padding*` values not in that set.
-- **Unbound typography.** For each `TEXT` node, check whether its `(fontName, fontSize, lineHeight, letterSpacing)` matches a defined text style. If not, flag.
-- **Should-be-instance.** Detect raw frames whose structure matches an existing component. Suggest converting via `component.createInstance()`.
-- **Contrast (optional).** For each `TEXT` over a known background fill, run an APCA Lc check. Defaults: ±60 for body, ±75 for small text. Skip when the background isn't resolvable.
-
-Return format:
-
-```js
-return {
-  audit: [
-    {nodeId: '1:23', issue: 'raw-color', suggestion: 'bind fills[0].color to color/bg/primary'},
-    {nodeId: '1:25', issue: 'off-scale-spacing', actual: 13, expected: [12, 16, 24]}
-  ]
-};
-```
-
-A worker that finds audit items should report `DONE_WITH_CONCERNS` (not `DONE`), with the audit list in its report. The coordinator decides whether to ask the user to accept the drift or to dispatch a fix worker.
-
-See `references/reading.md` → Reading variable bindings for the helper that resolves `boundVariables` on a node.
+See `references/building.md` → Post-build audit.
 
 ## Source → Figma primitives
 

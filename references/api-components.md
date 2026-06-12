@@ -2,7 +2,7 @@
 
 Load for component creation, variant work, instance overrides, variables, styles, and any design-system task. See `references/building.md` → Component variants for end-to-end patterns and `references/conventions.md` for naming/atomic-design rules.
 
-Cross-refs: `references/api-reference.md` for base mixins; `references/api-layout.md` for FrameNode (which Components inherit from); `references/api-styling.md` for fills/strokes/effects mixins.
+Cross-refs: `references/api-reference.md` for base mixins and GeometryMixin (fills/strokes); `references/api-layout.md` for FrameNode (which Components inherit from); `references/api-styling.md` for effects/blend/prototyping mixins.
 
 ## Create (top-level)
 
@@ -78,15 +78,7 @@ key: string [ro]
 getPublishStatusAsync(): P<'UNPUBLISHED'|'CURRENT'|'CHANGED'>
 ```
 
-## FramePrototypingMixin (on frames/components)
-
-```
-overflowDirection: 'NONE'|'HORIZONTAL'|'VERTICAL'|'BOTH'
-numberOfFixedChildren: number
-overlayPositionType: OverlayPositionType [ro]
-overlayBackground: OverlayBackground [ro]
-overlayBackgroundInteraction: 'NONE'|'CLOSE_ON_CLICK_OUTSIDE' [ro]
-```
+FramePrototypingMixin: see `references/api-styling.md` → FramePrototypingMixin (on frames/components).
 
 ## Variables (`figma.variables`)
 
@@ -156,6 +148,33 @@ VariableBindableTextField: fontFamily/fontSize/fontStyle/fontWeight/letterSpacin
 
 VariableAlias: {type:'VARIABLE_ALIAS', id: string}
 VariableValue: boolean|string|number|RGB|RGBA|VariableAlias
+```
+
+### Naming and token conventions
+
+Slash-separated hierarchy: `{category}/{subcategory}/{role}`, e.g. `color/bg/primary`, `spacing/md`, `radius/lg`. Adapt names and values to the project.
+
+- **Primitives**: raw values, hidden scope (`[]`): e.g. `blue/500`, `gray/100`
+- **Semantic**: alias primitives, specific scopes: e.g. `color/bg/primary` → alias of a primitive
+
+```js
+// Default ALL_SCOPES pollutes every picker: never use it
+bgVar.scopes = ['FRAME_FILL', 'SHAPE_FILL'];         // backgrounds
+textColorVar.scopes = ['TEXT_FILL'];                 // text colors
+spacingVar.scopes = ['GAP', 'WIDTH_HEIGHT'];         // spacing
+radiusVar.scopes = ['CORNER_RADIUS'];                // radii
+borderVar.scopes = ['STROKE_COLOR'];                 // borders
+```
+
+### Code syntax mapping
+
+```js
+// Figma name → Code name (different audiences, different conventions)
+// color/bg/primary → var(--color-bg-primary)     [WEB]
+// color/bg/primary → colorBgPrimary              [ANDROID]
+// color/bg/primary → Color.bgPrimary             [iOS]
+v.setVariableCodeSyntax('WEB', 'var(--color-bg-primary)');
+// CRITICAL: var() wrapper REQUIRED for WEB or Dev Mode shows raw hex
 ```
 
 ## Team library (`figma.teamLibrary`)

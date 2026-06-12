@@ -8,7 +8,7 @@ Universal API — `figma` global, find/navigate, lifecycle, events, viewport, ba
 - `references/api-text.md` — TextNode, range methods, font loading
 - `references/api-layout.md` — FrameNode, shape nodes, Layout / AutoLayout / Grid / Constraint mixins
 - `references/api-components.md` — Component, ComponentSet, Instance, Variables, Styles
-- `references/api-styling.md` — Geometry & Blend mixins, Paint, Effect, Prototype types
+- `references/api-styling.md` — Blend mixin, gradient/image paints, Effect, Prototype types, FramePrototypingMixin
 
 ## Quick lookup: most used
 
@@ -173,6 +173,29 @@ exportAsync(settings: {format:'SVG_STRING',...}): P<string>
 exportAsync(settings: {format:'JSON_REST_V1'}): P<Object>
 // ExportSettings: {format:'PNG'|'JPG'|'SVG'|'PDF', constraint?: {type:'SCALE'|'WIDTH'|'HEIGHT', value}, contentsOnly?, suffix?}
 ```
+
+### GeometryMixin (fills, strokes)
+On every paintable node (frames, shapes, text — not groups/slices).
+```
+fills: Paint[]|mixed                             // READONLY array — reassign, don't push!
+fillStyleId: string|mixed
+strokes: Paint[]
+strokeStyleId: string
+strokeWeight: number|mixed
+strokeAlign: 'CENTER'|'INSIDE'|'OUTSIDE'
+strokeCap: StrokeCap|mixed
+strokeJoin: StrokeJoin|mixed
+strokeMiterLimit: number
+dashPattern: number[]
+fillGeometry/strokeGeometry: VectorPaths [ro]
+outlineStroke(): VectorNode|null
+setFillStyleIdAsync(id)/setStrokeStyleIdAsync(id): P<void>
+setFillsAsync(paints)/setStrokesAsync(strokes): P<void>
+```
+```
+SolidPaint: {type:'SOLID', color:{r,g,b}, opacity?, visible?, blendMode?}
+```
+Hex → SolidPaint: `figma.util.solidPaint('#6366f1')` (see Utility above). Gradient / image / video paints → `references/api-styling.md` → Paint types.
 
 ## Top-level nodes
 
