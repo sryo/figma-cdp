@@ -12,6 +12,9 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
 ├── figma_run.py          # single-eval helper — base64 → agent-browser eval
 ├── figma_batch_run.py    # multi-eval helper — base64 N scripts → one agent-browser batch
+├── figma_capture.py      # live-URL → Figma import: walk (--session capture) → /tmp JSON → import (default session)
+├── figma_walker.js       # DOM walker run by figma_capture.py — emits the flat capture spec
+├── figma_importer.js     # batch importer run in the default session — spec slice → Figma nodes
 ├── AGENTS.md             # this file — architecture + invariants
 ├── CLAUDE.md             # pointer to AGENTS.md
 ├── README.md             # human-facing intro + install
@@ -53,8 +56,10 @@ The only subcommands we depend on:
 - `eval -b <base64>` — run a JS script in the page
 - `batch --json "<cmd1>" "<cmd2>" ...` — run multiple commands in one CLI invocation, results as a JSON array
 - `screenshot <path>` — full-page PNG capture
+- `open <url>` — navigate a tab (verified subcommand name; not `navigate`/`goto`)
+- `connect <port>` — bind a session to a CDP port (capture fast-path binds explicitly; a later bare `--cdp` does NOT retarget a bound session)
 - `--cdp <port>` — target port (default 9222, overridden by `FIGMA_CDP_PORT`)
-- `--session <name>` — per-worker browser tab/session isolation; `references/execution.md` → "When to use sessions vs shared state" prescribes it for parallel workers on *different* Figma files (same-file workers share one tab via namespaced `window.__batchState`)
+- `--session <name>` — per-worker browser tab/session isolation; the spike verified named sessions are isolated tab sets (the capture fast-path binds its own `--session capture`). `references/execution.md` → "When to use sessions vs shared state" prescribes it for parallel workers on *different* Figma files (same-file workers share one tab via namespaced `window.__batchState`)
 
 If any of these break, that's the integration boundary to fix. The other ~140 agent-browser subcommands are irrelevant to this skill.
 
@@ -63,7 +68,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - **SKILL.md is always-loaded.** Every line is per-conversation token cost. Add only what every coordinator needs.
 - **figma-worker.md is per-dispatch.** Every line is per-worker token cost. Compress hedging and meta-narration; preserve imperatives (READ before doing, find before creating, fix only what failed, don't rebuild).
 - **References stay task-shaped.** Don't merge files because they're conceptually related. Don't split files because they're long — split only when independent tasks would load disjoint subsets.
-- **Source-language framing stays generic.** Don't add per-language mapping tables (SwiftUI / Compose / Flutter / etc.). The `conventions.md` → "Source → Figma primitives" table is the format — name the *kind* of source construct, not the language syntax. The skill should work with any source the user can throw at it.
+- **Source-language framing stays generic.** Don't add per-language mapping tables (SwiftUI / Compose / Flutter / etc.). The `conventions.md` → "Source → Figma primitives" table is the format — name the *kind* of source construct, not the language syntax. The skill should work with any source the user can throw at it. Carve-out: `references/capture.md`'s CSS→Figma table is the single allowed CSS-property table — computed CSS is the one normalized form every rendered page reduces to regardless of authoring framework, not a source language; the rule still bans per-source-language (SwiftUI/Compose/Flutter) tables.
 - **Helpers honor `FIGMA_CDP_PORT`.** New helpers must resolve the port in this order: `FIGMA_CDP_PORT` if set, then the browser's `DevToolsActivePort` file, then 9222. Never hardcode the port in a helper.
 - **`gotchas.md` uses WRONG/CORRECT pairs.** Each numbered gotcha earns its slot — only add ones that have actually bitten the skill. Nice-to-have caveats belong in the reference doc they're about, not in gotchas.
 - **Worker Loop step descriptions stay explicit.** DISCOVER, READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
@@ -79,3 +84,4 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - **Bypassing Chrome 136+'s default-profile restriction.** Mode B's profile-copy dance is the documented workaround; we don't try to defeat the security hardening any further.
 - **Port discovery beyond `DevToolsActivePort` in Mode A.** Chrome assigns a new debugging port each launch; the helpers handle that by falling back to the `DevToolsActivePort` file when `FIGMA_CDP_PORT` is unset. Anything past that file — scanning Chrome processes, probing ports — is out of scope; the docs spell out the fallback's limits.
 - **A test harness for `tests/evals.json`.** The file is currently a hand-verifiable spec, not an automated test suite. Building a runner is separate work.
+- **Recursing into cross-origin iframes during live-page capture.** Would need CDP frame-target routing beyond the agent-browser surface we depend on; cross-origin iframes are captured as named placeholder frames only.

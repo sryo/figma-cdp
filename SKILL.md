@@ -1,7 +1,7 @@
 ---
 name: figma-cdp
 description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API via the agent-browser CLI over Chrome DevTools Protocol. Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
-allowed-tools: Bash(agent-browser:*), Bash(python3 /tmp/figma_run.py:*), Bash(python3 /tmp/figma_batch_run.py:*)
+allowed-tools: Bash(agent-browser:*), Bash(python3 /tmp/figma_run.py:*), Bash(python3 /tmp/figma_batch_run.py:*), Bash(python3 /tmp/figma_capture.py:*)
 ---
 
 # Figma design automation
@@ -14,7 +14,7 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 
 1. **`agent-browser` installed?** If `which agent-browser` returns nothing, see `references/connection.md`.
 2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/connection.md` (Mode A attach vs Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
-3. **Helper scripts.** Copy `figma_run.py` (single eval) and `figma_batch_run.py` (multi-eval) to `/tmp/`.
+3. **Helper scripts.** Copy `figma_run.py` (single eval), `figma_batch_run.py` (multi-eval), and `figma_capture.py` (live-URL capture) to `/tmp/`.
 
 ## When you receive a Figma URL
 
@@ -33,7 +33,7 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 
 ## When you receive a mockup request without a source URL
 
-When a request names an existing app, screen, or feature instead of pointing at a Figma file: **code → Figma means the source artifact already exists** — locate the source repo/code (check `~/Documents/<name>`, else ask for the path or fetch the GitHub URL) and read the real UI before designing: real layout, real colors, real typography, real copy. If the app has no UI yet (a CLI, a library, a backend service), say so and ask the user what surface to design — don't invent screens. Then proceed from step 3 of the Figma-URL branch; each worker spec must cite the specific source files it mirrors.
+When a request names an existing app, screen, or feature instead of pointing at a Figma file: **code → Figma means the source artifact already exists** — locate the source repo/code (check `~/Documents/<name>`, else ask for the path or fetch the GitHub URL) and read the real UI before designing: real layout, real colors, real typography, real copy. If the app has no UI yet (a CLI, a library, a backend service), say so and ask the user what surface to design — don't invent screens. Then proceed from step 3 of the Figma-URL branch; each worker spec must cite the specific source files it mirrors. If the source is a live URL, use the capture fast-path — `references/capture.md`.
 
 ## Work decomposition
 
@@ -61,6 +61,7 @@ References, loaded on demand:
 
 | File | Load for |
 |------|----------|
+| `references/capture.md` | Live URL → Figma import. Load when the source is a rendered web page |
 | `references/conventions.md` | Atomic design, naming, spacing, colors, typography. Always include for workers |
 | `references/gotchas.md` | WRONG/CORRECT examples for common API pitfalls. Always include for workers |
 | `references/reading.md` | Understanding design before modifying |
