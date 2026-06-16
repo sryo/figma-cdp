@@ -182,6 +182,28 @@
       var joined = cap80(parts.join(' '));
       if (joined) return joined;
     }
+    // Form controls: button value, then <label for=id> / wrapping <label>, then placeholder.
+    var ctl = el.tagName ? el.tagName.toLowerCase() : '';
+    if (ctl === 'input' || ctl === 'select' || ctl === 'textarea') {
+      var typ = (el.getAttribute('type') || '').toLowerCase();
+      if ((typ === 'submit' || typ === 'button' || typ === 'reset') && el.value) return cap80(el.value);
+      var nm = '', id = el.getAttribute('id');
+      if (id && el.ownerDocument) {
+        try {
+          var esc = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(id) : id.replace(/"/g, '\\"');
+          var labs = el.ownerDocument.querySelectorAll('label[for="' + esc + '"]');
+          for (var li = 0; li < labs.length; li++) nm += ' ' + labs[li].textContent;
+        } catch (e) {}
+      }
+      if (!nm.trim()) {
+        var anc = el.parentElement;
+        while (anc) { if (anc.tagName && anc.tagName.toLowerCase() === 'label') { nm = anc.textContent; break; } anc = anc.parentElement; }
+      }
+      nm = cap80(nm);
+      if (nm) return nm;
+      var ph = el.getAttribute('placeholder');
+      if (ph && ph.trim()) return cap80(ph);
+    }
     var alt = el.getAttribute('alt');
     if (alt != null && alt.trim()) return cap80(alt);
     var title = el.getAttribute('title');

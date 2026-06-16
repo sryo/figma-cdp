@@ -65,7 +65,7 @@ Each `node`:
 | `runs` | null \| `[{text, color, fontSize, fontWeight, decoration}]` | inline runs only when spans differ; else null and `text` is authoritative |
 | `styles` | object | computed styles, normalized — see below |
 | `role` | string \| null | explicit ARIA `role` attribute (first token, trimmed) if present, else IMPLICIT-ROLE by tag (see Semantic layer); unknown tag → `null` (NOT `"generic"`) |
-| `axName` | string \| null | cheap best-effort accessible name, ≤80 chars whitespace-collapsed; resolution order aria-label → aria-labelledby joined text → alt → title → (heading/button/link only) trimmed own text → null. Does **not** follow `<label for>` |
+| `axName` | string \| null | best-effort accessible name, ≤80 chars whitespace-collapsed; resolution order aria-label → aria-labelledby joined text → (form controls) button `value` / `<label for>` / wrapping `<label>` / `placeholder` → alt → title → (heading/button/link only) trimmed own text → null |
 | `interactable` | bool | conservative true when tag ∈ {button, select, textarea}; OR `a[href]`; OR `input` with `type != hidden`; OR role ∈ {button, link, textbox, combobox, checkbox, radio, menuitem, tab}; OR `tabindex>=0`; OR computed `cursor === 'pointer'`; else false |
 | `level` | int (1..6) | **heading nodes only** — h1→1 … h6→6. Heading depth rides here, NOT encoded in `role` (which is the bare string `"heading"`) |
 
@@ -79,7 +79,7 @@ The walker computes a lightweight semantic layer in-page (no CDP join). `role` i
 - `input` by `type`: checkbox→checkbox, radio→radio, button/submit/reset/image→button, range→slider, hidden→null, else (incl. default)→textbox.
 - Unknown tag → `null`.
 
-`axName` is deliberately cheap (it feeds Figma layer naming, not spec-perfect AX): the native AXTree is the accuracy upgrade path below. `interactable` is conservative — no false positives over correctness (GitHub's `<input>` whose name lives in a sibling `<label for>` comes back `axName:null` because the cheap resolver does not follow that association).
+`axName` feeds Figma layer naming, not spec-perfect AX. It resolves the common name sources in-page — including form-control labels (`<label for=id>`, wrapping `<label>`, button `value`, `placeholder`) — so e.g. a GitHub login `<input>` whose name lives in a sibling `<label for>` resolves to "Username or email address". Exotic name-computation cases (`aria-owns`, full precedence chains) are the native-AXTree upgrade below. `interactable` is conservative — no false positives over correctness.
 
 #### Accuracy upgrade path — native AXTree join (NOT built in this phase)
 
