@@ -64,6 +64,26 @@ Each `node`:
 | `text` | string | full text content; `""` for containers |
 | `runs` | null \| `[{text, color, fontSize, fontWeight, decoration}]` | inline runs only when spans differ; else null and `text` is authoritative |
 | `styles` | object | computed styles, normalized — see below |
+| `role` | string \| null | explicit ARIA `role` attribute (first token, trimmed) if present, else IMPLICIT-ROLE by tag (see Semantic layer); unknown tag → `null` (NOT `"generic"`) |
+| `axName` | string \| null | cheap best-effort accessible name, ≤80 chars whitespace-collapsed; resolution order aria-label → aria-labelledby joined text → alt → title → (heading/button/link only) trimmed own text → null. Does **not** follow `<label for>` |
+| `interactable` | bool | conservative true when tag ∈ {button, select, textarea}; OR `a[href]`; OR `input` with `type != hidden`; OR role ∈ {button, link, textbox, combobox, checkbox, radio, menuitem, tab}; OR `tabindex>=0`; OR computed `cursor === 'pointer'`; else false |
+| `level` | int (1..6) | **heading nodes only** — h1→1 … h6→6. Heading depth rides here, NOT encoded in `role` (which is the bare string `"heading"`) |
+
+`role`, `axName`, `interactable` are present on **every** normal node and on the cross-origin iframe placeholder (`role:null, axName:null, interactable:false`); `level` is present only on headings.
+
+#### Semantic layer (role / axName / interactable)
+
+The walker computes a lightweight semantic layer in-page (no CDP join). `role` is the explicit `role` attribute if the author set one (open string — `search`, `note`, `tab`, `menuitem` all seen live), else the IMPLICIT-ROLE by tag:
+
+- `button`→button, `a` (only with `href`; bare `a` → null), `nav`→navigation, `header`→banner, `footer`→contentinfo, `main`→main, `aside`→complementary, `ul`/`ol`→list, `li`→listitem, `h1..h6`→heading (+ `level`), `textarea`→textbox, `select`→combobox, `img`→img, `table`→table, `form`→form, `section`→region, `article`→article, `label`→label.
+- `input` by `type`: checkbox→checkbox, radio→radio, button/submit/reset/image→button, range→slider, hidden→null, else (incl. default)→textbox.
+- Unknown tag → `null`.
+
+`axName` is deliberately cheap (it feeds Figma layer naming, not spec-perfect AX): the native AXTree is the accuracy upgrade path below. `interactable` is conservative — no false positives over correctness (GitHub's `<input>` whose name lives in a sibling `<label for>` comes back `axName:null` because the cheap resolver does not follow that association).
+
+#### Accuracy upgrade path — native AXTree join (NOT built in this phase)
+
+This in-page role map is a deliberate v1. The fidelity upgrade is a native `Accessibility.getFullAXTree` join over the agent-browser CDP surface, keyed by `backendNodeId`, replacing the heuristic `role`/`axName` with Chrome's computed accessibility tree (which resolves `<label for>`, `aria-owns`, name-computation precedence, and the full ARIA role taxonomy). That join is the documented next rung, **not implemented here** — the in-page map ships first because it is self-contained in the one walker eval with no CDP dependency.
 
 `styles`:
 
@@ -86,13 +106,46 @@ Each importer eval returns the running divergence report — the work-list for c
 created          int                          # total Figma nodes created across all batches
 flagged          [ {nodeId, reason} ]         # nodeId = created Figma node ID; reason ∈ "grid"|"abs"|"transform"|"block"|"none"
 fontsFallenBack  [ string ]                    # Inter styles requested but unavailable, fell back to Regular (e.g. ["Medium"])
+instantiated     [ {nodeId, category, componentId} ]  # nodes built as a component instance instead of a raw frame
 ```
+
+`instantiated` lists every node the importer reused a local component for: `nodeId` = the Figma instance id, `category` = the normalized role/kind key that matched (see Component instantiation below), `componentId` = the local component id used. Accumulated across batches in `window.__batchState.captureReport` alongside `flagged`/`fontsFallenBack`.
 
 The per-eval return also carries `batchDone` (int) — nodes processed in that batch. Every `flagged` subtree (NONE-frame demotion) and every font substitution appears. The importer writes the spec-index → Figma-node-ID map to `window.__batchState.captureIds` so cleanup workers resolve `i` to a real node.
 
+### Component instantiation contract
+
+The coordinator inventories local components (`references/reading.md` → Component inventory) and passes a category→component map to the importer as `window.__captureSpec.components` (fallback `window.__batchState.captureComponents`). Shape: `{ <category>: <componentId> }` where `componentId` is a **local** Figma component node id (resolved via `figma.getNodeByIdAsync`, NOT a published key).
+
+The importer derives a node's category from `role` first, else `tag`:
+
+| Category | role → | tag → |
+|---|---|---|
+| `button` | button | button |
+| `link` | link | a |
+| `input` | textbox, combobox | input, textarea, select |
+| `checkbox` | checkbox | — |
+| `radio` | radio | — |
+| `nav` | navigation | nav |
+| `tab` | tab | — |
+| `menuitem` | menuitem | — |
+| `list` | list | — |
+| `listitem` | listitem | — |
+| `img` | img | img |
+| `heading` | heading | — |
+| `banner` | banner | — |
+| `contentinfo` | contentinfo | — |
+| `card` | region | — |
+
+A node instantiates **only** on an exact category hit present in the map: the importer does `figma.getNodeByIdAsync(componentId)` → `createInstance()`, resizes to the captured `rect`, sets the instance's primary text layer (`findOne(c => c.type === 'TEXT')`) from the node text, and names it (source-ref below). No match, or no component map → it falls through to the existing frame logic (conservative — no guessed instantiation). Instance subtrees are structurally frozen, so a captured child of a node that became an instance is placed at its absolute rect rather than appended into the frozen instance.
+
+### Source-ref node naming
+
+Every created node is named `[cap:<i>] <readable>` where `readable = axName || role || tag` (the same three fields the walker emits). Existing `[capture:*]` flag tags are kept as a suffix — e.g. `[cap:42] [capture:grid] div`, and a cross-origin iframe becomes `[cap:42] [capture:iframe <origin>]`. Text and instance nodes are named too. This compact source-index ref is what makes source↔Figma traceable for review and a future visual diff.
+
 ## CSS → Figma mapping
 
-The deterministic import reads each node's computed `styles` and maps to the nearest Figma primitive, same as `conventions.md` → Source → Figma primitives but keyed on computed CSS. (This is the ONE allowed CSS-property table — AGENTS.md carries a carve-out to the no-per-language-tables rule for it.)
+The deterministic import reads each node's computed `styles` and maps to the nearest Figma primitive, same as `conventions.md` → Source → Figma primitives but keyed on computed CSS. (This is the ONE allowed CSS-property table — AGENTS.md carries a carve-out to the no-per-language-tables rule for it.) The semantic `role` runs alongside this style mapping: it drives layer naming (source-ref above) and component selection (Component instantiation contract above) — a node that hits a category in the component map becomes an instance and skips the style→frame mapping below.
 
 | Computed CSS construct | Figma primitive |
 |---|---|

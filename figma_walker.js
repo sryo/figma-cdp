@@ -120,6 +120,95 @@
     return null;
   }
 
+  // --- Semantic layer (Phase 6, Change 1) ---
+  // Cheap, in-page ARIA approximation for Figma layer naming + component matching.
+  // NOT a spec-compliant accname/role computation — the native Accessibility.getFullAXTree
+  // join (over CDP, keyed by backendNodeId) is the accuracy upgrade, documented in capture.md.
+
+  // Implicit ARIA role by tag. Tags absent here resolve to null (no "generic" noise).
+  var IMPLICIT_ROLE = {
+    button: 'button', nav: 'navigation', header: 'banner', footer: 'contentinfo',
+    main: 'main', aside: 'complementary', ul: 'list', ol: 'list', li: 'listitem',
+    select: 'combobox', textarea: 'textbox', img: 'img', table: 'table',
+    form: 'form', section: 'region', article: 'article', label: 'label'
+  };
+  // Roles that, when explicit or implicit, mark a node as a real control.
+  var INTERACTIVE_ROLES = { button: 1, link: 1, textbox: 1, combobox: 1,
+    checkbox: 1, radio: 1, menuitem: 1, tab: 1 };
+
+  // Resolve role: explicit aria role attribute wins, else implicit-by-tag.
+  // a[href]→link (bare <a> stays null), input→textbox unless its type is a known control.
+  function roleOf(el, tag) {
+    var explicit = el.getAttribute && el.getAttribute('role');
+    if (explicit) { explicit = explicit.trim().split(/\s+/)[0]; if (explicit) return explicit; }
+    if (tag === 'a') return el.getAttribute && el.getAttribute('href') != null ? 'link' : null;
+    if (tag === 'input') {
+      var t = (el.getAttribute && (el.getAttribute('type') || '')).toLowerCase();
+      if (t === 'checkbox') return 'checkbox';
+      if (t === 'radio') return 'radio';
+      if (t === 'button' || t === 'submit' || t === 'reset' || t === 'image') return 'button';
+      if (t === 'range') return 'slider';
+      if (t === 'hidden') return null;
+      return 'textbox';
+    }
+    if (tag.length === 2 && tag.charAt(0) === 'h' && tag >= 'h1' && tag <= 'h6') return 'heading';
+    return IMPLICIT_ROLE[tag] || null;
+  }
+
+  // Heading level 1..6 for h1..h6 (role + separate level convention), else null.
+  function headingLevel(tag) {
+    if (tag.length === 2 && tag.charAt(0) === 'h' && tag >= 'h1' && tag <= 'h6') return +tag.charAt(1);
+    return null;
+  }
+
+  function cap80(s) {
+    s = (s || '').replace(/\s+/g, ' ').trim();
+    return s.length > 80 ? s.slice(0, 80) : s;
+  }
+
+  // Cheap accessible name: aria-label, else aria-labelledby joined text, else alt,
+  // else title, else trimmed text for heading/button/link, else null.
+  function axNameOf(el, role, ownText) {
+    if (!el.getAttribute) return null;
+    var lbl = el.getAttribute('aria-label');
+    if (lbl && lbl.trim()) return cap80(lbl);
+    var ref = el.getAttribute('aria-labelledby');
+    if (ref) {
+      var parts = [];
+      ref.trim().split(/\s+/).forEach(function (id) {
+        var t = el.ownerDocument && el.ownerDocument.getElementById(id);
+        if (t && t.textContent) parts.push(t.textContent);
+      });
+      var joined = cap80(parts.join(' '));
+      if (joined) return joined;
+    }
+    var alt = el.getAttribute('alt');
+    if (alt != null && alt.trim()) return cap80(alt);
+    var title = el.getAttribute('title');
+    if (title && title.trim()) return cap80(title);
+    if (role === 'heading' || role === 'button' || role === 'link') {
+      var t2 = cap80(ownText || el.textContent || '');
+      if (t2) return t2;
+    }
+    return null;
+  }
+
+  // Conservative control check: real control tags, interactive roles, focusable
+  // (tabindex>=0), or cursor:pointer.
+  function interactableOf(el, tag, role, cursor) {
+    if (tag === 'button' || tag === 'select' || tag === 'textarea') return true;
+    if (tag === 'a' && el.getAttribute && el.getAttribute('href') != null) return true;
+    if (tag === 'input') {
+      var t = (el.getAttribute('type') || '').toLowerCase();
+      if (t !== 'hidden') return true;
+    }
+    if (role && INTERACTIVE_ROLES[role]) return true;
+    var ti = el.getAttribute && el.getAttribute('tabindex');
+    if (ti != null && ti !== '' && +ti >= 0) return true;
+    if (cursor === 'pointer') return true;
+    return false;
+  }
+
   // dx/dy: cumulative offset (for same-origin iframe recursion). depth budget guards
   // against pathological trees.
   function visit(el, parentIdx, dx, dy, depth) {
@@ -147,7 +236,8 @@
           try { origin = new URL(el.src, location.href).origin; } catch (e) {}
           myIdx = nodes.length;
           nodes.push({ i: myIdx, parent: parentIdx, tag: 'iframe', rect: rect, text: '',
-            styles: st, runs: null, name: '[capture:iframe ' + origin + ']', iframe: 'cross-origin' });
+            styles: st, runs: null, name: '[capture:iframe ' + origin + ']', iframe: 'cross-origin',
+            role: null, axName: null, interactable: false });
           return; // placeholder frame, no children
         }
       }
@@ -167,9 +257,15 @@
         if (after) textInfo.runs.push(Object.assign({ text: after }, pseudoRun));
       }
 
+      var role = roleOf(el, tag);
+      var level = role === 'heading' ? headingLevel(tag) : null;
+
       myIdx = nodes.length;
       var entry = { i: myIdx, parent: parentIdx, tag: tag, rect: rect,
-        text: combined, styles: st, runs: textInfo.runs, name: null };
+        text: combined, styles: st, runs: textInfo.runs, name: null,
+        role: role, axName: axNameOf(el, role, combined),
+        interactable: interactableOf(el, tag, role, cs.cursor) };
+      if (level != null) entry.level = level;
       nodes.push(entry);
 
       var fr = flagReason(st);
