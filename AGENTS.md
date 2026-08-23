@@ -12,14 +12,17 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
 ├── figma_run.py          # single-eval helper — base64 → agent-browser eval
 ├── figma_batch_run.py    # multi-eval helper — base64 N scripts → one agent-browser batch
-├── figma_capture.py      # live-URL → Figma import: walk (--session capture) → /tmp JSON → import (default session)
-├── figma_walker.js       # DOM walker run by figma_capture.py — emits the flat capture spec
-├── figma_importer.js     # batch importer run in the default session — spec slice → Figma nodes
+├── figma_capture.py      # live-URL → Figma: `walk <url>` (--session capture → /tmp JSON) and `import <spec>` (default session: reset, assets streamed in pieces, node chunks through figma_importer.js)
+├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
+├── figma_importer.js     # runs once per node chunk in the default session — chunk → Figma nodes
 ├── AGENTS.md             # this file — architecture + invariants
 ├── CLAUDE.md             # pointer to AGENTS.md
 ├── README.md             # human-facing intro + install
 ├── references/           # task-shaped reference files (loaded on demand)
-└── tests/evals.json      # state-only assertions for hand-verifying behavior
+└── tests/
+    ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
+    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against a stub Plugin API, no Figma tab needed
+    └── evals.json            # state-only assertions for hand-verifying behavior
 ```
 
 ## Architecture

@@ -1,0 +1,127 @@
+<!doctype html>
+<!--
+  Self-contained fixture for figma_walker.js (no network requests). Run the walker against it:
+
+    agent-browser --session captest open "file://$PWD/tests/capture_fixture.html"
+    agent-browser --session captest eval -b "$(base64 -i figma_walker.js)" --json > /tmp/walk.json
+    agent-browser --session captest close
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Capture fixture</title>
+<style>
+  body { margin: 0; width: 960px; font-family: Helvetica, Arial, sans-serif; font-size: 14px; color: #222; }
+  section { margin: 0 0 16px 0; }
+  .row { display: flex; flex-direction: row; gap: 12px; padding: 16px; }
+  .col { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+  .stack { display: block; padding: 8px; }
+  .stack > * { margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 8px; }
+  .card { background: #f4f4f8; border-radius: 8px; padding: 12px; }
+  .anchor { position: relative; }
+  .badge { position: absolute; top: 4px; right: 4px; background: #e05533; color: #fff; padding: 2px 6px; border-radius: 10px; }
+  .rot { transform: rotate(10deg); width: 120px; height: 60px; background: #cde; }
+  .scl { transform: scale(1.5); width: 80px; height: 40px; background: #dec; margin-left: 40px; }
+  .nested { transform: rotate(10deg); width: 160px; height: 80px; padding: 10px; background: #fed; margin-left: 60px; }
+  .nested .inner { transform: scale(1.5); width: 60px; height: 30px; background: #fb9; }
+  .check::before { content: "\2713"; display: inline-block; width: 18px; height: 18px; border-radius: 9px; background: #2a2;
+    color: #fff; text-align: center; line-height: 18px; margin-right: 6px; }
+  .tail::after { content: " (after)"; color: #888; }
+  .clearfix::after { content: ""; display: table; clear: both; }
+  .para { width: 220px; margin: 0; }
+  .fancy { font-style: italic; text-decoration: underline; text-transform: uppercase; margin: 0; }
+  .shadow { box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25), inset 0 0 0 1px rgba(0, 0, 0, 0.4); }
+  .radii { border-radius: 2px 4px 8px 16px; }
+  .sides { border-style: solid; border-color: #333; border-width: 1px 2px 3px 4px; }
+  .clip { overflow: hidden; height: 40px; }
+  .grow { flex-grow: 1; }
+  .full { width: 100%; }
+  .minmax { min-width: 50px; max-width: 300px; }
+  .bgblur { backdrop-filter: blur(4px); }
+  .blur { filter: blur(2px); }
+  .bgimg { width: 60px; height: 60px; background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGPQCLiDFTEMLQkACbdVAfTkR+4AAAAASUVORK5CYII="); background-size: cover; }
+  .float { float: left; width: 50px; height: 20px; background: #ccc; }
+  .attrd::before { content: attr(data-label) ": "; font-weight: 700; }
+  .tilt { transform: rotateX(45deg); width: 80px; height: 40px; background: #ddd; }
+  .gpu { transform: translateZ(0); width: 80px; height: 40px; background: #ded; }
+  x-card { display: block; }
+  iframe { width: 300px; height: 80px; border: 2px solid #999; }
+</style>
+</head>
+<body>
+<main aria-label="root">
+  <section class="row" aria-label="flex-row">
+    <div class="card grow" aria-label="grow-card">Grow card</div>
+    <div class="card minmax" aria-label="minmax-card">Min/max card</div>
+    <div class="card full" aria-label="full-card">Full width card</div>
+  </section>
+
+  <section class="col" aria-label="flex-col">
+    <p class="para">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation.</p>
+    <p class="fancy">Italic underlined uppercase</p>
+    <p class="tail">Plain text owner</p>
+    <p class="mixed">Mixed <b>bold</b> and <i style="color: #c00">red italic</i> runs</p>
+  </section>
+
+  <section class="stack" aria-label="block-stack">
+    <div class="card shadow" aria-label="shadow-box">Shadow box</div>
+    <div class="card radii" aria-label="radii-box">Radii box</div>
+    <div class="card sides" aria-label="sides-box">Per-side borders</div>
+    <div class="card clip" aria-label="clip-box"><div style="height: 200px">Overflow hidden</div></div>
+    <div class="card bgblur" aria-label="bgblur-box">Backdrop blur</div>
+    <div class="card blur" aria-label="blur-box">Filter blur</div>
+  </section>
+
+  <section class="grid" aria-label="grid">
+    <div class="card">Grid one</div>
+    <div class="card">Grid two</div>
+    <div class="card">Grid three</div>
+  </section>
+
+  <section class="row anchor" aria-label="abs-parent">
+    <div class="card">Anchor content</div>
+    <div class="badge" aria-label="abs-child">abs</div>
+  </section>
+
+  <section class="row" aria-label="transforms">
+    <div class="rot" aria-label="rotated">Rotated</div>
+    <div class="scl" aria-label="scaled">Scaled</div>
+    <div class="nested" aria-label="nested-outer"><div class="inner" aria-label="nested-inner">Inner</div></div>
+    <div class="tilt" aria-label="tilted-3d">3D</div>
+    <div class="gpu" aria-label="gpu-hack">GPU</div>
+  </section>
+
+  <section class="stack" aria-label="pseudos">
+    <div class="check" aria-label="check-container"><div>Checked item</div></div>
+    <div class="clearfix" aria-label="clearfix"><div class="float"></div></div>
+    <div class="attrd" aria-label="attr-container" data-label="Label"><div>Attribute content</div></div>
+    <div style="display: contents" aria-label="contents-wrapper"><div>Hoisted child</div></div>
+  </section>
+
+  <section class="row" aria-label="media">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGO4o6FBEmIY1TCqYfhqAAAyBCwQhvh37QAAAABJRU5ErkJggg==" width="32" height="32" alt="Red square">
+    <canvas id="cv" width="80" height="50" aria-label="canvas"></canvas>
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-label="inline-svg"><circle cx="20" cy="20" r="18" fill="#36f"/></svg>
+    <div class="bgimg" aria-label="bg-image"></div>
+  </section>
+
+  <section class="stack" aria-label="embedded">
+    <x-card id="shadow-host" aria-label="shadow-host"><span>Slotted light text</span></x-card>
+    <iframe aria-label="srcdoc-frame" srcdoc="<body style='margin:0'><div style='padding:10px;background:#eef'>Inside the iframe</div></body>"></iframe>
+    <iframe aria-label="sandboxed-frame" sandbox srcdoc="<p>Opaque to the parent</p>"></iframe>
+  </section>
+</main>
+<script>
+  var ctx = document.getElementById('cv').getContext('2d');
+  ctx.fillStyle = '#fc3';
+  ctx.fillRect(0, 0, 80, 50);
+  ctx.fillStyle = '#333';
+  ctx.fillRect(10, 10, 60, 30);
+
+  var root = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+  root.innerHTML = '<style>.wrap { display: flex; gap: 8px; padding: 8px; border: 1px solid #999; } .label { font-weight: 700; }</style>'
+    + '<div class="wrap"><span class="label">Shadow internal text</span><slot></slot></div>';
+</script>
+</body>
+</html>

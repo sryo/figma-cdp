@@ -58,6 +58,18 @@
         "node.effects.some(e => e.type === 'DROP_SHADOW' && e.visible === true && e.radius > 0)",
         "every effect in preState.effects exists in node.effects (preserved, not replaced)"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "Import https://example.com into my Figma file",
+      "expected_output": "A root frame named after the page title holding the page's text as TEXT nodes, with Auto Layout inferred from flow and a cumulative capture report",
+      "expectations": [
+        "A FrameNode with name === '[cap:0] Example Domain' exists on the current page",
+        "node.findOne(c => c.type === 'TEXT' && c.characters.includes('Example Domain')) !== null",
+        "node.layoutMode !== 'NONE' || node.findAll(c => c.type === 'FRAME' && c.layoutMode !== 'NONE').length >= 1",
+        "window.__batchState.captureReport.created > 0",
+        "every value in window.__batchState.captureIds resolves via figma.getNodeByIdAsync"
+      ]
     }
   ]
 }
