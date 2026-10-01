@@ -30,7 +30,7 @@ Without perch, the first run asks you to turn on remote debugging in Chrome (the
 
 ## Troubleshooting
 
-If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet — open and close any Figma plugin once to wake it up.
+If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet. Open and close any Figma plugin once to wake it up.
 
 If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
 
