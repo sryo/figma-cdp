@@ -23,6 +23,8 @@ Coordinator-facing setup: how to connect to Figma's Plugin API via `agent-browse
       ```
       Expected `"object"`. The helpers pick perch on their own when `FIGMA_CDP_PORT` is unset and perch is usable; `FIGMA_BACKEND=perch` (or `cdp`) forces one.
 
+   The first call starts a small background helper (`figma_perch.mjs serve`) that keeps perch loaded, so later calls cost about what a CDP call does. It exits after 10 idle minutes (`FIGMA_PERCH_IDLE`, in seconds); `FIGMA_PERCH_DAEMON=0` runs every call on its own instead.
+
    `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; put the script in a file and use the helpers. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) still needs Mode A or B.
 
 
@@ -108,6 +110,8 @@ If a Mode P call fails, the error keeps perch's code:
 - `timeout`: an awaited eval runs at most 30s. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
 - `tab_not_visible` (screenshot only): the tab isn't the one its window shows.
 - `figma is undefined in this tab`: open and close any plugin once, as above.
+- `stale_tab: ... no longer shows file`: the tab moved to another file mid-batch; the rest of the batch didn't run.
+- `perch_daemon: the daemon dropped the call`: the background helper died or went silent after taking the call, so the script may have run; check the file before running it again. Its log is next to its socket in `$TMPDIR/figma-perch-<uid>/`.
 
 If `agent-browser --cdp 9222` fails to connect (Mode B):
 1. Check that CDP responds: `curl -s http://localhost:9222/json/version | head -2`. Expected: JSON starting with `"Browser": "Chrome/..."`. An empty body / 404 means Chrome's listening but disallowing CDP routes — usually a stale profile copy or a missing `--remote-allow-origins=*` flag. Re-copy the profile and relaunch.

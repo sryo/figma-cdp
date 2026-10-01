@@ -6,7 +6,7 @@ runs each script in Node against a stub `figma` global.
 
   python3 tests/perch_backend_test.py
 """
-import json, os, subprocess, sys, tempfile, unittest
+import json, os, socket, stat, subprocess, sys, tempfile, threading, time, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STUB = os.path.join(ROOT, 'tests', 'perch_stub')
@@ -18,12 +18,41 @@ TWO_FILES = [
 ]
 
 
-class PerchBackend(unittest.TestCase):
+def stop_daemon(sock):
+    """Ask the daemon on sock to exit; False when none answered."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.settimeout(5)
+        s.connect(sock)
+        f = s.makefile('rb')
+        f.readline()
+        s.sendall(b'{"op":"stop"}\n')
+        f.read()
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+class Harness(unittest.TestCase):
+    daemon = '1'
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.log = os.path.join(self.tmp.name, 'calls.jsonl')
+        self.sock = os.path.join(self.tmp.name, 'd.sock')
 
     def tearDown(self):
+        stop_daemon(self.sock)
         self.tmp.cleanup()
 
     def js(self, name, src):
@@ -32,13 +61,23 @@ class PerchBackend(unittest.TestCase):
             f.write(src)
         return path
 
+    def popen_helper(self, script, *args, **env):
+        e = self.helper_env(env)
+        return subprocess.Popen([sys.executable, os.path.join(ROOT, script), *args],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=e)
+
     def run_helper(self, script, *args, **env):
-        e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log}
-        for k in ('FIGMA_FILE', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR'):
+        return subprocess.run([sys.executable, os.path.join(ROOT, script), *args],
+                              capture_output=True, text=True, env=self.helper_env(env))
+
+    def helper_env(self, env):
+        e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
+             'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon}
+        for k in ('FIGMA_FILE', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
+                  'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE'):
             e.pop(k, None)
         e.update(env)
-        return subprocess.run([sys.executable, os.path.join(ROOT, script), *args],
-                              capture_output=True, text=True, env=e)
+        return e
 
     def calls(self, name=None):
         try:
@@ -47,6 +86,11 @@ class PerchBackend(unittest.TestCase):
         except OSError:
             return []
         return [r for r in rows if name is None or r['name'] == name]
+
+
+
+class PerchBackend(Harness):
+    """Every test runs through the daemon here and through one-shot runs in PerchBackendOneShot."""
 
     # ---- figma_run.py
 
@@ -63,6 +107,19 @@ class PerchBackend(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {'pages': ['Page 1', 'Page 2'], 'n': 2})
         self.assertIn('\n  "pages"', r.stdout)
+
+    def test_output_matches_agent_browser_print(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", '
+                            'tiny: 1e-7, big: 1e21, huge: 12345678901234567890, f: 0.5 })'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, '{\n  "a": {\n    "c": {},\n    "d": []\n  },\n  "big": 1e+21,\n  "f": 0.5,\n'
+                         '  "huge": 1.2345678901234567e+19,\n  "s": "ñ 😀",\n  "tiny": 1e-7,\n  "z": 1\n}\n')
+
+    def test_batch_output_matches_agent_browser_print(self):
+        r = self.run_helper('figma_batch_run.py', self.js('a.js', '({ z: 1, a: ["ñ", 1e-7] })'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines()[1], '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
+                         '"result": {"a": ["\\u00f1", 1e-07], "z": 1}}')
 
     def test_undefined_completion_is_null(self):
         r = self.run_helper('figma_run.py', self.js('a.js', 'void 0'))
@@ -161,9 +218,10 @@ class PerchBackend(unittest.TestCase):
         r = self.run_helper('figma_batch_run.py', *paths)
         self.assertEqual(r.returncode, 1)
         lines = r.stdout.splitlines()
-        self.assertEqual(lines[:4], ['== 1.js ==', '{"origin": "https://www.figma.com", "result": "set"}',
+        url = 'https://www.figma.com/design/AAA111/Stub?node-id=0-1'
+        self.assertEqual(lines[:4], ['== 1.js ==', '{"origin": "%s", "result": "set"}' % url,
                                      '== 2.js ==', 'Evaluation error: Error: mid'])
-        self.assertEqual(lines[-2:], ['== 3.js ==', '{"origin": "https://www.figma.com", "result": {"n": 2}}'])
+        self.assertEqual(lines[-2:], ['== 3.js ==', '{"origin": "%s", "result": {"n": 2}}' % url])
         self.assertEqual(len(self.calls('list_tabs')), 1)
         self.assertEqual(len(self.calls('eval_js')), 3)
 
@@ -212,6 +270,193 @@ class PerchBackend(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn('no_perch', r.stderr)
         self.assertIn('world:"main"', r.stderr)
+
+
+class PerchBackendOneShot(PerchBackend):
+    daemon = '0'
+
+
+class PerchDaemon(Harness):
+    """The daemon itself: start, reuse, idle exit, stale socket, concurrency, fallback, the cached tab."""
+
+    def pids(self, name='eval_js'):
+        return {c['pid'] for c in self.calls(name)}
+
+    def tabs_file(self, rows):
+        path = os.path.join(self.tmp.name, 'tabs.json')
+        with open(path, 'w') as f:
+            json.dump(rows, f)
+        return path
+
+    def test_first_call_starts_a_private_daemon(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', '"hi"'), FIGMA_PERCH_SOCK='', TMPDIR=self.tmp.name)
+        self.assertEqual((r.returncode, r.stdout), (0, '"hi"\n'), r.stderr)
+        d = os.path.join(self.tmp.name, f'figma-perch-{os.getuid()}')
+        socks = [n for n in os.listdir(d) if n.endswith('.sock')]
+        self.assertEqual(len(socks), 1)
+        self.sock = os.path.join(d, socks[0])
+        self.assertEqual(stat.S_IMODE(os.stat(d).st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(os.stat(self.sock).st_mode), 0o600)
+        pid = self.pids().pop()
+        self.assertNotEqual(pid, os.getpid())
+        self.assertTrue(alive(pid))
+
+    def test_calls_reuse_one_daemon_and_its_tab(self):
+        for i in range(3):
+            r = self.run_helper('figma_run.py', '--file', 'AAA111', self.js('a.js', f'{i}'))
+            self.assertEqual((r.returncode, r.stdout), (0, f'{i}\n'), r.stderr)
+        self.assertEqual(len(self.pids()), 1)
+        self.assertEqual(len(self.calls('list_tabs')), 1)
+
+    def test_calls_without_a_file_list_tabs_each_time(self):
+        for _ in range(2):
+            self.assertEqual(self.run_helper('figma_run.py', self.js('a.js', '1')).returncode, 0)
+        self.assertEqual(len(self.calls('list_tabs')), 2)
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'), PERCH_STUB_TABS=json.dumps(TWO_FILES))
+        self.assertEqual(len(self.pids('list_tabs')), 1)
+
+    def test_daemon_exits_when_idle(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_PERCH_IDLE='0.3')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        pid = self.pids().pop()
+        deadline = time.monotonic() + 5
+        while (alive(pid) or os.path.exists(self.sock)) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(alive(pid))
+        self.assertFalse(os.path.exists(self.sock))
+        r = self.run_helper('figma_run.py', self.js('a.js', '2'))
+        self.assertEqual((r.returncode, r.stdout), (0, '2\n'), r.stderr)
+        self.assertEqual(len(self.pids()), 2)
+
+    def test_stale_socket_is_replaced(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(self.sock)
+        s.close()
+        self.assertTrue(os.path.exists(self.sock))
+        r = self.run_helper('figma_run.py', self.js('a.js', '"fresh"'))
+        self.assertEqual((r.returncode, r.stdout), (0, '"fresh"\n'), r.stderr)
+        self.assertNotEqual(self.pids().pop(), os.getpid())
+
+    def test_stale_regular_file_is_replaced(self):
+        open(self.sock, 'w').close()
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'))
+        self.assertEqual((r.returncode, r.stdout), (0, '1\n'), r.stderr)
+        self.assertTrue(stat.S_ISSOCK(os.stat(self.sock).st_mode))
+
+    def test_concurrent_clients_share_one_daemon(self):
+        n = 8
+        procs = [self.popen_helper('figma_run.py', '--file', 'AAA111', self.js(f'{i}.js', f'({{ i: {i} }})'),
+                                   PERCH_STUB_DELAY='50') for i in range(n)]
+        outs = [p.communicate(timeout=60) for p in procs]
+        for i, (p, (out, err)) in enumerate(zip(procs, outs)):
+            self.assertEqual((p.returncode, json.loads(out or 'null')), (0, {'i': i}), err)
+        self.assertEqual(len(self.pids()), 1)
+        self.assertEqual(len(self.calls('eval_js')), n)
+
+    def test_falls_back_to_one_shot_when_the_daemon_cannot_start(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'),
+                            FIGMA_PERCH_SOCK=os.path.join(self.tmp.name, 'missing', 'd.sock'))
+        self.assertEqual((r.returncode, r.stdout), (0, '1\n'), r.stderr)
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'),
+                            FIGMA_PERCH_SOCK=os.path.join(self.tmp.name, 'missing', 'd.sock'))
+        self.assertEqual(len(self.pids()), 2)
+
+    def test_daemon_that_fails_to_load_falls_back(self):
+        old = os.path.join(self.tmp.name, 'broken')
+        os.makedirs(old)
+        with open(os.path.join(old, 'server.js'), 'w') as f:
+            f.write('export const buildMainKick = 1; throw new Error("boom");\n')
+        with open(os.path.join(old, 'package.json'), 'w') as f:
+            f.write('{"type":"module"}')
+        t = time.monotonic()
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'), PERCH_DIR=old)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('boom', r.stderr)
+        self.assertLess(time.monotonic() - t, 8)
+        self.assertFalse(os.path.exists(self.sock))
+
+    def test_disabled_daemon_leaves_no_socket(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_PERCH_DAEMON='0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(self.sock))
+
+    def test_cached_tab_that_left_the_file_is_not_run_there(self):
+        tabs = self.tabs_file([{'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}])
+        script = self.js('a.js', 'globalThis.__runs = (globalThis.__runs || 0) + 1; [__runs, location.pathname]')
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', script, PERCH_STUB_TABS_FILE=tabs)
+        self.assertEqual(json.loads(r.stdout), [1, '/design/AAA111/One'], r.stderr)
+        self.tabs_file([{'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two'},
+                        {'tabId': 'chrome:5', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}])
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', script, PERCH_STUB_TABS_FILE=tabs)
+        self.assertEqual(json.loads(r.stdout), [2, '/design/AAA111/One'], r.stderr)
+        self.assertEqual([c['args']['target']['tabId'] for c in self.calls('eval_js')], ['chrome:1', 'chrome:1', 'chrome:5'])
+        self.assertEqual(len(self.calls('list_tabs')), 2)
+
+    def test_cached_tab_that_closed_is_looked_up_again(self):
+        tabs = self.tabs_file([{'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}])
+        self.assertEqual(self.run_helper('figma_run.py', '--file', 'AAA111', self.js('a.js', '1'),
+                                         PERCH_STUB_TABS_FILE=tabs).returncode, 0)
+        self.tabs_file([{'tabId': 'chrome:6', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}])
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', self.js('a.js', '2'), PERCH_STUB_TABS_FILE=tabs)
+        self.assertEqual((r.returncode, r.stdout), (0, '2\n'), r.stderr)
+        self.assertEqual(self.calls('eval_js')[-1]['args']['target'], {'tabId': 'chrome:6'})
+
+    def test_batch_stops_when_the_tab_leaves_the_file_mid_batch(self):
+        tabs = self.tabs_file([{'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}])
+        moved = json.dumps([{'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two'}])
+        go = self.js('1.js', '(async () => { (await import("node:fs")).writeFileSync(%s, %s); return "moved"; })()'
+                     % (json.dumps(tabs), json.dumps(moved)))
+        r = self.run_helper('figma_batch_run.py', '--file', 'AAA111', go, self.js('2.js', 'globalThis.__ran2 = 1'),
+                            PERCH_STUB_TABS_FILE=tabs)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('stale_tab: tab chrome:1 no longer shows file AAA111', r.stderr)
+        self.assertIn('stopped after 1 of 2', r.stderr)
+
+    def test_stop_lets_a_call_in_flight_finish(self):
+        self.assertEqual(self.run_helper('figma_run.py', self.js('a.js', '0')).returncode, 0)
+        pid = self.pids().pop()
+        p = self.popen_helper('figma_run.py', self.js('b.js', '"slow"'), PERCH_STUB_DELAY='600')
+        deadline = time.monotonic() + 5
+        while len(self.calls('eval_js')) < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(stop_daemon(self.sock))
+        self.assertFalse(os.path.exists(self.sock))
+        out, err = p.communicate(timeout=30)
+        self.assertEqual((p.returncode, out), (0, '"slow"\n'), err)
+        deadline = time.monotonic() + 5
+        while alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(alive(pid))
+
+    def test_reply_line_is_enough_without_eof(self):
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(self.sock)
+        srv.listen(1)
+        held = []
+
+        def serve():
+            c, _ = srv.accept()
+            held.append(c)
+            c.sendall(b'{"perch_daemon":1,"pid":1}\n')
+            c.makefile('rb').readline()
+            c.sendall(json.dumps({'tab': {}, 'origin': 'https://www.figma.com',
+                                  'results': [{'ok': True, 'value': 7, 'href': 'x'}]}).encode() + b'\n')
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        try:
+            r = self.run_helper('figma_run.py', self.js('a.js', '7'))
+            self.assertEqual((r.returncode, r.stdout), (0, '7\n'), r.stderr)
+        finally:
+            for c in held:
+                c.close()
+            srv.close()
+
+    def test_a_call_the_daemon_dropped_is_not_rerun(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', 'process.exit(3)'))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('perch_daemon: the daemon dropped the call', r.stderr)
+        self.assertEqual(len(self.calls('eval_js')), 1)
 
 
 if __name__ == '__main__':
