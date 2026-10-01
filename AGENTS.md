@@ -12,6 +12,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
 ├── figma_run.py          # single-eval helper — base64 → agent-browser eval
 ├── figma_batch_run.py    # multi-eval helper — base64 N scripts → one agent-browser batch
+├── figma_perch.mjs       # perch backend for both helpers: list_tabs → eval_js {world:"main"}, no CDP
 ├── figma_capture.py      # live-URL → Figma: `walk <url>` (--session capture → /tmp JSON) and `import <spec>` (default session: reset, assets streamed in pieces, node chunks through figma_importer.js)
 ├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
 ├── figma_importer.js     # runs once per node chunk in the default session — chunk → Figma nodes
@@ -22,6 +23,8 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 └── tests/
     ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
     ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against a stub Plugin API, no Figma tab needed
+    ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend against perch_stub/, offline
+    ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma`
     └── evals.json            # state-only assertions for hand-verifying behavior
 ```
 
@@ -40,7 +43,7 @@ figma_batch_run.py → agent-browser CLI → CDP WebSocket → Figma's Plugin AP
 
 **Token-cost tiers.** `SKILL.md` is loaded into every conversation that triggers the skill; every line is per-conversation cost. `figma-worker.md` plus its inlined references are loaded into every spawned worker; per-dispatch cost. Other `references/*.md` files load on demand.
 
-**Connection modes.** Mode A is attach to your running Chrome via the `chrome://inspect/#remote-debugging` toggle — preferred, uses the real logged-in Figma session, no profile copy. Mode B is launch a dedicated Chrome Canary with `--remote-debugging-port` and a profile copy — fallback for managed Chrome where the toggle is blocked. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening), which is what forces Mode B's profile-copy gymnastics. `FIGMA_CDP_PORT` env var binds both helpers to whichever port the chosen mode is using. The setup procedure for both modes lives in `references/connection.md`.
+**Connection modes.** Mode A is attach to your running Chrome via the `chrome://inspect/#remote-debugging` toggle — preferred, uses the real logged-in Figma session, no profile copy. Mode B is launch a dedicated Chrome Canary with `--remote-debugging-port` and a profile copy — fallback for managed Chrome where the toggle is blocked. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening), which is what forces Mode B's profile-copy gymnastics. `FIGMA_CDP_PORT` env var binds both helpers to whichever port the chosen mode is using. Mode P skips CDP: `figma_run.py` / `figma_batch_run.py` hand scripts to `figma_perch.mjs`, which imports perch's `handleCall` and runs them with `eval_js {world:"main", awaitPromise:true}` over AppleScript, so Chrome never shows its remote-debugging prompt. The setup procedure for all three lives in `references/connection.md`.
 
 ## Reference file organization
 
@@ -66,6 +69,16 @@ The only subcommands we depend on:
 
 If any of these break, that's the integration boundary to fix. The other ~140 agent-browser subcommands are irrelevant to this skill.
 
+## perch backend
+
+`figma_perch.mjs` imports `server.js` from `PERCH_DIR` (default `~/Documents/perch`) and calls its exported `handleCall` in-process; no MCP session, no CDP. It depends on:
+- `list_tabs {urlContains}` to find the file's tab (a tab its window shows wins among duplicates; several files open and no `--file` is an `ambiguous_tab` error)
+- `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script is wrapped as `return await (0, eval)(<source>)` so a program's completion value comes back as CDP's `Runtime.evaluate` returns it, and a throw is caught in-page and reported as `✗ Evaluation error: ...`
+- `screenshot {target, maxWidth:0, format:"png"}` for `figma_run.py --screenshot` (the tab must be the one its window shows)
+- the `buildMainKick` export, which marks a perch new enough to have `world:"main"`
+
+Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means CDP; else perch when it is usable; else CDP. Output and exit codes match the CDP path, so callers never branch on the backend. Errors keep perch's leading code (`timeout`, `stale_tab`, `tab_not_scriptable`, `no_tab`, `ambiguous_tab`, `no_perch`). perch caps an awaited eval at 30s and needs no base64 ceiling. The capture fast-path (`figma_capture.py`) stays CDP-only: `walk` opens the URL in its own agent-browser session.
+
 ## Rules for changes
 
 - **SKILL.md is always-loaded.** Every line is per-conversation token cost. Add only what every coordinator needs.
@@ -73,6 +86,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - **References stay task-shaped.** Don't merge files because they're conceptually related. Don't split files because they're long — split only when independent tasks would load disjoint subsets.
 - **Source-language framing stays generic.** Don't add per-language mapping tables (SwiftUI / Compose / Flutter / etc.). The `conventions.md` → "Source → Figma primitives" table is the format — name the *kind* of source construct, not the language syntax. The skill should work with any source the user can throw at it. Carve-out: `references/capture.md`'s CSS→Figma table is the single allowed CSS-property table — computed CSS is the one normalized form every rendered page reduces to regardless of authoring framework, not a source language; the rule still bans per-source-language (SwiftUI/Compose/Flutter) tables.
 - **Helpers honor `FIGMA_CDP_PORT`.** New helpers must resolve the port in this order: `FIGMA_CDP_PORT` if set, then the browser's `DevToolsActivePort` file, then 9222. Never hardcode the port in a helper.
+- **Eval helpers keep one output shape across backends.** A change to the CDP output of `figma_run.py` / `figma_batch_run.py` lands on the perch path too, with a case in `tests/perch_backend_test.py`.
 - **`gotchas.md` uses WRONG/CORRECT pairs.** Each numbered gotcha earns its slot — only add ones that have actually bitten the skill. Nice-to-have caveats belong in the reference doc they're about, not in gotchas.
 - **Worker Loop step descriptions stay explicit.** DISCOVER, READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
 - **No new references without table updates.** Any new `references/*.md` must land in `SKILL.md`'s references table with a distinct "load for" description. Orphans get pruned.

@@ -9,7 +9,22 @@ Coordinator-facing setup: how to connect to Figma's Plugin API via `agent-browse
    agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma" 2>/dev/null && echo "connected"
    ```
 
-2. **Connect to Chrome.** Two paths — try Mode A first.
+2. **Connect to Chrome.** Three paths. On macOS with perch, use Mode P; else try Mode A first.
+
+   ### Mode P: perch, no CDP (macOS)
+
+   No debugging toggle, no port, no "Allow debugging?" prompt. The helpers run scripts in your open Figma tab through [perch](https://github.com/sryo/perch)'s `eval_js {world:"main"}` over AppleScript.
+
+   1. Have perch checked out at `~/Documents/perch` (or set `PERCH_DIR`), on a version with `eval_js` `world:"main"`, and its one-time setup done (Chrome: View > Developer > Allow JavaScript from Apple Events).
+   2. Copy `figma_perch.mjs` to `/tmp/` next to the helpers. Node 18+ runs it.
+   3. Test:
+      ```bash
+      python3 /tmp/figma_run.py --file "FIGMA_URL_HERE" /tmp/figma_eval.js   # figma_eval.js: typeof figma
+      ```
+      Expected `"object"`. The helpers pick perch on their own when `FIGMA_CDP_PORT` is unset and perch is usable; `FIGMA_BACKEND=perch` (or `cdp`) forces one.
+
+   `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; put the script in a file and use the helpers. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) still needs Mode A or B.
+
 
    ### Mode A — Attach to your running Chrome (recommended)
 
@@ -86,6 +101,13 @@ If `typeof figma` returns `"undefined"`:
 1. Ensure user has **edit permissions** (or create a branch).
 2. Wait for page to fully load, retry.
 3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
+
+If a Mode P call fails, the error keeps perch's code:
+- `no_perch`: no `server.js` at `PERCH_DIR`, or a perch without `eval_js` `world:"main"`; update perch.
+- `no_tab` / `ambiguous_tab`: open the file in Chrome, or pass `--file`.
+- `timeout`: an awaited eval runs at most 30s. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
+- `tab_not_visible` (screenshot only): the tab isn't the one its window shows.
+- `figma is undefined in this tab`: open and close any plugin once, as above.
 
 If `agent-browser --cdp 9222` fails to connect (Mode B):
 1. Check that CDP responds: `curl -s http://localhost:9222/json/version | head -2`. Expected: JSON starting with `"Browser": "Chrome/..."`. An empty body / 404 means Chrome's listening but disallowing CDP routes — usually a stale profile copy or a missing `--remote-allow-origins=*` flag. Re-copy the profile and relaunch.

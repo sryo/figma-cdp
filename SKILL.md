@@ -1,6 +1,6 @@
 ---
 name: figma-cdp
-description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API via the agent-browser CLI over Chrome DevTools Protocol. Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
+description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API via the agent-browser CLI over Chrome DevTools Protocol, or via perch over AppleScript with no CDP. Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
 allowed-tools: Bash(agent-browser:*), Bash(python3 /tmp/figma_run.py:*), Bash(python3 /tmp/figma_batch_run.py:*), Bash(python3 /tmp/figma_capture.py:*)
 ---
 
@@ -13,8 +13,8 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 ## Setup
 
 1. **`agent-browser` installed?** If `which agent-browser` returns nothing, see `references/connection.md`.
-2. **Chrome connected?** Run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/connection.md` (Mode A attach vs Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
-3. **Helper scripts.** Copy `figma_run.py` (single eval), `figma_batch_run.py` (multi-eval), and `figma_capture.py` (live-URL capture) to `/tmp/`.
+2. **Chrome connected?** With perch present (Mode P, no CDP), write `typeof figma` to `/tmp/figma_eval.js` and run `python3 /tmp/figma_run.py --file <figma-url> /tmp/figma_eval.js`; pass `--file` on every helper call (required when several Figma files are open). Otherwise run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/connection.md` (Mode P perch, Mode A attach, Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
+3. **Helper scripts.** Copy `figma_run.py` (single eval), `figma_batch_run.py` (multi-eval), `figma_perch.mjs` (their perch backend), and `figma_capture.py` (live-URL capture, CDP only) to `/tmp/`.
 
 ## When you receive a Figma URL
 
@@ -94,7 +94,7 @@ Per-task reference combos for workers (a worker needing 3+ `api-*` files is a si
 ## Rules
 
 - Explain in plain English what you'll do.
-- Never use Chrome MCP tools (`mcp__claude-in-chrome__*`). Always use `agent-browser`.
+- Never use Chrome MCP tools (`mcp__claude-in-chrome__*`). Always go through the helpers or `agent-browser`.
 - Read state before writing. Inspect the Plugin API before mutating anything.
 - **Code → Figma means the source artifact already exists.** Before designing, locate and read it — repo, component file, README screenshots, or live page. Never generate from the app's name or category alone.
 - Preserve existing behavior unless asked.

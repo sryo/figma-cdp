@@ -26,8 +26,12 @@ Talk to Claude Code:
 
 On first run, the skill connects to Chrome two ways: attach to your existing Chrome (flip the toggle at `chrome://inspect/#remote-debugging`), or launch a fresh Chrome Canary for debugging. See `references/connection.md`.
 
+On macOS with [perch](https://github.com/sryo/perch) checked out at `~/Documents/perch` (or `PERCH_DIR`), the helpers skip CDP and run scripts in your open Figma tab over AppleScript instead: no debugging toggle, no "allow remote debugging" prompt. See `references/connection.md` → Mode P.
+
 ## Troubleshooting
 
 If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet — open and close any Figma plugin once to wake it up.
 
 If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
+
+Run the offline helper tests with `python3 tests/perch_backend_test.py`.

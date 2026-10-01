@@ -1,7 +1,7 @@
 # Execution: CDP eval patterns
 
 The eval patterns for all automation against Figma's Plugin API via `agent-browser`.
-Connection setup lives in `references/connection.md` (Mode A attach, Mode B Canary launch, troubleshooting).
+Connection setup lives in `references/connection.md` (Mode P perch, Mode A attach, Mode B Canary launch, troubleshooting).
 
 `agent-browser` commands and the `python3 /tmp/figma_*.py` helper invocations are pre-allowed (`Bash(agent-browser:*)`, `Bash(python3 /tmp/figma_run.py:*)`, `Bash(python3 /tmp/figma_batch_run.py:*)`) — no prompts.
 
@@ -17,11 +17,11 @@ Write `.js` with the Write tool (no Bash needed), then execute:
 python3 /tmp/figma_run.py /tmp/figma_eval.js
 ```
 
-The helper reads `FIGMA_CDP_PORT` (default 9222), base64-encodes the script, and passes it to `agent-browser eval -b`.
+The helper reads `FIGMA_CDP_PORT` (default 9222), base64-encodes the script, and passes it to `agent-browser eval -b`. In Mode P it runs the script through perch instead (`--file <figma-url>` picks the tab); the output is the same.
 
 ### Simple expressions
 
-For one-liners (no helper needed):
+For one-liners (no helper needed; CDP only, Mode P uses the helper):
 
 ```bash
 agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.name"
@@ -133,6 +133,8 @@ For full-page screenshots without Plugin API:
 ```bash
 agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" screenshot /tmp/figma_screenshot.png
 ```
+
+On either backend (and the only way in Mode P): `python3 /tmp/figma_run.py --screenshot /tmp/figma_screenshot.png`. In Mode P the tab must be the one its window shows.
 
 ## Parallelization
 
