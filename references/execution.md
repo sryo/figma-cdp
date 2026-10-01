@@ -17,7 +17,7 @@ Write `.js` with the Write tool (no Bash needed), then execute:
 python3 /tmp/figma_run.py /tmp/figma_eval.js
 ```
 
-The helper reads `FIGMA_CDP_PORT` (default 9222), base64-encodes the script, and passes it to `agent-browser eval -b`. In Mode P it runs the script through perch instead (`--file <figma-url>` picks the tab); the output is the same.
+The helper reads `FIGMA_CDP_PORT` (default 9222), base64-encodes the script, and passes it to `agent-browser eval -b`. In Mode P it runs the script through perch instead (`--file <figma-url>` picks the tab); the output is the same. In Mode P a script that awaits gets 120s, or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file.
 
 ### Simple expressions
 

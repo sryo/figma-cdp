@@ -32,6 +32,8 @@ Without perch, the first run asks you to turn on remote debugging in Chrome (the
 
 If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet. Open and close any Figma plugin once to wake it up.
 
+If a long job in Figma stops with a timeout (a big export, a large file loading), it gets two minutes by default. Claude can give it up to five with `--timeout 300`.
+
 If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
 
 Run the offline helper tests with `python3 tests/perch_backend_test.py`.

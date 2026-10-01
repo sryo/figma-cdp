@@ -74,7 +74,8 @@ class Harness(unittest.TestCase):
         e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
              'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon}
         for k in ('FIGMA_FILE', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
-                  'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE'):
+                  'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
+                  'FIGMA_TIMEOUT_MS', 'PERCH_STUB_OLD'):
             e.pop(k, None)
         e.update(env)
         return e
@@ -154,12 +155,63 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', self.js('a.js', '/*' + 'p' * 300_000 + '*/ 1'))
         self.assertEqual((r.returncode, r.stdout), (0, '1\n'), r.stderr[:300])
 
+    # ---- await timeout
+
+    def eval_timeouts(self):
+        return [c['args'].get('timeout') for c in self.calls('eval_js')]
+
+    def test_default_timeout_is_two_minutes(self):
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.eval_timeouts(), [120000])
+
+    def test_timeout_is_honoured(self):
+        slow = self.js('a.js', 'new Promise(r => setTimeout(() => r("late"), 1500))')
+        r = self.run_helper('figma_run.py', '--timeout', '1', slow)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('perch: timeout: eval_js (world main) timed out after 1000ms', r.stderr)
+        self.assertIn('ran past the 1s it was given (--timeout or FIGMA_TIMEOUT', r.stderr)
+        r = self.run_helper('figma_run.py', '--timeout', '3', slow)
+        self.assertEqual((r.returncode, r.stdout), (0, '"late"\n'), r.stderr)
+        self.assertEqual(self.eval_timeouts(), [1000, 3000])
+
+    def test_timeout_from_env_and_flag_wins(self):
+        self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_TIMEOUT='45')
+        self.run_helper('figma_run.py', '--timeout', '2.5', self.js('a.js', '1'), FIGMA_TIMEOUT='45')
+        self.run_helper('figma_batch_run.py', '--timeout', '7', self.js('a.js', '1'), self.js('b.js', '2'))
+        self.assertEqual(self.eval_timeouts(), [45000, 2500, 7000, 7000])
+
+    def test_timeout_is_clamped_to_1_to_300_seconds(self):
+        for v in ('0.2', '0', '-5', '900', '300'):
+            r = self.run_helper('figma_run.py', '--timeout', v, self.js('a.js', '1'))
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.eval_timeouts(), [1000, 1000, 1000, 300000, 300000])
+
+    def test_bad_timeout_is_refused_before_running(self):
+        for flag, env in ((['--timeout', 'abc'], {}), ([], {'FIGMA_TIMEOUT': 'nan'}), (['--timeout', 'inf'], {})):
+            r = self.run_helper('figma_run.py', *flag, self.js('a.js', '1'), **env)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('--timeout / FIGMA_TIMEOUT is seconds, 1 to 300', r.stderr)
+        r = self.run_helper('figma_batch_run.py', '--timeout', 'soon', self.js('a.js', '1'))
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.calls('eval_js'), [])
+
+    def test_older_perch_gets_no_timeout_and_says_so(self):
+        r = self.run_helper('figma_run.py', '--timeout', '1', self.js('a.js', 'new Promise(r => setTimeout(r, 30))'),
+                            PERCH_STUB_OLD='1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.eval_timeouts(), [None])
+        stop_daemon(self.sock)  # a daemon keeps the environment it started with
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'), PERCH_STUB_OLD='1',
+                            PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 30000ms')
+        self.assertIn('This perch awaits at most 30s; update perch', r.stderr)
+
     def test_perch_error_code_passes_through(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '1'),
                             PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 30000ms')
         self.assertEqual(r.returncode, 1)
         self.assertIn('perch: timeout: eval_js', r.stderr)
-        self.assertIn('perch caps an eval at 30s', r.stderr)
+        self.assertIn('ran past the 120s it was given', r.stderr)
 
     def test_missing_js_file(self):
         r = self.run_helper('figma_run.py', os.path.join(self.tmp.name, 'nope.js'))

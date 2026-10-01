@@ -27,6 +27,8 @@
 // PERCH_DIR: the perch checkout to import (default ~/Documents/perch).
 // FIGMA_PERCH_TAB: a perch tabId to use as is, skipping tab lookup (one-shot;
 // clients of serve pass it as the request's `tab`).
+// FIGMA_TIMEOUT_MS: how long eval_js awaits a script, 1000 to 300000 (one-shot;
+// clients of serve pass it as the request's `timeout`). Default 120000.
 import { chmodSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
@@ -38,7 +40,22 @@ import { pathToFileURL } from "node:url";
 console.log = console.info = console.error;
 
 const FIGMA_PATH = /figma\.com\/(?:design|file|proto)\/([A-Za-z0-9]+)/;
-const TIMEOUT_HINT = "perch caps an eval at 30s, and in a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window";
+export const TIMEOUT_MS = { def: 120000, min: 1000, max: 300000 };
+// Set by loadPerch: a perch that takes eval_js {timeout} exports AWAIT_MAX_MS; an
+// older one awaits 30s whatever it is asked.
+let takesTimeout = false;
+
+export function timeoutMs(v) {
+  const n = Number(v);
+  if (v == null || v === "" || !Number.isFinite(n)) return TIMEOUT_MS.def;
+  return Math.round(Math.min(TIMEOUT_MS.max, Math.max(TIMEOUT_MS.min, n)));
+}
+
+function timeoutHint(ms) {
+  const waited = takesTimeout ? `The script ran past the ${ms / 1000}s it was given (--timeout or FIGMA_TIMEOUT, in seconds, up to 300)`
+    : "This perch awaits at most 30s; update perch to wait longer with --timeout";
+  return `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window`;
+}
 const UNDEFINED_HINT ="figma is undefined in this tab: open and close any Figma plugin once to load the Plugin API, then retry";
 
 function finish(obj) {
@@ -52,6 +69,7 @@ async function loadPerch() {
   const mod = await import(pathToFileURL(entry).href);
   if (typeof mod.handleCall !== "function") throw new Error(`no_perch: ${entry} exports no handleCall`);
   if (typeof mod.buildMainKick !== "function") throw new Error(`no_perch: perch at ${dir} has no eval_js world:"main"; update perch`);
+  takesTimeout = typeof mod.AWAIT_MAX_MS === "number";
   return mod;
 }
 
@@ -118,8 +136,10 @@ export function wrap(src, key) {
     `  return { e: s, figma: __figma, h: __h }; }`;
 }
 
-async function runEval(handleCall, tab, src) {
-  const { text } = await call(handleCall, "eval_js", { target: { tabId: tab.tabId }, world: "main", awaitPromise: true, script: wrap(src, tab.key) });
+async function runEval(handleCall, tab, src, ms) {
+  const args = { target: { tabId: tab.tabId }, world: "main", awaitPromise: true, script: wrap(src, tab.key) };
+  if (takesTimeout) args.timeout = ms;
+  const { text } = await call(handleCall, "eval_js", args);
   let out;
   try { out = JSON.parse(text); } catch { out = null; }
   if (!out || typeof out !== "object") return { ok: false, error: `unexpected eval_js reply: ${text.slice(0, 300)}` };
@@ -136,6 +156,7 @@ function headOf(tab) {
 // One request, one reply object (the shape documented at the top). Never throws.
 export async function handle(handleCall, req, cache = null) {
   const { op, file = "", paths = [], tab: pinned = "" } = req || {};
+  const ms = timeoutMs(req && req.timeout);
   if (!["eval", "screenshot"].includes(op) || !paths.length) {
     return { fatal: "usage: node figma_perch.mjs eval <file> <js_file>... | screenshot <file> <out.png>" };
   }
@@ -166,12 +187,12 @@ export async function handle(handleCall, req, cache = null) {
     try { src = readFileSync(paths[i], "utf8"); } catch { results.push({ ok: false, error: `no such file: ${paths[i]}` }); continue; }
     let res;
     try {
-      res = await runEval(handleCall, tab, src);
+      res = await runEval(handleCall, tab, src, ms);
     } catch (e) {
       if (i === 0 && !retried && tab.cached && /^stale_tab: /.test(e.message)) res = { miss: null };
       // A perch-level failure (stale tab, timeout, browser gone) would fail every
       // later script the same way, so it ends the run.
-      else return { ...headOf(tab), results, fatal: /^timeout: /.test(e.message) ? `${e.message}. ${TIMEOUT_HINT}` : e.message };
+      else return { ...headOf(tab), results, fatal: /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms)}` : e.message };
     }
     if ("miss" in res) {
       if (cache && want) cache.delete(want);
@@ -290,7 +311,7 @@ async function main() {
   } catch (e) {
     return finish({ fatal: e.message });
   }
-  finish(await handle(mod.handleCall, { op, file, paths, tab: process.env.FIGMA_PERCH_TAB || "" }));
+  finish(await handle(mod.handleCall, { op, file, paths, tab: process.env.FIGMA_PERCH_TAB || "", timeout: process.env.FIGMA_TIMEOUT_MS }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

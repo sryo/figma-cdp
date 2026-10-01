@@ -4,7 +4,7 @@
 Reads a .js file and runs it in the Figma tab. Avoids shell syntax (heredocs,
 pipes, redirects) that trigger Claude Code warnings.
 
-  python3 figma_run.py [--file <figma-url-or-key>] <js_file>
+  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <js_file>
   python3 figma_run.py [--file <figma-url-or-key>] --screenshot <out.png>
 
 Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
@@ -12,6 +12,7 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 ~/Documents/perch), which needs no remote debugging; else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (or FIGMA_FILE) names the file; needed when several are open.
+perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
 """
 import argparse, base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
 
@@ -176,17 +177,32 @@ def pretty(v, ind=''):
         return r[:-2] + r[-1] if len(r) > 3 and r[-4] == 'e' and r[-2] == '0' else r
     return json.dumps(v, ensure_ascii=False)
 
-def perch(op, file, *paths):
+def timeout_seconds(flag):
+    """--timeout, else FIGMA_TIMEOUT, else 120: seconds a perch eval may await, clamped to 1-300."""
+    raw = flag if flag is not None else os.environ.get('FIGMA_TIMEOUT')
+    if raw is None or str(raw).strip() == '':
+        return 120.0
+    try:
+        v = float(raw)
+    except ValueError:
+        v = float('nan')
+    if v != v or v in (float('inf'), float('-inf')):
+        sys.exit(f"--timeout / FIGMA_TIMEOUT is seconds, 1 to 300; got '{raw}'")
+    return min(300.0, max(1.0, v))
+
+def perch(op, file, *paths, timeout=120.0):
     """Ask figma_perch.mjs (next to this script) through its daemon, else run it once; its JSON reply."""
     helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_perch.mjs')
     if not os.path.exists(helper):
         sys.exit(f'figma_perch.mjs not found next to {os.path.basename(__file__)}; copy it alongside')
-    req = {'op': op, 'file': file or '', 'paths': [os.path.abspath(p) for p in paths],
+    ms = round(timeout * 1000)
+    req = {'op': op, 'file': file or '', 'paths': [os.path.abspath(p) for p in paths], 'timeout': ms,
            'tab': os.environ.get('FIGMA_PERCH_TAB', '')}
     out = None
     sock = None if os.environ.get('FIGMA_PERCH_DAEMON') == '0' else daemon_sock(helper)
     if sock:
-        wait = 120 * len(paths) + 30
+        # perch's own cap per script: the await, plus reading a long result back.
+        wait = (timeout + 70) * len(paths) + 30
         try:
             out = daemon_exchange(sock, req, wait)
             if out is None and start_daemon(sock, helper):
@@ -195,7 +211,8 @@ def perch(op, file, *paths):
             sys.exit(f'perch: perch_daemon: the daemon dropped the call ({e}); the script may have run, check before retrying')
     if out is None:
         try:
-            r = subprocess.run(['node', helper, op, file or '', *req['paths']], capture_output=True, text=True)
+            r = subprocess.run(['node', helper, op, file or '', *req['paths']], capture_output=True, text=True,
+                               env={**os.environ, 'FIGMA_TIMEOUT_MS': str(ms)})
         except FileNotFoundError:
             sys.exit('node not found; the perch backend needs Node 18+')
         try:
@@ -208,6 +225,8 @@ def perch(op, file, *paths):
 
 ap = argparse.ArgumentParser(prog='figma_run.py')
 ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
+ap.add_argument('--timeout', metavar='SECONDS',
+                help='how long a script may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 120)')
 ap.add_argument('--screenshot', metavar='PNG', help='capture the Figma tab instead of running a script')
 ap.add_argument('js_file', nargs='?')
 a = ap.parse_args()
@@ -223,7 +242,7 @@ if backend() == 'perch':
         perch('screenshot', a.file, a.screenshot)
         print(f"✓ Screenshot saved to {a.screenshot}")
         sys.exit(0)
-    res = perch('eval', a.file, a.js_file)['results'][0]
+    res = perch('eval', a.file, a.js_file, timeout=timeout_seconds(a.timeout))['results'][0]
     if not res['ok']:
         print(f"✗ Evaluation error: {res['error']}", file=sys.stderr)
         sys.exit(1)

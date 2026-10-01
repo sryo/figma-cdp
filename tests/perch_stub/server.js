@@ -9,6 +9,8 @@
 //   PERCH_STUB_TABS_FILE  a file holding the list_tabs rows, re-read on every call
 //                     (tabs that navigate or close); eval_js on a tab not in it is stale_tab
 //   PERCH_STUB_DELAY  ms each eval_js waits before running (concurrency tests)
+//   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
+// eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
 // Scripts see `location` as the target tab's URL. Each log line carries this process's pid.
 import { appendFileSync, readFileSync } from "node:fs";
 
@@ -27,6 +29,7 @@ if (process.env.PERCH_STUB_FIGMA !== "0") {
 globalThis.window = globalThis;
 
 export function buildMainKick() {}
+export const AWAIT_MAX_MS = process.env.PERCH_STUB_OLD === "1" ? undefined : 300000;
 
 const text = (t) => ({ content: [{ type: "text", text: t }] });
 const fail = (msg) => ({ content: [{ type: "text", text: `error: ${msg}` }], isError: true });
@@ -44,9 +47,18 @@ export async function handleCall(name, args = {}) {
     const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
     if (!tab && process.env.PERCH_STUB_TABS_FILE) return fail(`stale_tab: tab ${args.target.tabId} is gone; re-run list_tabs`);
     if (process.env.PERCH_STUB_DELAY) await new Promise((r) => setTimeout(r, Number(process.env.PERCH_STUB_DELAY)));
+    if (args.timeout != null && (typeof args.timeout !== "number" || args.timeout < 1000 || args.timeout > 300000)) {
+      return fail(`bad_args: eval_js timeout is in milliseconds (1000 to 300000); got ${args.timeout}`);
+    }
+    const ms = args.timeout ?? 30000;
     globalThis.location = new URL(tab ? tab.url : DEFAULT_TABS[0].url);
     try {
-      const v = await new (Object.getPrototypeOf(async function () {}).constructor)(args.script)();
+      const run = new (Object.getPrototypeOf(async function () {}).constructor)(args.script)();
+      const LATE = {};
+      let timer;
+      const v = await Promise.race([run, new Promise((r) => { timer = setTimeout(() => r(LATE), ms); })]);
+      clearTimeout(timer);
+      if (v === LATE) return fail(`timeout: eval_js (world main) timed out after ${ms}ms`);
       return text(typeof v === "string" ? v : JSON.stringify(v));
     } catch (e) {
       return fail(`stub: wrapper threw ${e}`);
