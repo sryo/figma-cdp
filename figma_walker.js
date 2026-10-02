@@ -304,10 +304,33 @@
       });
   }
 
+  // Which edges an absolute / fixed box is anchored to, per axis: [h, v] with h one of
+  // l | r | lr | c and v one of t | b | tb | c. Both insets set → both edges, unless
+  // both margins on that axis are auto (centered); one inset at 50% → centered; neither
+  // → the static position, so the start edge. Null when it is [l, t] or unreadable.
+  function pinOf(el) {
+    var map = null;
+    try { map = el.computedStyleMap ? el.computedStyleMap() : null; } catch (e) { map = null; }
+    if (!map) return null;
+    function set(p) { var v = map.get(p); return !!v && !(typeof v.value === 'string' && v.value === 'auto'); }
+    function half(p) { var v = map.get(p); return !!v && v.unit === 'percent' && v.value === 50; }
+    function auto(p) { var v = map.get(p); return !!v && v.value === 'auto'; }
+    function axis(lo, hi, mlo, mhi, a, b) {
+      var s = set(lo), e = set(hi);
+      if (s && e) return auto(mlo) && auto(mhi) ? 'c' : a + b;
+      if ((s && half(lo)) || (e && half(hi))) return 'c';
+      return e ? b : a;
+    }
+    var pin = [axis('left', 'right', 'margin-left', 'margin-right', 'l', 'r'),
+      axis('top', 'bottom', 'margin-top', 'margin-bottom', 't', 'b')];
+    return pin[0] === 'l' && pin[1] === 't' ? null : pin;
+  }
+
   function styleOf(cs, el, hasText, w, h) {
     var st = {};
     if (cs.display !== 'block') st.display = cs.display;
     if (cs.position !== 'static') st.position = cs.position;
+    if (cs.position === 'absolute' || cs.position === 'fixed') { var pin = pinOf(el); if (pin) st.pin = pin; }
     if (cs.flexDirection !== 'row') st.flexDirection = cs.flexDirection;
     if (cs.flexWrap !== 'nowrap') st.flexWrap = cs.flexWrap;
     if (cs.justifyContent !== 'normal') st.justifyContent = cs.justifyContent;

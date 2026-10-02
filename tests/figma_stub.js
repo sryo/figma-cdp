@@ -11,6 +11,7 @@
 'use strict';
 
 const CONTAINERS = { DOCUMENT: 1, PAGE: 1, FRAME: 1, COMPONENT: 1, COMPONENT_SET: 1, INSTANCE: 1, GROUP: 1, SECTION: 1 };
+const CHILD_API = { appendChild: 1, insertChild: 1, findAll: 1, findOne: 1, findChildren: 1, findAllWithCriteria: 1 };
 const DEFAULT_NAME = { FRAME: 'Frame', TEXT: 'Text', RECTANGLE: 'Rectangle', ELLIPSE: 'Ellipse', COMPONENT: 'Component',
   COMPONENT_SET: 'Component set', INSTANCE: 'Instance', PAGE: 'Page', GROUP: 'Group', VECTOR: 'Vector', SECTION: 'Section' };
 const solid = (r, g, b) => [{ type: 'SOLID', visible: true, opacity: 1, blendMode: 'NORMAL', color: { r, g, b } }];
@@ -110,6 +111,10 @@ function createFigma() {
     };
 
     const proxy = new Proxy(t, {
+      has(target, k) {
+        if (CHILD_API[k]) return !!target.children;
+        return k in api || k in target;
+      },
       get(target, k) {
         if (k === '_raw') return target;
         if (k in api) return api[k];
@@ -135,6 +140,13 @@ function createFigma() {
           target._sizing = target._sizing || { h: 'FIXED', v: 'FIXED' };
           target._sizing[k === 'layoutSizingHorizontal' ? 'h' : 'v'] = v;
           return true;
+        }
+        // A text's auto-resize mode is its HUG/FIXED sizing; FILL survives a HEIGHT resize.
+        if (target.type === 'TEXT' && k === 'textAutoResize') {
+          const s = target._sizing;
+          if (v === 'WIDTH_AND_HEIGHT') target._sizing = { h: 'HUG', v: 'HUG' };
+          else if (v === 'HEIGHT') target._sizing = { h: s.h === 'FILL' ? 'FILL' : 'FIXED', v: 'HUG' };
+          else target._sizing = { h: s.h === 'FILL' ? 'FILL' : 'FIXED', v: s.v === 'FILL' ? 'FILL' : 'FIXED' };
         }
         if (k === 'layoutPositioning' && v === 'ABSOLUTE' && !isAL(target.parent)) throw new Error('ABSOLUTE positioning needs an auto-layout parent');
         if (k === 'layoutMode' && v !== 'NONE' && target._sizing && target.type !== 'TEXT') {

@@ -92,6 +92,7 @@ Layout — any node:
 |---|---|---|
 | `display` | `"block"` | raw computed value (flex, inline-flex, grid, inline-grid, inline, inline-block, flow-root, list-item, table, table-cell, contents, …) |
 | `position` | `"static"` | absolute \| fixed \| relative \| sticky |
+| `pin` | `["l","t"]` | absolute / fixed only — `[h, v]` anchored edges from the `computedStyleMap()` insets: h `l` \| `r` \| `lr` \| `c`, v `t` \| `b` \| `tb` \| `c`. Both insets set → both edges, or `c` when both margins on that axis are auto; one inset at 50% → `c`; neither → the start edge |
 | `flexDirection` | `"row"` | column \| row-reverse \| column-reverse |
 | `flexWrap` | `"nowrap"` | wrap \| wrap-reverse |
 | `justifyContent` | `"normal"` | raw |
@@ -191,12 +192,22 @@ python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components
 
 It targets the default session (`--cdp`, same port resolution as `figma_run.py`) and evals, in order:
 
-1. **Reset** — deletes the capture keys of `window.__batchState` (`captureIds`, `captureRects`, `captureLayout`, `captureReport`, `captureFonts`, `captureAssets`) and seeds `captureAssets = {}`. Every import starts clean.
+1. **Reset** — deletes the capture keys of `window.__batchState` (`captureIds`, `captureRects`, `captureLayout`, `captureReport`, `captureFonts`, `captureAssets`, `captureProps`) and seeds `captureAssets = {}`. Every import starts clean.
 2. **Assets** — per asset, one eval setting `captureAssets[key]` to the metadata (`kind, mime, w, h, error` — no bytes), then the `b64` / `svg` string appended in ≤150 KB pieces (`a.b64 = (a.b64 || '') + piece`). The importer reads only finished objects.
 3. **Node chunks** — consecutive nodes packed by JSON size (≤150 KB per chunk, a node is never split, order preserved). Each eval is `window.__captureSpec = {nodes, flagged, components, meta};` followed by `figma_importer.js`. `flagged`, `components`, and `meta` repeat in every chunk; `meta.title` names the root `[cap:0] <title>`.
-4. **Report** — the last eval's return printed as JSON, then `created=N flagged=N fontsFallenBack=N instantiated=N warnings=N`.
+4. **Report** — the last eval's return printed as JSON, then `created=N flagged=N fontsFallenBack=N components=N instantiated=N warnings=N`.
 
-Every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab. `node tests/importer_stub.js <spec.json>` runs the importer over a spec against a stub Plugin API (font-before-characters enforced) and prints the report — the no-Figma smoke check after touching the importer.
+Every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab; `--chunk-bytes N` shrinks the node-chunk budget to exercise cross-chunk state. `node tests/importer_stub.js <spec.json> [--componentize]` replays those dry-run evals against a stub Plugin API (font-before-characters and sizing rules enforced) and prints the report — the no-Figma smoke check after touching the importer; `python3 tests/importer_test.py` asserts sizing, constraints and componentize on `tests/capture_spec.json`.
+
+### Componentize (`--componentize`, opt-in)
+
+Before chunking, the helper hashes every captured subtree: each node's tag, role, layout mode, child count, full `styles`, image asset and (for styled `runs`) run text, plus the root's rect rounded to 4 px. Text content is left out. Every group of **3+** identical-shape subtrees — siblings or cousins anywhere in the page, never overlapping, outermost group first — imports as one component plus instances:
+
+- The first member is built in its own slot as a `COMPONENT` named from the members' shared `axName`, else `role`, else `tag`. Each of its texts that differs across members is bound to a `TEXT` component property (named the same way, from the texts), and the TEXT layer is named `[cap:<i>] <property>`.
+- Every later member is `createInstance()` of it in its own slot, named `[cap:<i>] <readable>`, with the differing texts set through `setProperties`. Its captured layers are not built: `captureIds` maps each to the instance layer at the same child-index path as the master's, so cleanup workers still resolve every spec index.
+- The `--components` category map is not consulted inside a group. A master that failed to build degrades its members to plain subtrees.
+
+The helper marks group nodes with `rep` (`{m, name}` master root, `{c, prop?}` master layer, `{m}` other root, `{src, in}` other layer) before chunking; the importer only follows the marks. Identical styles are part of the shape, so instances never need fill or stroke overrides.
 
 Cross-batch state in `window.__batchState`:
 
@@ -208,6 +219,7 @@ Cross-batch state in `window.__batchState`:
 | `captureReport` | divergence report (below), cumulative — `flagged`, `fontsFallenBack`, `instantiated`, `warnings` | |
 | `captureFonts` | font-ladder cache per (family, weight, italic) | |
 | `captureAssets` | `{key → asset}` | streamed by the helper, read by the importer; `figma.createImage` results are cached on the asset as `asset.hash`, so nodes sharing a URL upload once |
+| `captureProps` | `{master text i → TEXT property key}` | componentize: later instances set their text through this key |
 
 ### Component instantiation contract
 
@@ -247,7 +259,8 @@ Accumulated in `window.__batchState.captureReport`; every node-chunk eval return
 created          int                                   Figma nodes created so far
 flagged          [ {nodeId, reason} ]                  reason ∈ "grid" | "block" | "transform" | "image"
 fontsFallenBack  [ "<family>/<style> → <used family>/<used style>" ]   each substitution once
-instantiated     [ {nodeId, category, componentId} ]   nodes built as a component instance
+instantiated     [ {nodeId, category, componentId} ]   nodes built as a component instance (category "repeat" for componentize)
+components       [ {nodeId, name} ]                    components built by componentize
 warnings         [ "[cap:<i>] <what>: <message>" ]     any try/catch'd Plugin API failure (e.g. an svg that fails to parse)
 batchDone        int                                   nodes processed in this chunk
 ```
@@ -272,18 +285,22 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `display` omitted (block) / flow-root / inline-block / list-item | `layoutMode = 'VERTICAL'` (inferred stack) |
 | `display` grid / inline-grid | `layoutMode = 'NONE'`, `[capture:grid]` |
 | `display` inline / table* / contents / anything else | `layoutMode = 'NONE'`; `[capture:block]` only when `kids` present (leaves stay unflagged) |
-| every frame | `resize(rect.w, rect.h)`, `primaryAxisSizingMode = counterAxisSizingMode = 'FIXED'` — captured rects are truth, never hug |
+| every frame | `resize(rect.w, rect.h)` at creation — the FIXED fallback; per-axis `layoutSizing*` below is set after `appendChild` |
 | `flexWrap` wrap / wrap-reverse | `layoutWrap = 'WRAP'`, `counterAxisSpacing` = the other gap |
 | `justifyContent` | `primaryAxisAlignItems`: space-between / space-around / space-evenly → SPACE_BETWEEN, center → CENTER, flex-end / end → MAX, else MIN |
 | `alignItems` | `counterAxisAlignItems`: center → CENTER, flex-end / end → MAX, baseline → BASELINE (HORIZONTAL only), else MIN |
 | `gap` / `columnGap` | `itemSpacing` = `columnGap` (HORIZONTAL) or `gap` (VERTICAL) |
 | `padding` `[t,r,b,l]` | `paddingTop / Right / Bottom / Left` |
 | `overflow` hidden / clip / auto / scroll | `clipsContent = true` (else false) |
-| `flexGrow` > 0, or `sz` `"pct"` along the parent's primary axis | `layoutGrow = 1` |
-| `sz` `"auto"` / `"pct"` along the counter axis AND `alignSelf` auto / normal / stretch AND parent `alignItems` normal / stretch | `layoutAlign = 'STRETCH'` (else INHERIT); never for inline-level children (`display` starting with `inline`) of block-flow parents |
+| in-flow child of Auto Layout: `flexGrow` > 0, or `sz` `"pct"`, along the parent's primary axis | that axis `layoutSizing* = 'FILL'` |
+| in-flow child of Auto Layout: `sz` `"auto"` / `"pct"` on the counter axis AND `alignSelf` auto / normal / stretch AND parent `alignItems` normal / stretch, not inline-level (`display` starting with `inline`) | that axis `'FILL'` |
+| `sz` `"auto"` on an axis that doesn't FILL, node an Auto Layout frame with children (or a textbox: height, and width when single-line) | `'HUG'` — except a width outside Auto Layout flow on a non-positioned block-level box (it fills a container Figma can't express) and an absolute axis with `pin` on both edges; those stay `'FIXED'` |
+| `sz` `"px"` / `"other"`, leaf frames, svg, iframe placeholders, category instances | `'FIXED'` at the captured rect (FILL still applies) |
+| a child FILLs an axis its parent HUGs | the parent goes `'FIXED'` at its captured size on that axis first |
 | `minW` `maxW` `minH` `maxH` | `minWidth` `maxWidth` `minHeight` `maxHeight` |
 | `position` absolute / fixed inside an Auto Layout parent | `layoutPositioning = 'ABSOLUTE'`, placed at `rect − parentRect` |
 | child of a NONE parent, or root | `x, y = rect − parentRect` (absolute rect when no parent) |
+| `pin` on an absolute / fixed child (of either parent kind) | `constraints`: `l`/`t` → MIN, `r`/`b` → MAX, `lr`/`tb` → STRETCH, `c` → CENTER |
 | `xf` on an absolute or NONE-parent child | `relativeTransform = [[a, c, rx+e], [b, d, ry+f]]` |
 | `xf` translate-only on an in-flow Auto Layout child | dropped — flow position wins, not flagged |
 | `xf` pure rotation on an in-flow Auto Layout child | `rotation = −atan2(b, a)·180/π` |
@@ -306,8 +323,8 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `textDecoration` | `textDecoration`: underline → UNDERLINE, line-through → STRIKETHROUGH |
 | `textTransform` | `textCase`: uppercase → UPPER, lowercase → LOWER, capitalize → TITLE |
 | `runs` | `setRangeFontName / setRangeFontSize / setRangeFills / setRangeTextDecoration` per run |
-| `lines` > 1, or the text node gets `layoutAlign STRETCH` | `resize(rect.w, rect.h)` then `textAutoResize = 'HEIGHT'`; otherwise `textAutoResize = 'WIDTH_AND_HEIGHT'` |
-| text node with `bg`, `border`, `image`, non-zero `padding`, `radius` / `radii`, or `shadow` | wrapper FRAME (HORIZONTAL Auto Layout, FIXED to rect, padding and box paint/effects on the frame, `primaryAxisAlignItems` CENTER when `textAlign` center else MIN, `counterAxisAlignItems` CENTER) holding the TEXT node; every placement rule applies to the wrapper |
+| `lines` > 1, or the text's width FILLs | `resize(rect.w, rect.h)` then `textAutoResize = 'HEIGHT'` (then width `'FILL'` when it fills); otherwise `textAutoResize = 'WIDTH_AND_HEIGHT'`. A text's height never FILLs |
+| text node with `bg`, `border`, `image`, non-zero `padding`, `radius` / `radii`, or `shadow` | wrapper FRAME (HORIZONTAL Auto Layout, padding and box paint/effects on the frame, `primaryAxisAlignItems` CENTER when `textAlign` center else MIN, `counterAxisAlignItems` CENTER) holding the TEXT node, whose width FILLs when `lines` > 1; every placement and sizing rule applies to the wrapper |
 
 **Font ladder** per (family, weight, italic): style name from weight — 100 Thin, 200 ExtraLight, 300 Light, 400 Regular, 500 Medium, 600 SemiBold, 700 Bold, 800 ExtraBold, 900 Black — plus ` Italic` when italic (`Regular Italic` → `Italic`). Generic families (sans-serif, serif, monospace, system-ui, -apple-system, ui-*, cursive, fantasy, emoji, math) go to Inter directly. Try `{family, style}` → `{family, Regular}` → `{Inter, style}` → `{Inter, Regular}`; cached in `captureFonts`; every substitution lands once in `fontsFallenBack`. Never assume a font loaded — substitution is always reported.
 

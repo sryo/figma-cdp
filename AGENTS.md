@@ -23,7 +23,8 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 └── tests/
     ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
     ├── figma_stub.js         # stub Plugin API (node tree, components/variants/instances, variables, sandbox ordering rules) shared by the offline tests
-    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against figma_stub.js, no Figma tab needed
+    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json> [--componentize]` — replays `figma_capture.py import --dry-run` against figma_stub.js, no Figma tab needed
+    ├── importer_test.py      # `python3 tests/importer_test.py`: import sizing, constraints and componentize over capture_spec.json (hand-built spec of capture_fixture.html), offline
     ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend (daemon and one-shot) against perch_stub/, offline
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
