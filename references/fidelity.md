@@ -12,7 +12,7 @@ Pass the files behind the screen being built: its markup or UI code, the style s
 
 - `tokens` `[{name, value, kind, src}]`: custom properties, `$`/`@` variables, theme constants with a color value, JSON token files (nested keys and `$value`). References (`var(--x)`, `{a.b}`) are resolved.
 - `colors`, `spacing`, `radii`, `fontSizes`, `fontWeights`, `fontFamilies` `[{value, token?, src}]`: every literal color (`#hex`, `rgb()`, `hsl()`, `0x` on a line about color) and every number used for spacing, radius or type, in px (rem × 16).
-- `copy` `[{text, src}]`: markup text, copy attributes (`placeholder`, `label`, `value`, ...), prose string literals in UI code, string-table JSON. Comments, scripts, `<title>`, `aria-*`, class lists and identifiers are skipped.
+- `copy` `[{text, src}]`: markup text, copy attributes (`placeholder`, `label`, `value`, ...), prose string literals in UI code, string-table JSON. A markup expression stays as a placeholder (`You have {count} left`) that matches any filled-in value. Comments, scripts, `<title>`, `aria-*`, class lists and identifiers are skipped.
 - `variants` `[{component, prop, values, src}]`: string-literal unions, enums, boolean props, class modifiers (`block--mod`).
 - `states` `[{component, state, src}]`: pseudo-classes, state-named props (`disabled`, `selected`, ...), state-named modifiers, a `disabled` attribute in markup.
 
@@ -37,7 +37,7 @@ not checked (no component in the subtree): toggle
 
 - **missing copy**: a manifest string no text layer shows. **invented copy**: a text layer outside component definitions that no manifest string contains.
 - **off-manifest** colors (±3 per channel), spacing, radii (a pill radius passes when the source has one ≥ 999), font sizes, weights, fonts.
-- **unbound**: a raw value equal to a source token while a file variable holds that value. Bind it to the variable named.
+- **unbound**: a raw value equal to a source token while a local variable scoped for that field holds that value. Bind it to the variable named.
 - **missing variants / states**: checked only for components the subtree uses, matched by name. The others are listed as not checked.
 
 A kind the manifest has no entries for is skipped. Exit 0 means no gaps, 1 means gaps, 2 means the check could not run. `--json` prints the full report, with every node id. Fix each gap with a targeted edit, or report it as a deliberate deviation, then run the check again.

@@ -161,5 +161,98 @@ class Fidelity(unittest.TestCase):
         self.assertEqual(len(evals), 1)
 
 
+class Diff(unittest.TestCase):
+    """figma_fidelity.diff on collected subtrees written by hand: matching rules with no eval."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, ROOT)
+        import figma_fidelity
+        cls.diff = staticmethod(figma_fidelity.diff)
+
+    def collected(self, texts=(), **kw):
+        c = {'root': {'id': '1:1', 'name': 'R', 'type': 'FRAME'}, 'colors': {}, 'families': {}, 'comps': [], 'names': [],
+             'nums': {'spacing': {}, 'radius': {}, 'fontSize': {}, 'fontWeight': {}}, 'vars': {'color': {}, 'float': {}},
+             'texts': [{'id': '1:%d' % (i + 2), 't': t, 'def': False} for i, t in enumerate(texts)]}
+        c.update(kw)
+        return c
+
+    def test_a_line_of_a_multiline_text_layer_shows_short_copy(self):
+        m = {'copy': [{'text': 'Sign in', 'src': 'a.html:1'}, {'text': 'Go', 'src': 'a.html:2'}]}
+        g = self.diff(m, self.collected(['Sign in\nGo']))['gaps']
+        self.assertEqual(g['missing copy'], [])
+
+    def test_short_copy_inside_a_word_does_not_vouch_for_a_layer(self):
+        m = {'copy': [{'text': 'Or', 'src': 'a.html:1'}, {'text': 'In', 'src': 'a.html:2'}]}
+        g = self.diff(m, self.collected(['Or', 'In', 'Forgot password']))['gaps']
+        self.assertEqual([e['text'] for e in g['invented copy']], ['Forgot password'])
+
+    def test_copy_with_an_interpolated_expression_matches_any_filled_value(self):
+        m = {'copy': [{'text': 'You have {count} items left', 'src': 'a.jsx:8'}]}
+        g = self.diff(m, self.collected(['You have 3 items left']))['gaps']
+        self.assertEqual((g['missing copy'], g['invented copy']), ([], []))
+        g = self.diff(m, self.collected(['You have items']))['gaps']
+        self.assertEqual(len(g['missing copy']), 1)
+
+    def test_unbound_suggests_only_a_variable_scoped_for_the_field(self):
+        m = {'spacing': [{'value': 16, 'token': '--space-4', 'src': 't.css:1'}],
+             'radii': [{'value': 16, 'token': '--radius-lg', 'src': 't.css:2'}]}
+        e = {'n': 2, 'ids': ['1:5', '1:6'], 'unbound': ['1:5', '1:6'], 'u': 2}
+        nums = {'spacing': {'16': dict(e)}, 'radius': {'16': dict(e)}, 'fontSize': {}, 'fontWeight': {}}
+        floats = {'16': [{'name': 'font/size/16', 'scopes': ['FONT_SIZE']}, {'name': 'space/4', 'scopes': ['GAP']},
+                         {'name': 'any/16', 'scopes': ['ALL_SCOPES']}]}
+        g = self.diff(m, self.collected(nums=nums, vars={'color': {}, 'float': floats}))['gaps']
+        self.assertEqual(sorted(x['variable'] for x in g['unbound']), ['any/16', 'space/4'])
+        floats['16'] = [{'name': 'font/size/16', 'scopes': ['FONT_SIZE']}]
+        g = self.diff(m, self.collected(nums=nums, vars={'color': {}, 'float': floats}))['gaps']
+        self.assertEqual(g['unbound'], [])
+
+    def test_unbound_color_skips_a_variable_scoped_away_from_paints(self):
+        m = {'colors': [{'value': '#6b7280', 'token': '--muted', 'src': 't.css:1'}]}
+        colors = {'#6b7280': {'n': 1, 'ids': ['1:5'], 'unbound': ['1:5'], 'u': 1}}
+        cv = {'#6b7280': [{'name': 'effect/shadow', 'scopes': ['EFFECT_COLOR']}, {'name': 'text/muted', 'scopes': ['TEXT_FILL']}]}
+        g = self.diff(m, self.collected(colors=colors, vars={'color': cv, 'float': {}}))['gaps']
+        self.assertEqual([x['variable'] for x in g['unbound']], ['text/muted'])
+
+
+class Collect(unittest.TestCase):
+    """The eval itself, on the stub through the perch daemon path."""
+
+    def setUp(self):
+        Fidelity.setUp(self)
+
+    def tearDown(self):
+        Fidelity.tearDown(self)
+
+    def seed(self, body):
+        path = os.path.join(self.tmp.name, 'seed.js')
+        with open(path, 'w') as f:
+            f.write('(async function () {\n' + body + '\n})()')
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_run.py'), '--file', FILE, path],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_unbound_counts_every_node_past_the_listed_ids(self):
+        root = self.seed(
+            "var c = figma.variables.createVariableCollection('c');\n"
+            "var v = figma.variables.createVariable('color/text-muted', c, 'COLOR');\n"
+            "v.setValueForMode(c.modes[0].modeId, { r: 0x6b / 255, g: 0x72 / 255, b: 0x80 / 255, a: 1 });\n"
+            "v.scopes = ['ALL_SCOPES'];\n"
+            "var f = figma.createFrame(); f.name = 'Many';\n"
+            "for (var i = 0; i < 7; i++) { var r = figma.createRectangle();"
+            " r.fills = [{ type: 'SOLID', color: { r: 0x6b / 255, g: 0x72 / 255, b: 0x80 / 255 } }]; f.appendChild(r); }\n"
+            "return f.id;")
+        m = os.path.join(self.tmp.name, 'm.json')
+        with open(m, 'w') as f:
+            json.dump({'colors': [{'value': '#6b7280', 'token': '--color-text-muted', 'src': 't.css:3'}]}, f)
+        r = self.fidelity(root, manifest=m)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('unbound (1): #6b7280 ×7 → color/text-muted (', r.stdout)
+        self.assertIn(', +4)', r.stdout)
+
+    fidelity = Fidelity.fidelity
+
+
 if __name__ == '__main__':
     unittest.main()

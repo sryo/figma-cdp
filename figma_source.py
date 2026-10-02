@@ -48,7 +48,7 @@ VAR = re.compile(r'var\(\s*(--[\w-]+)[^()]*(?:\([^()]*\)[^()]*)*\)')
 SIGIL_DEF = re.compile(r'(?<![\w-])((?:--|\$|@)[A-Za-z_][\w-]*)\s*:\s*([^;}\n]+)')
 IDENT_DEF = re.compile(r'(?<![\w.$-])([A-Za-z_]\w*)\s*[:=]\s*([^;\n]+)')
 COLOR_START = re.compile(r'(?:[\w.]+\(\s*(?:hex:\s*)?)?["\']?\s*(?=#|rgb|hsl|0x)')
-DECL_USE = re.compile(r'(?<![\w$@-])([A-Za-z][\w-]*)\s*([:=(])\s*([^;{}\n]*)')
+DECL_USE = re.compile(r'(?<![\w$@-])([A-Za-z][\w-]*)\s*([:=(])(?=\s*([^;{}\n]*))')
 DECL_NAME = re.compile(r'\b(?:function|class|struct|interface|type|enum|const|let|var|val|fun|func|def|object|'
                        r'component|protocol|record)\s+([A-Z]\w*)')
 UNION = re.compile(r'([A-Za-z_]\w*)\??\s*[:=]\s*((?:["\'][^"\'\n|]+["\']\s*\|\s*)+["\'][^"\'\n|]+["\'])')
@@ -163,13 +163,25 @@ def prose(s):
 
 
 def text_node(s):
-    """Markup text with {expressions} removed, or '' when what is left is code."""
+    """Markup text with each {expression} as a placeholder ({name.path}, else {…}), or '' when the
+    text around the expressions is code or empty."""
+    held = []
+
+    def hold(m):
+        inner = m.group(0)[1:-1].strip()
+        held.append('{' + inner + '}' if re.fullmatch(r'[A-Za-z_$][\w$.]*', inner) else '{…}')
+        return f'\0{len(held) - 1}\0'
+
     prev = None
     while prev != s:
-        prev, s = s, re.sub(r'\{[^{}]*\}', ' ', s)
+        prev, s = s, re.sub(r'\{[^{}]*\}', hold, s)
     s = html.unescape(re.sub(r'\s+', ' ', s)).strip()
-    if not re.search(r'\w', s) or re.search(r'[;=(){}\[\]]|=>|&&|\|\|', s):
+    bare = re.sub(r'\0\d+\0', ' ', s)
+    if not re.search(r'\w', bare) or re.search(r'[;=(){}\[\]]|=>|&&|\|\|', bare):
         return ''
+    # A held expression may contain earlier placeholders; restore innermost last.
+    while re.search(r'\0\d+\0', s):
+        s = re.sub(r'\0(\d+)\0', lambda m: held[int(m.group(1))], s)
     return s
 
 

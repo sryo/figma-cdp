@@ -8,7 +8,7 @@ subtree's text, resolved solid colors, fonts, auto-layout spacing, radii and the
 sets behind it. The report lists, per kind, what differs from the manifest:
   missing copy / invented copy      source strings no text layer shows; text layers no source string has
   off-manifest colors, spacing, radii, font sizes, weights, fonts
-  unbound                           a raw value equal to a source token while a file variable holds it
+  unbound                           a raw value equal to a source token while a local variable scoped for the field holds it
   missing variants / missing states for components the subtree uses (sets reached through instances too)
 A kind the manifest has no entries for is not checked. Exit 0 with no gaps, 1 with gaps,
 2 when the check could not run.
@@ -39,10 +39,10 @@ COLLECT = r'''
   var out = { root: { id: root.id, name: root.name, type: root.type }, texts: [], colors: {}, nums: { spacing: {}, radius: {}, fontSize: {}, fontWeight: {} },
     families: {}, comps: [], names: {}, vars: { color: {}, float: {} } };
   function add(map, key, id, bound, extra) {
-    var e = map[key] || (map[key] = { n: 0, ids: [], unbound: [] });
+    var e = map[key] || (map[key] = { n: 0, ids: [], unbound: [], u: 0 });
     e.n++;
     if (e.ids.indexOf(id) === -1 && e.ids.length < 5) e.ids.push(id);
-    if (!bound && e.unbound.indexOf(id) === -1 && e.unbound.length < 5) e.unbound.push(id);
+    if (!bound) { e.u++; if (e.unbound.indexOf(id) === -1 && e.unbound.length < 5) e.unbound.push(id); }
     if (extra) for (var k in extra) e[k] = e[k] || extra[k];
   }
   async function paints(n, list, styled) {
@@ -68,10 +68,11 @@ COLLECT = r'''
     if (n.type === 'TEXT') {
       out.texts.push({ id: n.id, t: n.characters, def: inDef(n) });
       var segs = (n.fills === figma.mixed || n.fontSize === figma.mixed || n.fontName === figma.mixed) && n.getStyledTextSegments
-        ? n.getStyledTextSegments(['fills', 'fontSize', 'fontName']) : [{ fills: n.fills, fontSize: n.fontSize, fontName: n.fontName }];
+        ? n.getStyledTextSegments(['fills', 'fillStyleId', 'fontSize', 'fontName'])
+        : [{ fills: n.fills, fillStyleId: n.fillStyleId, fontSize: n.fontSize, fontName: n.fontName }];
       for (var s = 0; s < segs.length; s++) {
         var seg = segs[s];
-        await paints(n, seg.fills, !!(n.fillStyleId && typeof n.fillStyleId === 'string'));
+        await paints(n, seg.fills, !!(seg.fillStyleId && typeof seg.fillStyleId === 'string'));
         if (typeof seg.fontSize === 'number') add(out.nums.fontSize, seg.fontSize, n.id, !!bv.fontSize);
         if (seg.fontName && seg.fontName !== figma.mixed) {
           add(out.families, seg.fontName.family, n.id, true);
@@ -115,8 +116,9 @@ COLLECT = r'''
   for (var j = 0; j < vs.length; j++) {
     var r = await resolve(vs[j].id, 0);
     if (!r || r.value === null || r.value === undefined) continue;
-    if (vs[j].resolvedType === 'COLOR' && r.value.r !== undefined) out.vars.color[hex(r.value)] = out.vars.color[hex(r.value)] || r.name;
-    if (vs[j].resolvedType === 'FLOAT' && typeof r.value === 'number') out.vars.float[r.value] = out.vars.float[r.value] || r.name;
+    var into = vs[j].resolvedType === 'COLOR' && r.value.r !== undefined ? out.vars.color[hex(r.value)] || (out.vars.color[hex(r.value)] = [])
+      : vs[j].resolvedType === 'FLOAT' && typeof r.value === 'number' ? out.vars.float[r.value] || (out.vars.float[r.value] = []) : null;
+    if (into) into.push({ name: r.name, scopes: vs[j].scopes && vs[j].scopes.length ? vs[j].scopes.slice() : ['ALL_SCOPES'] });
   }
   out.names = Object.keys(out.names);
   return out;
@@ -157,15 +159,55 @@ def flat(s):
     return re.sub(r'[^a-z0-9]', '', str(s).lower())
 
 
+# The variable scopes that let a variable stand in for each field the check reads.
+SCOPES = {'color': {'ALL_SCOPES', 'ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT_FILL', 'STROKE_COLOR'},
+          'spacing': {'ALL_SCOPES', 'GAP'}, 'radius': {'ALL_SCOPES', 'CORNER_RADIUS'}}
+
+
+def variable(candidates, kind):
+    return next((v['name'] for v in candidates if SCOPES[kind] & set(v['scopes'])), None)
+
+
+def pattern(source):
+    """A source string as a regex over normalized text: each {expression} matches any filled-in value."""
+    parts = re.split(r'\{[^{}]*\}', norm(source))
+    return re.compile(r'.+?'.join(re.escape(p) for p in parts)) if len(parts) > 1 else None
+
+
+def lines(text):
+    return [norm(l) for l in str(text).split('\n') if norm(l)]
+
+
+def within(a, b):
+    """a occurs in b on word boundaries."""
+    return re.search(r'(?<!\w)' + re.escape(a) + r'(?!\w)', b) is not None
+
+
 def shows(source, texts):
-    s = norm(source)
-    return any(t == s or s in t.split('\n') or (len(s) >= 12 and s in t) for t in texts)
+    s, p = norm(source), pattern(source)
+    for t in texts:
+        if p and p.fullmatch(t['full']) or any(p and p.fullmatch(l) for l in t['lines']):
+            return True
+        if t['full'] == s or s in t['lines'] or (len(s) >= 12 and s in t['full']):
+            return True
+    return False
+
+
+def vouched(text, copy):
+    """A text layer some source string accounts for: equal, a fragment of it, or containing it."""
+    n = norm(text)
+    for s, p in copy:
+        if p and (p.fullmatch(n) or p.search(n)):
+            return True
+        if n == s or within(n, s) or within(s, n):
+            return True
+    return False
 
 
 def diff(m, c):
     gaps = {k: [] for k in KINDS}
-    texts = [norm(t['t']) for t in c['texts']]
-    copy = [norm(e['text']) for e in m.get('copy', [])]
+    texts = [{'full': norm(t['t']), 'lines': lines(t['t'])} for t in c['texts']]
+    copy = [(norm(e['text']), pattern(e['text'])) for e in m.get('copy', [])]
     if copy:
         gaps['missing copy'] = [{'text': e['text'], 'src': e['src']} for e in m['copy'] if not shows(e['text'], texts)]
         seen = set()
@@ -173,7 +215,7 @@ def diff(m, c):
             n = norm(t['t'])
             if t['def'] or not re.search(r'\w', n) or n in seen:
                 continue
-            if not any(n == s or n in s or s in n for s in copy):
+            if not vouched(t['t'], copy):
                 seen.add(n)
                 gaps['invented copy'].append({'text': t['t'], 'ids': [t['id']]})
 
@@ -184,9 +226,9 @@ def diff(m, c):
         if palette and not hit:
             gaps['off-manifest colors'].append({'value': h, 'n': e['n'], 'ids': e['ids']})
         elif hit and hit.get('token') and e['unbound']:
-            var = next((name for vh, name in c['vars']['color'].items() if near(vh, h)), None)
+            var = next((v for vh, vs in sorted(c['vars']['color'].items()) if near(vh, h) for v in [variable(vs, 'color')] if v), None)
             if var:
-                gaps['unbound'].append({'value': h, 'n': len(e['unbound']), 'ids': e['unbound'], 'token': hit['token'], 'variable': var})
+                gaps['unbound'].append({'value': h, 'n': e['u'], 'ids': e['unbound'], 'token': hit['token'], 'variable': var})
 
     for kind, key, label in NUM_KINDS:
         allowed = [e for e in m.get(key, [])]
@@ -197,9 +239,10 @@ def diff(m, c):
             if allowed and not hit and not (pill and e.get('pill')):
                 gaps[label].append({'value': value, 'n': e['n'], 'ids': e['ids']})
             elif hit and hit.get('token') and e['unbound'] and kind in ('spacing', 'radius'):
-                var = next((name for fv, name in c['vars']['float'].items() if abs(float(fv) - value) <= 0.01), None)
+                var = next((v for fv, vs in c['vars']['float'].items() if abs(float(fv) - value) <= 0.01
+                            for v in [variable(vs, kind)] if v), None)
                 if var:
-                    gaps['unbound'].append({'value': value, 'n': len(e['unbound']), 'ids': e['unbound'], 'token': hit['token'], 'variable': var})
+                    gaps['unbound'].append({'value': value, 'n': e['u'], 'ids': e['unbound'], 'token': hit['token'], 'variable': var})
 
     fams = {e['value'].casefold() for e in m.get('fontFamilies', [])}
     if fams:

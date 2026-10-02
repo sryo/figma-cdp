@@ -176,6 +176,21 @@ class Generic(unittest.TestCase):
         self.assertEqual(by[('chipprops', 'dismissible')], ['true', 'false'])
         self.assertIn(('chipprops', 'selected'), {(s['component'], s['state']) for s in m['states']})
 
+    def test_every_declaration_of_a_one_line_style_object(self):
+        self.write('Card.jsx', 'export const Card = () => (\n'
+                   '  <div style={{ padding: 12, borderRadius: 8, gap: 6, fontSize: 15 }}>Plan</div>\n);\n')
+        m = manifest(self.tmp.name)
+        self.assertEqual(({12, 6}, {8}, {15}), (values(m, 'spacing'), values(m, 'radii'), values(m, 'fontSizes')))
+
+    def test_markup_text_keeps_its_expressions_as_placeholders(self):
+        self.write('List.jsx', 'export function List({ count, user }) {\n  return (\n    <div>\n'
+                   '      <p>You have {count} items left</p>\n      <h2>Hi {user.name}!</h2>\n'
+                   '      <span>{count}</span>\n      <em>Total: {format(sum(a, b))}</em>\n    </div>\n  );\n}\n')
+        m = manifest(self.tmp.name)
+        copy = {e['text']: e['src'] for e in m['copy']}
+        self.assertEqual(set(copy), {'You have {count} items left', 'Hi {user.name}!', 'Total: {…}'})
+        self.assertEqual(copy['You have {count} items left'], 'List.jsx:4')
+
     def test_skips_vendor_dirs_and_writes_with_o(self):
         self.write('node_modules/x/a.css', ':root { --junk: #123456; }')
         self.write('src/__tests__/a.css', ':root { --junk2: #123456; }')
