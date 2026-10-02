@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 1;
+  var V = 2;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -310,7 +310,8 @@
     return (paints || []).map(function (p) { return p.type === 'SOLID' ? hex8(p.color, p.opacity) : p.type.toLowerCase(); }).join(' + ');
   }
   function effectText(e) {
-    return e.type + (e.offset ? ' ' + round(e.offset.x) + ',' + round(e.offset.y) : '') + ' blur ' + round(e.radius) +
+    return e.type + (e.offset ? ' ' + round(e.offset.x) + ',' + round(e.offset.y) : '') +
+      (typeof e.radius === 'number' ? ' blur ' + round(e.radius) : '') +
       (e.spread ? ' spread ' + round(e.spread) : '') + (e.color ? ' ' + hex8(e.color) : '');
   }
   function lineHeight(l) {
@@ -478,7 +479,7 @@
     if (o.textStyle) {
       style = /^S:/.test(o.textStyle) ? await figma.getStyleByIdAsync(o.textStyle)
         : (await figma.getLocalTextStylesAsync()).filter(function (s) { return s.name === o.textStyle; })[0];
-      if (!style) throw new Error('no text style ' + o.textStyle);
+      if (!style || style.type !== 'TEXT') throw new Error('no text style ' + o.textStyle);
     }
     var font = await loadFont(style ? style.fontName : { family: o.family || 'Inter', style: o.weight || 'Regular' });
     var parent = await parentOf(o);
@@ -528,11 +529,12 @@
   async function instance(ref, props, o) {
     props = props || {};
     o = o || {};
-    var comp = await findComponent(ref);
-    if (isVariant(comp)) comp = comp.parent;
+    var comp = await findComponent(ref), picked = null;
+    if (isVariant(comp)) { picked = comp; comp = comp.parent; }
     var main = comp, axes = [];
     if (comp.type === 'COMPONENT_SET') {
-      var base = comp.defaultVariant || comp.children[0], want = {}, cur = base.variantProperties || {};
+      // Axes props leave out keep the given variant's values, else the set's default variant's.
+      var base = picked || comp.defaultVariant || comp.children[0], want = {}, cur = base.variantProperties || {};
       axes = Object.keys(cur);
       axes.forEach(function (a) { want[a] = cur[a]; });
       Object.keys(props).forEach(function (k) {
@@ -558,6 +560,15 @@
     var parent = await parentOf(o);
     var inst = main.createInstance();
     if (parent) parent.appendChild(inst);
+    // Figma writes a TEXT property into the layers it drives, so their fonts load first.
+    var texts = inst.findAll(function (n) {
+      var r = n.type === 'TEXT' && n.componentPropertyReferences;
+      return !!(r && r.characters && keyed[r.characters] !== undefined);
+    });
+    for (var i = 0; i < texts.length; i++) {
+      var t = texts[i], fonts = t.fontName === figma.mixed ? t.getRangeAllFontNames(0, t.characters.length) : [t.fontName];
+      for (var j = 0; j < fonts.length; j++) await loadFont(fonts[j]);
+    }
     if (Object.keys(keyed).length) inst.setProperties(keyed);
     if (o.name) inst.name = o.name;
     size(inst, o.w, o.h);

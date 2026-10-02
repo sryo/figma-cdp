@@ -54,7 +54,7 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 | `__fx.frame({parent, name, dir, gap, pad, align, justify, w, h, fill, stroke, radius, component, abs, x, y, constraints})` | a frame (or component). `dir` V\|H; `pad` n, [v,h] or [t,r,b,l]; `align` / `justify` start\|center\|end\|between; `w` / `h` a number (FIXED), `'fill'` or `'hug'` (the default with `dir`) |
 | `__fx.autoLayout(ref, opts)` | the same layout options on an existing frame |
 | `__fx.text(chars, {parent, name, family, weight, size, lineHeight, textStyle, color, w, align})` | loads the font first; `textStyle` by name or id; `w` `'fill'` or a width wraps |
-| `__fx.instance(idOrKeyOrName, props, {parent, name, w, h})` | variant axes in `props` pick the variant; other properties by short name (`Label`, not `Label#1:2`) |
+| `__fx.instance(idOrKeyOrName, props, {parent, name, w, h})` | variant axes in `props` pick the variant (from a variant id, the axes left out keep its values); other properties by short name (`Label`, not `Label#1:2`) |
 | `__fx.bindFill(ref, value, field)` | `value` a hex, or a variable or paint style (name, id or object). A hex binds the local variable (else paint style) with exactly that value, else paints raw. Returns `{bound, id}`; `field` `'strokes'` for strokes |
 | `__fx.audit(rootId, {limit})` | structural problems under a node or page: `{counts, ids}` (up to 5 ids each) |
 

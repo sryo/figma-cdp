@@ -5,7 +5,8 @@
 // sizing only inside an auto-layout parent, HUG only on auto-layout frames and text,
 // ABSOLUTE positioning only inside auto layout, component properties added on and read from
 // the set rather than a variant, and no removing the current page. `figma._stats.variantDefReads`
-// counts reads of componentPropertyDefinitions on a variant, which throw as in Figma.
+// counts reads of componentPropertyDefinitions on a variant, which throw as in Figma;
+// `figma._unloadFonts()` forgets loaded fonts, as a new session in the tab would.
 //
 //   const { createFigma } = require('./figma_stub');
 //   global.figma = createFigma();
@@ -117,7 +118,12 @@ function createFigma() {
           t._main = next;
         }
         for (const [k, v] of Object.entries(t._overrides || {})) {
-          walk(proxy, (n) => { const r = n.componentPropertyReferences; if (r && r.characters === k) n._raw.characters = v; });
+          walk(proxy, (n) => {
+            const r = n.componentPropertyReferences;
+            if (!r || r.characters !== k) return;
+            if (!loadedFonts[n.fontName.family + '/' + n.fontName.style]) throw new Error('in setProperties: Cannot write to node with unloaded font');
+            n._raw.characters = v;
+          });
         }
       },
       clone() { const c = makeNode(type); copyInto(proxy, c); if (t.parent) insert(t.parent, c, t.parent.children.indexOf(proxy) + 1); return c; },
@@ -299,6 +305,7 @@ function createFigma() {
     loadFontAsync: async (f) => { if (f.family === 'Missing') throw new Error('font not found'); loadedFonts[f.family + '/' + f.style] = true; },
     async listAvailableFontsAsync() { return [{ fontName: { family: 'Inter', style: 'Regular' } }]; },
     _stats: stats,
+    _unloadFonts() { for (const k of Object.keys(loadedFonts)) delete loadedFonts[k]; },
     group(nodes, parent) {
       const g = makeNode('GROUP');
       insert(parent, g, parent._raw.children.length);

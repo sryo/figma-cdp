@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 1, sha: '535b342775074937' };
+const PIN = { v: 2, sha: '309f20753104f9cb' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -321,6 +321,42 @@ test('instance: by set id, name or key; variant props pick the variant, short pr
   await assert.rejects(fx.instance(set.id, { Variant: 'Ghost' }), /no variant of Button/);
   await assert.rejects(fx.instance('Nope', {}), /no component named Nope/);
   await assert.rejects(fx.instance(screen.id, {}), /not a component/);
+});
+
+test('instance: a variant id keeps that variant; props change only the axes they name', async () => {
+  const fx = fresh();
+  await fonts();
+  const set = buttonSet(figma.currentPage);
+  const secondaryDisabled = set.children.find((c) => c.name === 'Variant=Secondary, State=Disabled');
+  const a = await fx.instance(secondaryDisabled.id, {});
+  assert.equal((await a.getMainComponentAsync()).name, 'Variant=Secondary, State=Disabled');
+  const b = await fx.instance(secondaryDisabled.id, { State: 'Default' });
+  assert.equal((await b.getMainComponentAsync()).name, 'Variant=Secondary, State=Default');
+});
+
+test('instance: a TEXT property loads the font of the layers it drives first', async () => {
+  const fx = fresh();
+  await fonts();
+  const set = buttonSet(figma.currentPage);
+  figma._unloadFonts();
+  const a = await fx.instance(set.id, { Label: 'Go' });
+  assert.equal(a.findOne((n) => n.type === 'TEXT').characters, 'Go');
+});
+
+test('text: a style id that is not a text style is refused by name', async () => {
+  const fx = fresh();
+  const paint = figma.createPaintStyle();
+  await assert.rejects(fx.text('x', { textStyle: paint.id }), new RegExp('no text style ' + paint.id));
+});
+
+test('inventory: an effect with no blur radius prints its type alone', async () => {
+  const fx = fresh();
+  const grain = figma.createEffectStyle();
+  grain.name = 'Grain';
+  grain.effects = [{ type: 'NOISE', noiseType: 'MONOTONE', noiseSize: 1, density: 0.5, visible: true, blendMode: 'NORMAL',
+    color: { r: 0, g: 0, b: 0, a: 0.25 } }];
+  const out = await fx.inventory({ match: 'Grain' });
+  assert.equal(out.text, 'EFFECT Grain [' + grain.id + '] NOISE #00000040');
 });
 
 test('bindFill: variable when a value matches, else a matching paint style, else raw; ids and names too', async () => {
