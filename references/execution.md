@@ -7,39 +7,38 @@ Connection setup lives in `references/connection.md` (Mode P perch, Mode A attac
 
 ## Eval methods
 
-Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — they trigger Claude Code safety warnings even with permissions set.
+Run the helpers in place from the skill directory (`<skill-dir>` below); they find `figma_perch.mjs` next to themselves, so nothing is copied to `/tmp`. Both modes take the same arguments and print the same output. Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — they trigger Claude Code safety warnings even with permissions set.
 
-### From file via helper (recommended)
+### Inline script (one turn per eval)
 
-Write `.js` with the Write tool (no Bash needed), then execute:
-
-```bash
-python3 /tmp/figma_run.py /tmp/figma_eval.js
-```
-
-The helper reads `FIGMA_CDP_PORT` (default 9222), base64-encodes the script, and passes it to `agent-browser eval -b`. In Mode P it runs the script through perch instead (`--file <figma-url>` picks the tab); the output is the same. In Mode P a script that awaits gets 120s, or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file.
-
-### Simple expressions
-
-For one-liners (no helper needed; CDP only, Mode P uses the helper):
+Pass the script with `-e` (or `--js`) and run it in the same Bash call that writes it:
 
 ```bash
-agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.name"
-agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.children.length"
+python3 <skill-dir>/figma_run.py -e 'const page = figma.currentPage;
+await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+return { name: page.name, frames: page.children.length };'
 ```
+
+- **Result.** A plain script returns its completion value (its last expression), as CDP's `Runtime.evaluate` does. A script with top-level `await` or `return` runs as an async function body instead, so its result is what it `return`s; no IIFE needed.
+- **Scope.** Each script's top-level `const`/`let` stay in that script; share state across evals through `window.__batchState` (below).
+- **Quoting.** The script sits in single quotes, so write JS strings with `"` or backticks; a `'` ends the shell string.
+- **Other sources.** A path to a `.js` file (written with the Write tool) works the same, and `-` reads the script from stdin.
+- **File.** `--file <figma-url-or-key>` picks the tab in Mode P (required when several Figma files are open); `FIGMA_FILE` is its default.
+- **Timeout.** In Mode P a script that awaits gets 120s, or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file.
+
+In Mode A/B the helper base64-encodes the script for `agent-browser eval -b` (port: `FIGMA_CDP_PORT`, else `DevToolsActivePort`, else 9222); in Mode P it runs through perch.
 
 ### Batched evals
 
-For ≥3 sequential evals with no intermediate user feedback or state inspection, batch them — one `agent-browser` invocation saves ~200ms per extra script (CLI cold-start).
+For ≥3 sequential evals with no intermediate user feedback or state inspection, batch them — one `agent-browser` invocation saves ~200ms per extra script (CLI cold-start). Scripts are `-e '<js>'`, `.js` paths, or `-` (stdin, once), run in the order given:
 
-Write the steps as separate `.js` files, then:
 ```bash
-python3 /tmp/figma_batch_run.py /tmp/step1.js /tmp/step2.js /tmp/step3.js
+python3 <skill-dir>/figma_batch_run.py -e 'window.__batchState = { ids: [] }; return "ready"' /tmp/step2.js -e 'return window.__batchState.ids'
 ```
 
-Output is the three results separated by blank lines. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` invocations.
+Each result prints under a `== <label> ==` header (the file's basename, `-e[n]` for the nth inline script, `stdin`) as `{"origin": ..., "result": ...}`, or `Evaluation error: ...`. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` invocations.
 
-For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), switch to `agent-browser batch`'s stdin JSON mode directly — see `agent-browser batch --help`.
+For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), switch to `agent-browser batch`'s stdin JSON mode directly — see `agent-browser batch --help`; Mode P has no such cap.
 
 When NOT to batch: when step N needs to read the result of step N-1 before deciding what step N+1 should do, or when parallel workers each have their own chain (each parallel worker calls `figma_run.py` for its own chain; you don't batch across workers).
 

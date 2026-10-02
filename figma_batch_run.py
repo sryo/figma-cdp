@@ -4,19 +4,29 @@
 Each script is base64-encoded and packed into a single `agent-browser batch`
 call, eliminating per-eval CLI cold-start (~200ms saved per extra script).
 Prefer over multiple figma_run.py calls for >= 3 sequential evals with no
-intermediate inspection. Each result is printed under a '== <file> ==' header.
-On the perch backend one figma_perch.mjs run evaluates the scripts in order.
+intermediate inspection. On the perch backend one figma_perch.mjs request
+evaluates the scripts in order. Run it from the skill directory; nothing needs
+copying.
 
-  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <js_file> [<js_file> ...]
+  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <script> [<script> ...]
+
+A script is a <js_file>, - (stdin, once) or -e '<js>' (or --js), run in the
+order given. Each result is printed under a '== <label> ==' header: the file's
+basename, 'stdin', or '-e[n]' for the nth inline script. A script's result is
+its completion value; one with top-level await or return runs as an async
+function body, and its result is what it returns.
 
 Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
 else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 ~/Documents/perch), which needs no remote debugging; else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
-perch tab: --file (or FIGMA_FILE) names the file; needed when several are open.
+perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
 """
-import argparse, base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
+import base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
+
+PROG = 'figma_batch_run.py'
+USAGE = "usage: python3 figma_batch_run.py [--file <url-or-key>] [--timeout <seconds>] (<js_file> | - | -e '<js>')..."
 
 def cdp_port():
     p = os.environ.get('FIGMA_CDP_PORT')
@@ -175,19 +185,18 @@ def timeout_seconds(flag):
         sys.exit(f"--timeout / FIGMA_TIMEOUT is seconds, 1 to 300; got '{raw}'")
     return min(300.0, max(1.0, v))
 
-def perch(op, file, *paths, timeout=120.0):
-    """Ask figma_perch.mjs (next to this script) through its daemon, else run it once; its JSON reply."""
-    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_perch.mjs')
+
+def perch(req, timeout=120.0):
+    """Ask figma_perch.mjs (next to this script, symlinks followed) through its daemon, else run it once; its JSON reply."""
+    helper = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_perch.mjs')
     if not os.path.exists(helper):
-        sys.exit(f'figma_perch.mjs not found next to {os.path.basename(__file__)}; copy it alongside')
-    ms = round(timeout * 1000)
-    req = {'op': op, 'file': file or '', 'paths': [os.path.abspath(p) for p in paths], 'timeout': ms,
-           'tab': os.environ.get('FIGMA_PERCH_TAB', '')}
+        sys.exit(f'figma_perch.mjs not found next to {os.path.realpath(__file__)}')
+    req = {**req, 'timeout': round(timeout * 1000), 'tab': os.environ.get('FIGMA_PERCH_TAB', '')}
     out = None
     sock = None if os.environ.get('FIGMA_PERCH_DAEMON') == '0' else daemon_sock(helper)
     if sock:
         # perch's own cap per script: the await, plus reading a long result back.
-        wait = (timeout + 70) * len(paths) + 30
+        wait = (timeout + 70) * len(req.get('sources') or [None]) + 30
         try:
             out = daemon_exchange(sock, req, wait)
             if out is None and start_daemon(sock, helper):
@@ -196,8 +205,7 @@ def perch(op, file, *paths, timeout=120.0):
             sys.exit(f'perch: perch_daemon: the daemon dropped the call ({e}); the script may have run, check before retrying')
     if out is None:
         try:
-            r = subprocess.run(['node', helper, op, file or '', *req['paths']], capture_output=True, text=True,
-                               env={**os.environ, 'FIGMA_TIMEOUT_MS': str(ms)})
+            r = subprocess.run(['node', helper, 'once'], input=json.dumps(req), capture_output=True, text=True)
         except FileNotFoundError:
             sys.exit('node not found; the perch backend needs Node 18+')
         try:
@@ -208,33 +216,97 @@ def perch(op, file, *paths, timeout=120.0):
         sys.exit(f"perch: {out['fatal']}")
     return out
 
-ap = argparse.ArgumentParser(prog='figma_batch_run.py')
-ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
-ap.add_argument('--timeout', metavar='SECONDS',
-                help='how long a script may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 120)')
-ap.add_argument('js_files', nargs='+')
-a = ap.parse_args()
-for path in a.js_files:
-    if not os.path.isfile(path):
-        print(f'figma_batch_run.py: no such file: {path}', file=sys.stderr)
-        sys.exit(1)
+# Every script runs as this program on both backends. Its value is the script's completion value,
+# as CDP's Runtime.evaluate gives it (awaited when a promise). A script that parses only as an
+# async function body (top-level await or return) runs as one instead; its value is what it
+# returns. Indirect eval keeps a script's let/const to itself. A SyntaxError raised while the
+# script ran is rethrown, never retried: the probe parses the script behind a throw, so nothing
+# in it runs a second time.
+AUTO_ASYNC = r'''(function (src) {
+  try { return (0, eval)(src); } catch (e) {
+    if (!(e instanceof SyntaxError)) throw e;
+    var body;
+    try { body = new (Object.getPrototypeOf(async function () {}).constructor)(src); } catch (_) { throw e; }
+    try { (0, eval)('throw "figma-parse-probe";\n' + src); } catch (p) { if (p !== "figma-parse-probe") return body(); }
+    throw e;
+  }
+})'''
+
+def program(src):
+    return f'{AUTO_ASYNC}({json.dumps(src)})'
+
+def usage(msg):
+    print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
+    sys.exit(1)
+
+def parse_args(argv, options):
+    """Option values (FIGMA_FILE the default for --file) and the scripts in command-line order,
+    each ('path', p), ('stdin', None) or ('inline', js)."""
+    opts = dict.fromkeys(options)
+    opts['--file'] = os.environ.get('FIGMA_FILE')
+    scripts = []
+    args = iter(argv)
+    for arg in args:
+        if arg in ('-h', '--help'):
+            print(__doc__.strip())
+            sys.exit(0)
+        name, eq, val = arg.partition('=') if arg.startswith('--') else (arg, '', None)
+        if name in opts or name in ('-e', '--js'):
+            if not eq:
+                val = next(args, None)
+                if val is None:
+                    usage(f'{name} needs a value')
+            if name in opts:
+                opts[name] = val
+            else:
+                scripts.append(('inline', val))
+        elif arg == '-':
+            scripts.append(('stdin', None))
+        elif arg.startswith('-'):
+            usage(f'unknown option {arg}')
+        else:
+            scripts.append(('path', arg))
+    return opts, scripts
+
+def load(scripts):
+    """(label, source) per script: a file's basename, '-e[n]' for the nth inline one, 'stdin'."""
+    if sum(kind == 'stdin' for kind, _ in scripts) > 1:
+        usage('- (stdin) can be given once')
+    for kind, v in scripts:
+        if kind == 'path' and not os.path.isfile(v):
+            print(f'{PROG}: no such file: {v}', file=sys.stderr)
+            sys.exit(1)
+    out, inline = [], 0
+    for kind, v in scripts:
+        if kind == 'inline':
+            inline += 1
+            out.append((f'-e[{inline}]', v))
+        elif kind == 'stdin':
+            out.append(('stdin', sys.stdin.buffer.read().decode('utf-8')))
+        else:
+            with open(v, encoding='utf-8') as f:
+                out.append((os.path.basename(v), f.read()))
+    return out
+
+opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout'))
+if not specs:
+    usage('give at least one script')
+scripts = load(specs)
 
 if backend() == 'perch':
-    out = perch('eval', a.file, *a.js_files, timeout=timeout_seconds(a.timeout))
+    out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': [program(src) for _, src in scripts]},
+                timeout=timeout_seconds(opts['--timeout']))
     # As agent-browser batch prints: a success is {origin: the page URL, result} with keys
     # sorted and non-ASCII escaped, a failure its error.
-    for path, res in zip(a.js_files, out['results']):
-        print(f'== {os.path.basename(path)} ==')
+    for (label, _), res in zip(scripts, out['results']):
+        print(f'== {label} ==')
         print(json.dumps({'origin': res.get('href') or out['origin'], 'result': res['value']}, sort_keys=True)
               if res['ok'] else f"Evaluation error: {res['error']}")
     if out.get('fatal'):
-        sys.exit(f"perch: {out['fatal']} (stopped after {len(out['results'])} of {len(a.js_files)} scripts)")
+        sys.exit(f"perch: {out['fatal']} (stopped after {len(out['results'])} of {len(scripts)} scripts)")
     sys.exit(0 if all(r['ok'] for r in out['results']) else 1)
 
-cmds = []
-for path in a.js_files:
-    with open(path, 'rb') as f:
-        cmds.append(f'eval -b {base64.b64encode(f.read()).decode()}')
+cmds = [f'eval -b {base64.b64encode(program(src).encode()).decode()}' for _, src in scripts]
 
 if sum(len(c) for c in cmds) > 200_000:
     print('payload >200KB — use agent-browser batch stdin JSON mode '
@@ -257,8 +329,8 @@ except ValueError:
     results = None
 
 if isinstance(results, list):
-    for path, res in zip(a.js_files, results):
-        print(f'== {os.path.basename(path)} ==')
+    for (label, _), res in zip(scripts, results):
+        print(f'== {label} ==')
         body = res.get('result') if res.get('success') else res.get('error')
         print('' if body is None else body if isinstance(body, str) else json.dumps(body))
 else:

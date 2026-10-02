@@ -6,10 +6,11 @@ runs each script in Node against a stub `figma` global.
 
   python3 tests/perch_backend_test.py
 """
-import json, os, socket, stat, subprocess, sys, tempfile, threading, time, unittest
+import json, os, re, socket, stat, subprocess, sys, tempfile, threading, time, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STUB = os.path.join(ROOT, 'tests', 'perch_stub')
+AGENT_BROWSER_STUB = os.path.join(ROOT, 'tests', 'agent_browser_stub')
 TWO_FILES = [
     {'app': 'Google Chrome', 'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One – Figma'},
     {'app': 'Google Chrome', 'tabId': 'chrome:2', 'url': 'https://www.figma.com/design/BBB222/Two?node-id=1-2', 'title': 'Two – Figma'},
@@ -66,16 +67,16 @@ class Harness(unittest.TestCase):
         return subprocess.Popen([sys.executable, os.path.join(ROOT, script), *args],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=e)
 
-    def run_helper(self, script, *args, **env):
-        return subprocess.run([sys.executable, os.path.join(ROOT, script), *args],
+    def run_helper(self, script, *args, stdin=None, **env):
+        return subprocess.run([sys.executable, os.path.join(ROOT, script), *args], input=stdin,
                               capture_output=True, text=True, env=self.helper_env(env))
 
     def helper_env(self, env):
         e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
              'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon}
-        for k in ('FIGMA_FILE', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
+        for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'AGENT_BROWSER_STUB_LOG', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
-                  'FIGMA_TIMEOUT_MS', 'PERCH_STUB_OLD'):
+                  'PERCH_STUB_OLD'):
             e.pop(k, None)
         e.update(env)
         return e
@@ -154,6 +155,90 @@ class PerchBackend(Harness):
     def test_payload_over_cdp_cap_runs_on_perch(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '/*' + 'p' * 300_000 + '*/ 1'))
         self.assertEqual((r.returncode, r.stdout), (0, '1\n'), r.stderr[:300])
+
+    # ---- inline and stdin scripts, top-level await and return
+
+    def test_inline_script(self):
+        r = self.run_helper('figma_run.py', '-e', 'figma.currentPage.name')
+        self.assertEqual((r.returncode, r.stdout), (0, '"Page 1"\n'), r.stderr)
+        r = self.run_helper('figma_run.py', '--js', '({ n: 1 + 1 })')
+        self.assertEqual((r.returncode, r.stdout), (0, '{\n  "n": 2\n}\n'), r.stderr)
+
+    def test_script_from_stdin(self):
+        r = self.run_helper('figma_run.py', '-', stdin='figma.root.children.length')
+        self.assertEqual((r.returncode, r.stdout), (0, '2\n'), r.stderr)
+
+    def test_top_level_await_and_return_run_as_an_async_function(self):
+        r = self.run_helper('figma_run.py', '-e', 'await figma.loadAllPagesAsync();\n'
+                            'const names = figma.root.children.map(p => p.name);\nreturn { names };')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {'names': ['Page 1', 'Page 2']})
+        r = self.run_helper('figma_run.py', '-e', 'return 5 // a comment on the last line')
+        self.assertEqual((r.returncode, r.stdout), (0, '5\n'), r.stderr)
+
+    def test_await_inside_functions_keeps_the_completion_value(self):
+        r = self.run_helper('figma_run.py', '-e', 'const g = async x => await x;\nfunction f() { return 4; }\ng(f() + 1)')
+        self.assertEqual((r.returncode, r.stdout), (0, '5\n'), r.stderr)
+
+    def test_wrapped_script_errors_are_reported(self):
+        r = self.run_helper('figma_run.py', '-e', 'await 0;\nthrow new Error("late")')
+        self.assertEqual(r.returncode, 1)
+        self.assertTrue(r.stderr.startswith('✗ Evaluation error: Error: late'), r.stderr)
+
+    def test_syntax_error_is_reported(self):
+        r = self.run_helper('figma_run.py', '-e', 'return )')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('SyntaxError', r.stderr)
+
+    def test_a_syntax_error_the_script_threw_is_not_rerun(self):
+        r = self.run_helper('figma_batch_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
+        self.assertEqual(r.returncode, 1)
+        lines = r.stdout.splitlines()
+        self.assertTrue(lines[3].startswith('Evaluation error: SyntaxError'), lines)
+        self.assertEqual(lines[-2:], ['== -e[3] ==', '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
+                                      '"result": 1}'])
+
+    def test_top_level_declarations_stay_in_their_script(self):
+        r = self.run_helper('figma_batch_run.py', '-e', 'const a = 1; a', '-e', 'let a = 2; a')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_batch_runs_files_inline_and_stdin_in_order(self):
+        r = self.run_helper('figma_batch_run.py', '-e', 'window.__batchState = { n: 1 }; "set"',
+                            self.js('b.js', '__batchState.n + 1'), '-', stdin='await 0;\nreturn __batchState.n + 2')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        url = 'https://www.figma.com/design/AAA111/Stub?node-id=0-1'
+        self.assertEqual(r.stdout.splitlines(), ['== -e[1] ==', '{"origin": "%s", "result": "set"}' % url,
+                                                 '== b.js ==', '{"origin": "%s", "result": 2}' % url,
+                                                 '== stdin ==', '{"origin": "%s", "result": 3}' % url])
+
+    def test_bad_script_arguments_run_nothing(self):
+        for script, args in (('figma_run.py', ['-e', '1', self.js('a.js', '1')]), ('figma_run.py', []),
+                             ('figma_run.py', ['-e']), ('figma_run.py', ['-e', '1', '--screenshot', 'x.png']),
+                             ('figma_batch_run.py', ['-', '-']), ('figma_batch_run.py', ['-e']),
+                             ('figma_batch_run.py', ['--bogus', self.js('a.js', '1')]), ('figma_batch_run.py', []),
+                             ('figma_batch_run.py', [os.path.join(self.tmp.name, 'nope.js')])):
+            r = self.run_helper(script, *args, stdin='1')
+            self.assertNotEqual(r.returncode, 0, (script, args))
+            self.assertTrue(r.stderr.strip(), (script, args))
+        self.assertEqual(self.calls(), [])
+
+    def test_file_env_is_the_default_and_the_flag_wins(self):
+        r = self.run_helper('figma_batch_run.py', '-e', '1', PERCH_STUB_TABS=json.dumps(TWO_FILES), FIGMA_FILE='AAA111')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_helper('figma_run.py', '--file', 'BBB222', '-e', '1',
+                            PERCH_STUB_TABS=json.dumps(TWO_FILES), FIGMA_FILE='AAA111')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([c['args']['target']['tabId'] for c in self.calls('eval_js')], ['chrome:1', 'chrome:3'])
+
+    def test_runs_from_anywhere_through_a_symlink(self):
+        bin_dir = os.path.join(self.tmp.name, 'bin')
+        os.makedirs(bin_dir)
+        for name in ('figma_run.py', 'figma_batch_run.py'):
+            os.symlink(os.path.join(ROOT, name), os.path.join(bin_dir, name))
+            r = subprocess.run([sys.executable, os.path.join(bin_dir, name), '-e', '"linked"'], cwd=bin_dir,
+                               capture_output=True, text=True, env=self.helper_env({}))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('"linked"', r.stdout)
 
     # ---- await timeout
 
@@ -326,6 +411,35 @@ class PerchBackend(Harness):
 
 class PerchBackendOneShot(PerchBackend):
     daemon = '0'
+
+
+class SameOutputOnBothBackends(Harness):
+    """The cdp branch, run against tests/agent_browser_stub, prints what the perch branch prints."""
+
+    def both(self, script, *args, stdin=None):
+        cdp = self.run_helper(script, *args, stdin=stdin, FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9',
+                              PATH=AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH'])
+        perch = self.run_helper(script, *args, stdin=stdin)
+        # Stack frames name each backend's own wrapper; the lines above them must match.
+        strip = lambda s: re.sub(r'(?m)^\s+at .*\n?', '', s)
+        self.assertEqual((cdp.returncode, strip(cdp.stdout)), (perch.returncode, strip(perch.stdout)),
+                         f'{script} {args}\ncdp stderr: {cdp.stderr}\nperch stderr: {perch.stderr}')
+        self.assertEqual(strip(cdp.stderr).splitlines()[:1], strip(perch.stderr).splitlines()[:1])
+
+    def test_figma_run(self):
+        self.both('figma_run.py', '-e', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", tiny: 1e-7, big: 1e21, f: 0.5 })')
+        self.both('figma_run.py', self.js('a.js', 'const n = 2;\n(async () => ({ n }))()'))
+        self.both('figma_run.py', '-', stdin='await figma.loadAllPagesAsync();\nreturn figma.root.children.length')
+        self.both('figma_run.py', '-e', 'const g = async x => await x;\ng(5)')
+        self.both('figma_run.py', '-e', 'void 0')
+        self.both('figma_run.py', '-e', 'await 0;\nthrow new Error("late")')
+        self.both('figma_run.py', '-e', 'throw new Error("Node not found")')
+
+    def test_figma_batch_run(self):
+        self.both('figma_batch_run.py', '-e', 'window.__batchState = { n: 1 }; "ñ"', self.js('b.js', 'const a = 1; a'),
+                  '-e', 'const a = 2;\nreturn __batchState.n + a', '-', stdin='await 0;\nreturn [1e-7, null]')
+        self.both('figma_batch_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
+        self.both('figma_batch_run.py', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
 
 
 class PerchDaemon(Harness):

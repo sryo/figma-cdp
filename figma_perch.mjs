@@ -3,11 +3,12 @@
 // (AppleScript, no CDP, no "allow remote debugging" prompt). Called by the
 // Python helpers, which format the output; not meant to be run by hand.
 //
-//   node figma_perch.mjs eval <file-url-key-or-''> <js_file> [<js_file> ...]
-//   node figma_perch.mjs screenshot <file-url-key-or-''> <out.png>
+//   node figma_perch.mjs once                 one request as a JSON line on stdin
 //   node figma_perch.mjs serve <socket-path>
 //
-// eval / screenshot print one JSON object on stdout:
+// A request is {op:"eval", file, sources:[<js>...], tab, timeout} or
+// {op:"screenshot", file, path:<out.png>, tab}; file is a Figma URL, a file key
+// or "". The reply is one JSON object:
 //   {tab:{tabId,url,title}, origin, results:[{ok:true,value,href} | {ok:false,error,figma,href}]}
 //   {tab, origin, path}                 (screenshot)
 //   {fatal:"<code>: <message>"}          (no perch, no tab, perch call failed)
@@ -16,7 +17,7 @@
 // remembered) and answers the same requests over a unix socket, so a call costs
 // one socket round trip instead of a node start, a perch import and a tab
 // lookup. Protocol, one exchange per connection: the daemon greets with a JSON
-// line, the client sends {op, file, paths, tab} as a JSON line, the daemon
+// line, the client sends the request as a JSON line, the daemon
 // answers with the object above as one line and closes. A client that got no
 // greeting knows nothing ran. Clients read the reply line, not to EOF, and the
 // daemon closes with destroy() once the line is written, not end(): under load
@@ -25,10 +26,8 @@
 // without a call.
 //
 // PERCH_DIR: the perch checkout to import (default ~/Documents/perch).
-// FIGMA_PERCH_TAB: a perch tabId to use as is, skipping tab lookup (one-shot;
-// clients of serve pass it as the request's `tab`).
-// FIGMA_TIMEOUT_MS: how long eval_js awaits a script, 1000 to 300000 (one-shot;
-// clients of serve pass it as the request's `timeout`). Default 120000.
+// A request's `tab` is a perch tabId to use as is, skipping tab lookup; its
+// `timeout` is how long eval_js awaits a script, 1000 to 300000 ms (default 120000).
 import { chmodSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
@@ -155,11 +154,11 @@ function headOf(tab) {
 
 // One request, one reply object (the shape documented at the top). Never throws.
 export async function handle(handleCall, req, cache = null) {
-  const { op, file = "", paths = [], tab: pinned = "" } = req || {};
+  const { op, file = "", sources = [], path = "", tab: pinned = "" } = req || {};
   const ms = timeoutMs(req && req.timeout);
-  if (!["eval", "screenshot"].includes(op) || !paths.length) {
-    return { fatal: "usage: node figma_perch.mjs eval <file> <js_file>... | screenshot <file> <out.png>" };
-  }
+  const ok = op === "eval" ? Array.isArray(sources) && sources.length && sources.every((s) => typeof s === "string")
+    : op === "screenshot" && typeof path === "string" && path;
+  if (!ok) return { fatal: 'bad_request: expected {op:"eval", sources:[<js>...]} or {op:"screenshot", path}' };
   const want = fileKey(file);
   let tab;
   try {
@@ -173,8 +172,8 @@ export async function handle(handleCall, req, cache = null) {
       const { r } = await call(handleCall, "screenshot", { target: { tabId: tab.tabId }, maxWidth: 0, format: "png" });
       const img = (r.content || []).find((c) => c.type === "image");
       if (!img) throw new Error("screenshot: perch returned no image");
-      writeFileSync(paths[0], Buffer.from(img.data, "base64"));
-      return { ...headOf(tab), path: paths[0] };
+      writeFileSync(path, Buffer.from(img.data, "base64"));
+      return { ...headOf(tab), path };
     } catch (e) {
       return { fatal: e.message };
     }
@@ -182,12 +181,10 @@ export async function handle(handleCall, req, cache = null) {
 
   const results = [];
   let retried = false;
-  for (let i = 0; i < paths.length; i++) {
-    let src;
-    try { src = readFileSync(paths[i], "utf8"); } catch { results.push({ ok: false, error: `no such file: ${paths[i]}` }); continue; }
+  for (let i = 0; i < sources.length; i++) {
     let res;
     try {
-      res = await runEval(handleCall, tab, src, ms);
+      res = await runEval(handleCall, tab, sources[i], ms);
     } catch (e) {
       if (i === 0 && !retried && tab.cached && /^stale_tab: /.test(e.message)) res = { miss: null };
       // A perch-level failure (stale tab, timeout, browser gone) would fail every
@@ -304,14 +301,16 @@ async function serve(sock) {
 async function main() {
   const [op, ...rest] = process.argv.slice(2);
   if (op === "serve" && rest[0]) return serve(rest[0]).catch((e) => { console.error(e && e.message); process.exit(1); });
-  const [file, ...paths] = rest;
+  if (op !== "once") return finish({ fatal: "usage: node figma_perch.mjs once < request.json | serve <socket-path>" });
+  let req;
+  try { req = JSON.parse(readFileSync(0, "utf8")); } catch { return finish({ fatal: "bad_request: stdin is not one JSON request" }); }
   let mod;
   try {
     mod = await loadPerch();
   } catch (e) {
     return finish({ fatal: e.message });
   }
-  finish(await handle(mod.handleCall, { op, file, paths, tab: process.env.FIGMA_PERCH_TAB || "", timeout: process.env.FIGMA_TIMEOUT_MS }));
+  finish(await handle(mod.handleCall, req));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
