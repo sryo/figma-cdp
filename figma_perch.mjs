@@ -1,4 +1,4 @@
-// perch backend for figma_run.py / figma_batch_run.py: runs Figma Plugin API
+// perch backend for figma_run.py / figma_batch_run.py / figma_capture.py: runs Figma Plugin API
 // scripts in the page's main world through perch's eval_js {world:"main"}
 // (AppleScript, no CDP, no "allow remote debugging" prompt). Called by the
 // Python helpers, which format the output; not meant to be run by hand.
@@ -6,12 +6,19 @@
 //   node figma_perch.mjs once                 one request as a JSON line on stdin
 //   node figma_perch.mjs serve <socket-path>
 //
-// A request is {op:"eval", file, sources:[<js>...], tab, timeout} or
-// {op:"screenshot", file, path:<out.png>, tab}; file is a Figma URL, a file key
-// or "". The reply is one JSON object:
+// A request is {op:"eval", file, sources:[<js>...], tab, timeout, stop},
+// {op:"screenshot", file, path:<out.png>, tab} or {op:"page", url, sources, settle,
+// timeout}; file is a Figma URL, a file key or "". The reply is one JSON object:
 //   {tab:{tabId,url,title}, origin, results:[{ok:true,value,href} | {ok:false,error,figma,href}]}
 //   {tab, origin, path}                 (screenshot)
 //   {fatal:"<code>: <message>"}          (no perch, no tab, perch call failed)
+//
+//   stop: true     (eval) the first script that fails, returns nothing or returns an
+//                  object with an `error` key ends the run (figma_capture.py's failures)
+//   op "page"      opens url in a new background tab, waits for it to load and
+//                  `settle` ms more, runs each source there, closes the tab. Each source
+//                  is one expression (awaited); it runs inline, not through eval, so a
+//                  page whose CSP bans eval still runs it.
 //
 // serve keeps perch loaded (its osascript daemons warm, the file's tab
 // remembered) and answers the same requests over a unix socket, so a call costs
@@ -28,7 +35,7 @@
 // PERCH_DIR: the perch checkout to import (default ~/Documents/perch).
 // A request's `tab` is a perch tabId to use as is, skipping tab lookup; its
 // `timeout` is how long eval_js awaits a script, 1000 to 300000 ms (default 120000).
-import { chmodSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -135,16 +142,59 @@ export function wrap(src, key) {
     `  return { e: s, figma: __figma, h: __h }; }`;
 }
 
-async function runEval(handleCall, tab, src, ms) {
-  const args = { target: { tabId: tab.tabId }, world: "main", awaitPromise: true, script: wrap(src, tab.key) };
+// The page op's form of wrap: the script is one expression, placed in the body as is.
+export function wrapExpr(src) {
+  return `var __h = String(location.href);\n` +
+    `try { var __v = await (\n${src.replace(/[\s;]+$/, "")}\n); return { v: __v === undefined ? null : __v, h: __h }; }\n` +
+    `catch (e) { var s = e && typeof e.stack === "string" && e.stack.indexOf(String(e.message)) >= 0 ? e.stack : String(e && e.name ? e.name + ": " + e.message : e);\n` +
+    `  return { e: s, h: __h }; }`;
+}
+
+async function runEval(handleCall, tab, src, ms, page = false) {
+  const args = { target: { tabId: tab.tabId }, world: "main", awaitPromise: true, script: page ? wrapExpr(src) : wrap(src, tab.key) };
   if (takesTimeout) args.timeout = ms;
   const { text } = await call(handleCall, "eval_js", args);
   let out;
   try { out = JSON.parse(text); } catch { out = null; }
   if (!out || typeof out !== "object") return { ok: false, error: `unexpected eval_js reply: ${text.slice(0, 300)}` };
   if ("miss" in out) return { miss: String(out.miss) };
-  if ("e" in out) return { ok: false, error: out.figma ? out.e : `${out.e}\n${UNDEFINED_HINT}`, figma: !!out.figma, href: out.h };
+  if ("e" in out) return { ok: false, error: page || out.figma ? out.e : `${out.e}\n${UNDEFINED_HINT}`, figma: !!out.figma, href: out.h };
   return { ok: true, value: out.v === undefined ? null : out.v, href: out.h };
+}
+
+const perchFatal = (e, ms) => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms)}` : e.message;
+
+// The page op: a tab of its own, never shown, closed whatever the scripts do.
+async function page(handleCall, { url, sources: srcs, settle }, ms) {
+  let tabId;
+  try {
+    const { text } = await call(handleCall, "new_tab", { url });
+    tabId = JSON.parse(text.split("\n")[0]).tabId;
+  } catch (e) {
+    return { fatal: e.message };
+  }
+  if (!tabId) return { fatal: `no_tab: perch opened ${url} in a tab it can't address; retry, or use another browser` };
+  const tab = { tabId, url, title: "", key: null };
+  const results = [];
+  try {
+    // A new tab shows an initial about:blank, already complete, until the URL commits.
+    // A page that never settles to complete is still walked, as a CDP open's timeout would leave it.
+    const loaded = url === "about:blank" ? { readyState: "complete" }
+      : { expression: 'document.readyState === "complete" && location.href !== "about:blank"' };
+    try { await call(handleCall, "wait", { target: { tabId }, ...loaded, timeout: 30000 }); } catch {}
+    const rest = Math.max(0, Number(settle) || 0);
+    if (rest) await new Promise((r) => setTimeout(r, rest));
+    for (const src of srcs) {
+      try {
+        results.push(await runEval(handleCall, tab, src, ms, true));
+      } catch (e) {
+        return { ...headOf(tab), results, fatal: perchFatal(e, ms) };
+      }
+    }
+    return { ...headOf(tab), results };
+  } finally {
+    try { await call(handleCall, "close_tab", { tabId }); } catch {}
+  }
 }
 
 function headOf(tab) {
@@ -154,11 +204,13 @@ function headOf(tab) {
 
 // One request, one reply object (the shape documented at the top). Never throws.
 export async function handle(handleCall, req, cache = null) {
-  const { op, file = "", sources = [], path = "", tab: pinned = "" } = req || {};
+  const { op, file = "", sources = [], path = "", tab: pinned = "", stop = false } = req || {};
   const ms = timeoutMs(req && req.timeout);
-  const ok = op === "eval" ? Array.isArray(sources) && sources.length && sources.every((s) => typeof s === "string")
+  const scripts = Array.isArray(sources) && sources.length && sources.every((s) => typeof s === "string");
+  const ok = op === "eval" ? scripts : op === "page" ? scripts && typeof req.url === "string" && req.url
     : op === "screenshot" && typeof path === "string" && path;
-  if (!ok) return { fatal: 'bad_request: expected {op:"eval", sources:[<js>...]} or {op:"screenshot", path}' };
+  if (!ok) return { fatal: 'bad_request: expected {op:"eval", sources:[<js>...]}, {op:"page", url, sources} or {op:"screenshot", path}' };
+  if (op === "page") return page(handleCall, req, ms);
   const want = fileKey(file);
   let tab;
   try {
@@ -189,7 +241,7 @@ export async function handle(handleCall, req, cache = null) {
       if (i === 0 && !retried && tab.cached && /^stale_tab: /.test(e.message)) res = { miss: null };
       // A perch-level failure (stale tab, timeout, browser gone) would fail every
       // later script the same way, so it ends the run.
-      else return { ...headOf(tab), results, fatal: /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms)}` : e.message };
+      else return { ...headOf(tab), results, fatal: perchFatal(e, ms) };
     }
     if ("miss" in res) {
       if (cache && want) cache.delete(want);
@@ -202,6 +254,7 @@ export async function handle(handleCall, req, cache = null) {
       continue;
     }
     results.push(res);
+    if (stop && !(res.ok && res.value != null && !(typeof res.value === "object" && "error" in res.value))) break;
   }
   return { ...headOf(tab), results };
 }
@@ -313,4 +366,5 @@ async function main() {
   finish(await handle(mod.handleCall, req));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+// Node runs the main module from its real path, so a copy reached through a symlink compares that.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

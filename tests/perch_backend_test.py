@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Offline tests for the perch backend of figma_run.py / figma_batch_run.py.
+"""Offline tests for the perch backend of figma_run.py / figma_batch_run.py / figma_capture.py.
 
 No browser and no perch: PERCH_DIR points at tests/perch_stub, whose server.js
 runs each script in Node against a stub `figma` global.
 
   python3 tests/perch_backend_test.py
 """
-import json, os, re, socket, stat, subprocess, sys, tempfile, threading, time, unittest
+import ast, json, os, re, shutil, socket, stat, subprocess, sys, tempfile, threading, time, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STUB = os.path.join(ROOT, 'tests', 'perch_stub')
@@ -268,6 +268,18 @@ class PerchBackend(Harness):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('"linked"', r.stdout)
 
+    def test_runs_from_a_directory_reached_through_a_symlink(self):
+        # A skill directory reached through a symlink, as ~/.claude/skills linked to a checkout.
+        real = os.path.join(self.tmp.name, 'real')
+        os.makedirs(real)
+        for name in ('figma_run.py', 'figma_perch.mjs'):
+            shutil.copy(os.path.join(ROOT, name), real)
+        link = os.path.join(self.tmp.name, 'link')
+        os.symlink(real, link)
+        r = subprocess.run([sys.executable, os.path.join(link, 'figma_run.py'), self.js('a.js', '"linked"')],
+                           capture_output=True, text=True, env=self.helper_env({}))
+        self.assertEqual((r.returncode, r.stdout), (0, '"linked"\n'), r.stderr)
+
     # ---- await timeout
 
     def eval_timeouts(self):
@@ -523,7 +535,9 @@ class SameOutputOnBothBackends(Harness):
         self.assertEqual(strip(cdp.stderr).splitlines()[:1], strip(perch.stderr).splitlines()[:1])
 
     def test_both_helpers_wrap_scripts_alike(self):
-        wrapper = lambda name: re.search(r"AUTO_ASYNC = r'''(.*?)'''", open(os.path.join(ROOT, name)).read(), re.S).group(1)
+        def wrapper(name):
+            with open(os.path.join(ROOT, name)) as f:
+                return re.search(r"AUTO_ASYNC = r'''(.*?)'''", f.read(), re.S).group(1)
         self.assertEqual(wrapper('figma_run.py'), wrapper('figma_batch_run.py'))
 
     def test_figma_run(self):
@@ -790,6 +804,233 @@ class PerchDaemon(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertIn('perch_daemon: the daemon dropped the call', r.stderr)
         self.assertEqual(len(self.calls('eval_js')), 1)
+
+
+PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+SPEC = {
+    'meta': {'url': 'https://example.com/', 'title': 'T', 'viewport': {'w': 400, 'h': 300}, 'dpr': 1, 'nodeCount': 4},
+    'flagged': [],
+    'assets': {'a1': {'kind': 'image', 'mime': 'image/png', 'b64': PNG_1PX, 'w': 1, 'h': 1}},
+    'nodes': [
+        {'i': 0, 'parent': -1, 'tag': 'html', 'rect': {'x': 0, 'y': 0, 'w': 400, 'h': 300}, 'text': '', 'kids': 1,
+         'role': None, 'axName': None},
+        {'i': 1, 'parent': 0, 'tag': 'body', 'rect': {'x': 0, 'y': 0, 'w': 400, 'h': 300}, 'text': '', 'kids': 2,
+         'role': None, 'axName': None},
+        {'i': 2, 'parent': 1, 'tag': 'p', 'rect': {'x': 8, 'y': 8, 'w': 100, 'h': 20}, 'text': 'Hello ñ', 'lines': 1,
+         'role': 'paragraph', 'axName': None},
+        {'i': 3, 'parent': 1, 'tag': 'img', 'rect': {'x': 8, 'y': 40, 'w': 50, 'h': 50}, 'text': '',
+         'image': {'asset': 'a1', 'mode': 'FILL'}, 'role': 'img', 'axName': 'pic'},
+    ],
+}
+# Stands in for figma_walker.js, which needs a DOM the stub doesn't have.
+FAKE_WALKER = """// a DOM-free walker
+(async function () {
+  await new Promise(function (r) { setTimeout(r, 5); });
+  if (location.pathname.indexOf('boom') >= 0) throw new Error('boom');
+  if (location.pathname.indexOf('empty') >= 0) return { meta: {} };
+  return { meta: { url: location.href, title: 'Stub page', viewport: { w: 400, h: 300 }, dpr: 1, nodeCount: 1 },
+           flagged: [{ i: 0, reason: 'grid' }], assets: { a1: { kind: 'svg', svg: '<svg/>', w: 1, h: 1 } },
+           nodes: [{ i: 0, parent: -1, tag: 'html', rect: { x: 0, y: 0, w: 400, h: 300 }, text: 'ñ' }] };
+})();
+"""
+
+
+class CapturePerch(Harness):
+    """figma_capture.py on the perch backend: walk in a background tab, import as one perch request."""
+
+    def setUp(self):
+        super().setUp()
+        # walk runs the figma_walker.js next to figma_capture.py, so this copy gets the DOM-free one.
+        self.app = os.path.join(self.tmp.name, 'app')
+        os.makedirs(self.app)
+        for name in ('figma_capture.py', 'figma_perch.mjs', 'figma_importer.js'):
+            shutil.copy(os.path.join(ROOT, name), self.app)
+        with open(os.path.join(self.app, 'figma_walker.js'), 'w') as f:
+            f.write(FAKE_WALKER)
+        self.outs = []
+
+    def tearDown(self):
+        for path in self.outs:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        super().tearDown()
+
+    def capture(self, *args, **env):
+        return subprocess.run([sys.executable, os.path.join(self.app, 'figma_capture.py'), *args],
+                              capture_output=True, text=True, env=self.helper_env(env))
+
+    def walk(self, path, *args, **env):
+        tag = f'{path}-{os.getpid()}-{id(self)}'
+        out = f'/tmp/figma_capture_example-com-{tag}.json'
+        self.outs.append(out)
+        url = f'https://example.com/{tag}'
+        return url, out, self.capture('walk', url, *args, **env)
+
+    def spec(self, spec=SPEC):
+        return self.js('spec.json', json.dumps(spec))
+
+    # ---- walk
+
+    def test_walk_runs_the_walker_in_a_background_tab_and_closes_it(self):
+        url, out, r = self.walk('page', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, f'spec: {out}\nnodes: 1  flagged: 1  assets: 1\n')
+        with open(out) as f:
+            spec = json.load(f)
+        self.assertEqual((spec['meta']['url'], spec['nodes'][0]['text']), (url, 'ñ'))
+        self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'])
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url})
+        ev = self.calls('eval_js')[0]['args']
+        tab = ev['target']['tabId']
+        self.assertEqual((ev['world'], ev['awaitPromise'], ev['timeout']), ('main', True, 120000))
+        self.assertEqual(self.calls('wait')[0]['args']['target'], {'tabId': tab})
+        self.assertEqual(self.calls('close_tab')[0]['args'], {'tabId': tab})
+
+    def test_walk_waits_for_the_page_not_the_new_tabs_blank_document(self):
+        # A new tab reports the initial about:blank as readyState complete before the URL commits.
+        url, out, r = self.walk('page', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out) as f:
+            self.assertEqual(json.load(f)['meta']['url'], url)
+
+    def test_walk_waits_the_settle_time(self):
+        t = time.monotonic()
+        _, _, r = self.walk('settle', '400')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertGreaterEqual(time.monotonic() - t, 0.4)
+
+    def test_walk_timeout_reaches_eval_js(self):
+        _, _, r = self.walk('page', '0', '--timeout', '30')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('eval_js')[0]['args']['timeout'], 30000)
+
+    def test_walker_throw_is_reported_and_the_tab_closed(self):
+        _, out, r = self.walk('boom', '0')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('figma_capture.py: walker failed — Error: boom', r.stderr)
+        self.assertNotIn('open and close any Figma plugin', r.stderr)
+        self.assertEqual(len(self.calls('close_tab')), 1)
+        self.assertFalse(os.path.exists(out))
+
+    def test_walker_result_without_nodes_is_refused(self):
+        _, _, r = self.walk('empty', '0')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('walker result missing nodes', r.stderr)
+
+    def test_walk_perch_failure_is_reported_and_the_tab_closed(self):
+        _, _, r = self.walk('page', '0', PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 120000ms')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('figma_capture.py: walker failed — timeout: eval_js', r.stderr)
+        self.assertEqual(len(self.calls('close_tab')), 1)
+
+    def test_walk_url_perch_refuses_runs_nothing(self):
+        r = self.capture('walk', 'ftp://example.com/x', '0')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('bad_url', r.stderr)
+        self.assertEqual(self.calls('eval_js'), [])
+
+    def test_real_walker_parses_as_the_page_script(self):
+        prog = ('import { wrapExpr } from %s; import { readFileSync } from "node:fs";\n'
+                'new (Object.getPrototypeOf(async function () {}).constructor)(wrapExpr(readFileSync(%s, "utf8")));\n'
+                'console.info("ok");') % (json.dumps('file://' + os.path.join(ROOT, 'figma_perch.mjs')),
+                                          json.dumps(os.path.join(ROOT, 'figma_walker.js')))
+        r = subprocess.run(['node', '--input-type=module', '-e', prog], capture_output=True, text=True)
+        self.assertEqual((r.returncode, r.stderr), (0, 'ok\n'))
+
+    # ---- import
+
+    def test_import_runs_every_eval_in_one_request_and_prints_the_report(self):
+        dry = os.path.join(self.tmp.name, 'dry')
+        self.assertEqual(self.capture('import', self.spec(), '--dry-run', dry).returncode, 0)
+        n = len(os.listdir(dry))
+        r = self.capture('import', self.spec(), PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        body, summary = r.stdout.rstrip('\n').rsplit('\n', 1)
+        rep = json.loads(body)
+        self.assertEqual(body, json.dumps(rep, indent=1))
+        self.assertEqual((rep['created'], rep['batchDone'], rep['warnings']), (4, 4, []))
+        self.assertEqual(summary, 'created=4 flagged=0 fontsFallenBack=0 instantiated=0 warnings=0')
+        self.assertEqual(len(self.calls('eval_js')), n)
+        self.assertEqual(len(self.calls('list_tabs')), 1)
+        self.assertEqual({c['args']['target']['tabId'] for c in self.calls('eval_js')}, {'chrome:1'})
+
+    def test_import_targets_the_named_file(self):
+        r = self.capture('import', self.spec(), '--file', 'BBB222', PERCH_STUB_FIGMA='full',
+                         PERCH_STUB_TABS=json.dumps(TWO_FILES))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual({c['args']['target']['tabId'] for c in self.calls('eval_js')}, {'chrome:3'})
+        r = self.capture('import', self.spec(), PERCH_STUB_FIGMA='full', PERCH_STUB_TABS=json.dumps(TWO_FILES))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('ambiguous_tab', r.stderr)
+
+    def test_import_stops_at_the_first_failing_eval(self):
+        big = dict(SPEC, nodes=[dict(n, axName='x' * 100_000) if n['i'] >= 2 else n for n in SPEC['nodes']])
+        dry = os.path.join(self.tmp.name, 'dry')
+        self.assertEqual(self.capture('import', self.spec(big), '--dry-run', dry).returncode, 0)
+        kinds = sorted(os.listdir(dry))
+        first = next(i for i, k in enumerate(kinds) if '_nodes-' in k)
+        self.assertGreater(len(kinds), first + 1)
+        r = self.capture('import', self.spec(big), PERCH_STUB_FIGMA='0')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f'figma_capture.py: eval {first} ({kinds[first][3:-3]}) failed — ReferenceError: figma is not defined',
+                      r.stderr)
+        self.assertEqual(len(self.calls('eval_js')), first + 1)
+
+    def test_stop_ends_the_run_at_a_result_capture_treats_as_failure(self):
+        for first in ('({ error: "spec missing" })', 'undefined'):
+            os.unlink(self.log) if os.path.exists(self.log) else None
+            req = {'op': 'eval', 'sources': [first, '1'], 'stop': True}
+            r = subprocess.run(['node', os.path.join(self.app, 'figma_perch.mjs'), 'once'], input=json.dumps(req),
+                               capture_output=True, text=True, env=self.helper_env({}))
+            self.assertEqual(len(json.loads(r.stdout)['results']), 1, r.stdout)
+            self.assertEqual(len(self.calls('eval_js')), 1, first)
+
+    def test_import_perch_failure_names_the_eval(self):
+        r = self.capture('import', self.spec(), PERCH_STUB_ERROR='stale_tab: the tab closed')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('figma_capture.py: eval 0 (reset) failed — stale_tab: the tab closed', r.stderr)
+
+    def test_import_has_no_eval_ceiling_on_perch(self):
+        huge = dict(SPEC, nodes=[dict(n, text='y' * 400_000) if n['i'] == 2 else n for n in SPEC['nodes']])
+        r = self.capture('import', self.spec(huge), PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.returncode, 0, r.stderr[:400])
+        self.assertIn('created=4 ', r.stdout)
+
+    # ---- backend choice
+
+    def test_capture_follows_the_helpers_backend_choice(self):
+        r = self.capture('import', self.spec(), FIGMA_BACKEND='ws')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("FIGMA_BACKEND must be 'cdp' or 'perch'", r.stderr)
+        for env in ({'FIGMA_BACKEND': 'cdp'}, {'FIGMA_BACKEND': '', 'FIGMA_CDP_PORT': '9'},
+                    {'FIGMA_BACKEND': '', 'PERCH_DIR': os.path.join(self.tmp.name, 'none')}):
+            r = self.capture('walk', 'https://example.com/x', '0', PATH=self.tmp.name, **env)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('agent-browser not found', r.stderr)
+        self.assertEqual(self.calls(), [])
+        _, _, r = self.walk('auto', '0', FIGMA_BACKEND='')
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_perch_client_matches_the_helpers(self):
+        """figma_capture.py carries its own copy of the helpers' perch client; the copies stay identical."""
+        shared = ('perch_dir', 'perch_ready', 'backend', 'js_int', 'Dropped', 'daemon_sock', 'daemon_exchange',
+                  'start_daemon', 'timeout_seconds')
+
+        def defs(name):
+            with open(os.path.join(ROOT, name)) as f:
+                tree = ast.parse(f.read())
+            return {d.name: ast.dump(d) for d in tree.body if isinstance(d, (ast.FunctionDef, ast.ClassDef))}
+
+        cap, run, batch = defs('figma_capture.py'), defs('figma_run.py'), defs('figma_batch_run.py')
+        for name in shared:
+            self.assertEqual(cap.get(name), batch[name], name)
+            self.assertEqual(run[name], batch[name], name)
+
+
+class CapturePerchOneShot(CapturePerch):
+    daemon = '0'
 
 
 if __name__ == '__main__':

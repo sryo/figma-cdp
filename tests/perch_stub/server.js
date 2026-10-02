@@ -12,6 +12,10 @@
 //   PERCH_STUB_DELAY  ms each eval_js waits before running (concurrency tests)
 //   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
+// new_tab adds a tab (http(s), file or about:blank, as perch takes) that wait, eval_js and
+// close_tab address until it closes; it lives as long as this process. Like a browser's,
+// it shows its initial about:blank (readyState complete) until a wait {expression} poll
+// finds that falsy, and then the URL has loaded.
 // Scripts see `location` as the target tab's URL. Each log line carries this process's pid.
 import { appendFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -19,7 +23,9 @@ import { createRequire } from "node:module";
 const DEFAULT_TABS = process.env.PERCH_STUB_TABS ? JSON.parse(process.env.PERCH_STUB_TABS) : [
   { app: "Google Chrome", tabId: "chrome:1", url: "https://www.figma.com/design/AAA111/Stub?node-id=0-1", title: "Stub – Figma" },
 ];
-const tabs = () => process.env.PERCH_STUB_TABS_FILE ? JSON.parse(readFileSync(process.env.PERCH_STUB_TABS_FILE, "utf8")) : DEFAULT_TABS;
+const opened = [];
+let openSeq = 100;
+const tabs = () => (process.env.PERCH_STUB_TABS_FILE ? JSON.parse(readFileSync(process.env.PERCH_STUB_TABS_FILE, "utf8")) : DEFAULT_TABS).concat(opened);
 
 if (process.env.PERCH_STUB_FIGMA === "full") {
   globalThis.figma = createRequire(import.meta.url)("../figma_stub.js").createFigma();
@@ -67,6 +73,28 @@ export async function handleCall(name, args = {}) {
     } catch (e) {
       return fail(`stub: wrapper threw ${e}`);
     }
+  }
+  if (name === "new_tab") {
+    const url = args.url == null ? "about:blank" : String(args.url);
+    if (!/^(https?:|file:|about:blank$)/i.test(url)) return fail(`bad_url: new_tab takes http(s), file or about:blank URLs; got ${url}`);
+    const tab = { app: "Google Chrome", tabId: `chrome:${++openSeq}`, url: "about:blank", title: "", loads: url };
+    opened.push(tab);
+    return text(JSON.stringify({ app: tab.app, tabId: tab.tabId }));
+  }
+  if (name === "wait") {
+    const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
+    if (!tab) return fail(`stale_tab: tab ${(args.target || {}).tabId} is gone; re-run list_tabs`);
+    if (args.expression == null) return text(JSON.stringify({ ok: true, waited: false }));
+    const holds = () => new Function("location", "document", `return (${args.expression})`)(new URL(tab.url), { readyState: "complete" });
+    if (!holds() && tab.loads) { tab.url = tab.loads; delete tab.loads; }
+    if (!holds()) return fail(`timeout: wait timed out after ${args.timeout}ms`);
+    return text(JSON.stringify({ ok: true, waited: true, value: true }));
+  }
+  if (name === "close_tab") {
+    const i = opened.findIndex((t) => t.tabId === args.tabId);
+    if (i < 0) return fail(`stale_tab: tab ${args.tabId} is gone; re-run list_tabs`);
+    opened.splice(i, 1);
+    return text(JSON.stringify({ ok: true, closed: args.tabId }));
   }
   if (name === "screenshot") {
     const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex").toString("base64");
