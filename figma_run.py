@@ -4,7 +4,7 @@
 Runs one script in the Figma tab and prints its result. Run it from the skill
 directory; nothing needs copying.
 
-  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <js_file> | - | -e '<js>'
+  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] <js_file> | - | -e '<js>'
   python3 figma_run.py [--file <figma-url-or-key>] --screenshot <out.png>
 
 The script is a file, stdin (-), or inline (-e / --js). Its result is its
@@ -17,11 +17,12 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
+--lib: figma_lib.js goes in front of the script, installing window.__fx once per tab.
 """
 import base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
 
 PROG = 'figma_run.py'
-USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] <js_file> | - | -e '<js>'\n"
+USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] <js_file> | - | -e '<js>'\n"
          "       python3 figma_run.py [--file <url-or-key>] --screenshot <out.png>")
 
 def cdp_port():
@@ -254,15 +255,26 @@ AUTO_ASYNC = r'''(function (src) {
 def program(src):
     return f'{AUTO_ASYNC}({json.dumps(src)})'
 
+def with_lib(src):
+    """figma_lib.js (next to this script) in front of a wrapped script: the library installs
+    window.__fx, even when the script then fails to parse, and the script's value stays the result."""
+    lib = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_lib.js')
+    try:
+        with open(lib, encoding='utf-8') as f:
+            return f.read() + '\n;' + src
+    except OSError:
+        sys.exit(f'figma_lib.js not found next to {os.path.basename(__file__)}')
+
 def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
     sys.exit(1)
 
 def parse_args(argv, options):
-    """Option values (FIGMA_FILE the default for --file) and the scripts in command-line order,
-    each ('path', p), ('stdin', None) or ('inline', js)."""
+    """Option values (FIGMA_FILE the default for --file, --lib True when given) and the scripts in
+    command-line order, each ('path', p), ('stdin', None) or ('inline', js)."""
     opts = dict.fromkeys(options)
     opts['--file'] = os.environ.get('FIGMA_FILE')
+    lib = False
     scripts = []
     args = iter(argv)
     for arg in args:
@@ -270,7 +282,9 @@ def parse_args(argv, options):
             print(__doc__.strip())
             sys.exit(0)
         name, eq, val = arg.partition('=') if arg.startswith('--') else (arg, '', None)
-        if name in opts or name in ('-e', '--js'):
+        if arg == '--lib':
+            lib = True
+        elif name in opts or name in ('-e', '--js'):
             if not eq:
                 val = next(args, None)
                 if val is None:
@@ -285,6 +299,7 @@ def parse_args(argv, options):
             usage(f'unknown option {arg}')
         else:
             scripts.append(('path', arg))
+    opts['--lib'] = lib
     return opts, scripts
 
 def load(scripts):
@@ -312,13 +327,17 @@ shot = opts['--screenshot']
 if len(specs) != (0 if shot else 1):
     usage('give one script (<js_file>, - or -e <js>), or --screenshot alone')
 scripts = load(specs)
+# The library goes in front of the first script only; later scripts in a batch share its tab.
+sources = [program(src) for _, src in scripts]
+if opts['--lib'] and sources:
+    sources[0] = with_lib(sources[0])
 
 if backend() == 'perch':
     if shot:
         perch({'op': 'screenshot', 'file': opts['--file'] or '', 'path': os.path.abspath(shot)})
         print(f"✓ Screenshot saved to {shot}")
         sys.exit(0)
-    res = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': [program(scripts[0][1])]},
+    res = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
                 timeout=timeout_seconds(opts['--timeout']))['results'][0]
     if not res['ok']:
         print(f"✗ Evaluation error: {res['error']}", file=sys.stderr)
@@ -329,7 +348,7 @@ if backend() == 'perch':
 if shot:
     cmd = ['screenshot', shot]
 else:
-    b64 = base64.b64encode(program(scripts[0][1]).encode()).decode()
+    b64 = base64.b64encode(sources[0].encode()).decode()
     if len(b64) > 200_000:
         print('payload >200KB — use agent-browser batch stdin JSON mode '
               '(see references/execution.md → Batched evals), or the perch backend', file=sys.stderr)

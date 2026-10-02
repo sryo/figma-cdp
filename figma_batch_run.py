@@ -8,7 +8,7 @@ intermediate inspection. On the perch backend one figma_perch.mjs request
 evaluates the scripts in order. Run it from the skill directory; nothing needs
 copying.
 
-  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <script> [<script> ...]
+  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] <script> [<script> ...]
 
 A script is a <js_file>, - (stdin, once) or -e '<js>' (or --js), run in the
 order given. Each result is printed under a '== <label> ==' header: the file's
@@ -22,11 +22,12 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
+--lib: figma_lib.js goes in front of the first script, installing window.__fx once per tab.
 """
 import base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
 
 PROG = 'figma_batch_run.py'
-USAGE = "usage: python3 figma_batch_run.py [--file <url-or-key>] [--timeout <seconds>] (<js_file> | - | -e '<js>')..."
+USAGE = "usage: python3 figma_batch_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] (<js_file> | - | -e '<js>')..."
 
 def cdp_port():
     p = os.environ.get('FIGMA_CDP_PORT')
@@ -242,15 +243,26 @@ AUTO_ASYNC = r'''(function (src) {
 def program(src):
     return f'{AUTO_ASYNC}({json.dumps(src)})'
 
+def with_lib(src):
+    """figma_lib.js (next to this script) in front of a wrapped script: the library installs
+    window.__fx, even when the script then fails to parse, and the script's value stays the result."""
+    lib = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_lib.js')
+    try:
+        with open(lib, encoding='utf-8') as f:
+            return f.read() + '\n;' + src
+    except OSError:
+        sys.exit(f'figma_lib.js not found next to {os.path.basename(__file__)}')
+
 def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
     sys.exit(1)
 
 def parse_args(argv, options):
-    """Option values (FIGMA_FILE the default for --file) and the scripts in command-line order,
-    each ('path', p), ('stdin', None) or ('inline', js)."""
+    """Option values (FIGMA_FILE the default for --file, --lib True when given) and the scripts in
+    command-line order, each ('path', p), ('stdin', None) or ('inline', js)."""
     opts = dict.fromkeys(options)
     opts['--file'] = os.environ.get('FIGMA_FILE')
+    lib = False
     scripts = []
     args = iter(argv)
     for arg in args:
@@ -258,7 +270,9 @@ def parse_args(argv, options):
             print(__doc__.strip())
             sys.exit(0)
         name, eq, val = arg.partition('=') if arg.startswith('--') else (arg, '', None)
-        if name in opts or name in ('-e', '--js'):
+        if arg == '--lib':
+            lib = True
+        elif name in opts or name in ('-e', '--js'):
             if not eq:
                 val = next(args, None)
                 if val is None:
@@ -273,6 +287,7 @@ def parse_args(argv, options):
             usage(f'unknown option {arg}')
         else:
             scripts.append(('path', arg))
+    opts['--lib'] = lib
     return opts, scripts
 
 def load(scripts):
@@ -299,9 +314,13 @@ opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout'))
 if not specs:
     usage('give at least one script')
 scripts = load(specs)
+# The library goes in front of the first script only; later scripts in a batch share its tab.
+sources = [program(src) for _, src in scripts]
+if opts['--lib'] and sources:
+    sources[0] = with_lib(sources[0])
 
 if backend() == 'perch':
-    out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': [program(src) for _, src in scripts]},
+    out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
                 timeout=timeout_seconds(opts['--timeout']))
     # As agent-browser batch prints: a success is {origin: the page URL, result} with keys
     # sorted and non-ASCII escaped, a failure its error.
@@ -313,7 +332,7 @@ if backend() == 'perch':
         sys.exit(f"perch: {out['fatal']} (stopped after {len(out['results'])} of {len(scripts)} scripts)")
     sys.exit(0 if all(r['ok'] for r in out['results']) else 1)
 
-cmds = [f'eval -b {base64.b64encode(program(src).encode()).decode()}' for _, src in scripts]
+cmds = [f'eval -b {base64.b64encode(src.encode()).decode()}' for src in sources]
 
 if sum(len(c) for c in cmds) > 200_000:
     print('payload >200KB — use agent-browser batch stdin JSON mode '

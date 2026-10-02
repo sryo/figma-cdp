@@ -400,6 +400,74 @@ class PerchBackend(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertIn('perch: stale_tab', r.stderr)
 
+    # ---- --lib (figma_lib.js in front of the first script)
+
+    def sent_sources(self):
+        """The program each eval_js carried, unwrapped from figma_perch.mjs's wrapper."""
+        out = []
+        for c in self.calls('eval_js'):
+            line = next(l for l in c['args']['script'].splitlines() if l.startswith('var __src = '))
+            out.append(json.loads(line[len('var __src = '):-1]))
+        return out
+
+    def lib_source(self):
+        with open(os.path.join(ROOT, 'figma_lib.js')) as f:
+            return f.read()
+
+    def test_lib_installs_fx_before_the_script(self):
+        r = self.run_helper('figma_run.py', '--lib', '-e', '[typeof __fx.inventory, typeof __fx.audit]')
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, ['function', 'function']), r.stderr)
+        self.assertTrue(self.sent_sources()[0].startswith(self.lib_source()))
+
+    def test_lib_keeps_the_scripts_result(self):
+        for src, out in (('var a = 1;', 'null\n'), ('figma.currentPage.name', '"Page 1"\n'),
+                         ('(async () => ({ n: 2 }))()', '{\n  "n": 2\n}\n'),
+                         ('await 0;\nreturn typeof __fx.frame', None)):
+            plain = self.run_helper('figma_run.py', self.js('a.js', src))
+            lib = self.run_helper('figma_run.py', '--lib', self.js('a.js', src))
+            self.assertEqual(lib.stdout, out or '"function"\n', lib.stderr)
+            if out:
+                self.assertEqual(plain.stdout, out, plain.stderr)
+
+    def test_lib_installs_even_when_the_script_does_not_parse(self):
+        r = self.run_helper('figma_batch_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
+        lines = r.stdout.splitlines()
+        self.assertTrue(lines[1].startswith('Evaluation error: SyntaxError'), lines)
+        self.assertEqual(lines[-2], '== -e[2] ==')
+        self.assertIn('"result": "function"', lines[-1])
+
+    def test_batch_lib_goes_in_front_of_the_first_script_only(self):
+        r = self.run_helper('figma_batch_run.py', '--lib', self.js('1.js', '1'), self.js('2.js', 'typeof __fx.recon'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual((lines[0], lines[2]), ('== 1.js ==', '== 2.js =='))
+        self.assertIn('"result": "function"', lines[3])
+        first, second = self.sent_sources()
+        self.assertTrue(first.startswith(self.lib_source()))
+        self.assertNotIn('window.__fx', second)
+
+    def test_lib_missing_next_to_the_helper(self):
+        for script in ('figma_run.py', 'figma_batch_run.py'):
+            lone = os.path.join(self.tmp.name, script)
+            with open(os.path.join(ROOT, script)) as f, open(lone, 'w') as g:
+                g.write(f.read())
+            r = subprocess.run([sys.executable, lone, '--lib', self.js('a.js', '1')], capture_output=True, text=True,
+                               env=self.helper_env({}))
+            self.assertEqual(r.returncode, 1)
+            self.assertIn(f'figma_lib.js not found next to {script}', r.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_lib_sends_the_same_source_over_cdp(self):
+        log = os.path.join(self.tmp.name, 'ab.jsonl')
+        cdp = {'FIGMA_BACKEND': 'cdp', 'FIGMA_CDP_PORT': '9', 'AGENT_BROWSER_STUB_LOG': log,
+               'PATH': AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH']}
+        a, b = self.js('a.js', 'figma.currentPage.name'), self.js('b.js', '2')
+        for args in (('figma_run.py', '--lib', a), ('figma_batch_run.py', '--lib', a, b)):
+            self.assertEqual(self.run_helper(*args).returncode, 0)
+            self.assertEqual(self.run_helper(*args, **cdp).returncode, 0)
+        with open(log) as f:
+            self.assertEqual([json.loads(l)['src'] for l in f], self.sent_sources())
+
     # ---- backend choice
 
     def test_unknown_backend(self):
@@ -466,6 +534,10 @@ class SameOutputOnBothBackends(Harness):
         self.both('figma_run.py', '-e', 'void 0')
         self.both('figma_run.py', '-e', 'await 0;\nthrow new Error("late")')
         self.both('figma_run.py', '-e', 'throw new Error("Node not found")')
+
+    def test_lib(self):
+        self.both('figma_run.py', '--lib', '-e', '[typeof __fx.audit, __fx.v > 0]')
+        self.both('figma_batch_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
 
     def test_figma_batch_run(self):
         self.both('figma_batch_run.py', '-e', 'window.__batchState = { n: 1 }; "ñ"', self.js('b.js', 'const a = 1; a'),
@@ -651,6 +723,12 @@ class PerchDaemon(Harness):
             for c in held:
                 c.close()
             srv.close()
+
+    def test_lib_installs_once_per_tab(self):
+        r = self.run_helper('figma_run.py', '--lib', self.js('a.js', 'window.__fx.mark = 7'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_helper('figma_run.py', '--lib', self.js('b.js', 'window.__fx.mark'))
+        self.assertEqual((r.returncode, r.stdout), (0, '7\n'), r.stderr)
 
     def test_a_call_the_daemon_dropped_is_not_rerun(self):
         r = self.run_helper('figma_run.py', self.js('a.js', 'process.exit(3)'))
