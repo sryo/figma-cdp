@@ -5,7 +5,11 @@
 // counts; exits non-zero on any throw or unresolved captureIds entry. --dump writes
 // {tree, ids, report}: the page's node tree, captureIds, and the last chunk's report.
 //
-//   node tests/importer_stub.js /tmp/figma_capture_<slug>.json [--componentize] [--chunk-bytes N] [--dump tree.json]
+// --stub-components a,b first builds a component per category (a text inside, named after
+// it) and passes them as --components.
+//
+//   node tests/importer_stub.js /tmp/figma_capture_<slug>.json [--componentize] [--chunk-bytes N]
+//     [--stub-components cat,...] [--dump tree.json]
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -20,17 +24,28 @@ if (args.includes('--componentize')) helperArgs.push('--componentize');
 if (opt('--chunk-bytes')) helperArgs.push('--chunk-bytes', opt('--chunk-bytes'));
 
 const spec = JSON.parse(fs.readFileSync(specPath, 'utf8'));
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'importer-stub-'));
-execFileSync('python3', [path.join(__dirname, '..', 'figma_capture.py'), 'import', specPath, '--dry-run', dir, ...helperArgs],
-  { stdio: ['ignore', 'ignore', 'inherit'] });
-const scripts = fs.readdirSync(dir).sort().map((f) => ({ f, src: fs.readFileSync(path.join(dir, f), 'utf8') }));
-fs.rmSync(dir, { recursive: true, force: true });
 
 const { createFigma } = require('./figma_stub');
 global.figma = createFigma();
 let imageCount = 0;
 const createImage = figma.createImage;
 figma.createImage = (bytes) => { const img = createImage(bytes); imageCount++; return img; };
+
+(async function () {
+  if (!opt('--stub-components')) return;
+  await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
+  const map = {};
+  for (const cat of opt('--stub-components').split(',')) {
+    const comp = figma.createComponent();
+    comp.name = cat;
+    comp.layoutMode = 'HORIZONTAL';
+    const label = figma.createText();
+    label.characters = cat;
+    comp.appendChild(label);
+    map[cat] = comp.id;
+  }
+  helperArgs.push('--components', JSON.stringify(map));
+})().then(main).catch(e => { console.error(e && e.stack || e); process.exit(1); });
 
 function dumpNode(n) {
   const out = { id: n.id, type: n.type, name: n.name, width: n.width, height: n.height };
@@ -47,7 +62,13 @@ function dumpNode(n) {
   return out;
 }
 
-(async function () {
+async function main() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'importer-stub-'));
+  execFileSync('python3', [path.join(__dirname, '..', 'figma_capture.py'), 'import', specPath, '--dry-run', dir, ...helperArgs],
+    { stdio: ['ignore', 'ignore', 'inherit'] });
+  const scripts = fs.readdirSync(dir).sort().map((f) => ({ f, src: fs.readFileSync(path.join(dir, f), 'utf8') }));
+  fs.rmSync(dir, { recursive: true, force: true });
+
   global.window = {};
   let last = null;
   const t0 = Date.now();
@@ -71,4 +92,4 @@ function dumpNode(n) {
     images: imageCount, components: (last.components || []).length, instantiated: last.instantiated.length,
     fontsFallenBack: last.fontsFallenBack, warnings: last.warnings, ms: Date.now() - t0 }, null, 1));
   process.exit(ok ? 0 : 1);
-})().catch(e => { console.error(e && e.stack || e); process.exit(1); });
+}

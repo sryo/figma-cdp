@@ -174,10 +174,12 @@ def shared_name(group):
 def componentize(nodes):
     """Mark each group of REPEAT_MIN+ identical-shape subtrees, siblings or cousins, so the
     importer builds the first as a COMPONENT and the rest as its instances. A subtree's
-    shape covers every node's tag, role, layout mode, child count, styles and image, plus
-    the root's rect rounded to SIZE_STEP; text is left out (it becomes a TEXT property)
-    unless it carries styled runs, which an override would flatten. Outermost groups win
-    and members never overlap. Sets node['rep'] on every node of a chosen group:
+    shape covers every node's tag, role, layout mode, child count, styles, transform, image
+    and whether its text wraps, plus what an instance can't re-derive, rounded to SIZE_STEP:
+    the root's rect, a fixed (`sz` px / other) size or a textless leaf's size, and the offset
+    of a node in a parent without auto layout or positioned. Text is left out (it becomes a TEXT
+    property) unless it carries styled runs, which an override would flatten. Outermost
+    groups win and members never overlap. Sets node['rep'] on every node of a chosen group:
       master root    {m: i, name}  name = shared axName, else role, else tag
       master layer   {c: master}, plus prop: <name> on a text that differs across members
       other root     {m: master}
@@ -189,12 +191,21 @@ def componentize(nodes):
     for n in nodes:
         if n['parent'] >= 0:
             kids[n['parent']].append(n['i'])
+    step = lambda v: round(v / SIZE_STEP)
     sig, size = {}, {}
     for n in reversed(nodes):
-        i, st = n['i'], n.get('styles') or {}
+        i, st, r = n['i'], n.get('styles') or {}, n['rect']
+        text = bool((n.get('text') or '').strip())
+        sz = st.get('sz') or ['auto', 'auto']
+        box = [step(v) if sz[a] in ('px', 'other') or not (kids[i] or text) else None
+               for a, v in enumerate((r['w'], r['h']))]
+        up = by_i.get(n['parent'])
+        loose = up is not None and (layout_mode(up.get('styles') or {}) == 'N'
+                                    or st.get('position') in ('absolute', 'fixed'))
+        at = [step(r['x'] - up['rect']['x']), step(r['y'] - up['rect']['y'])] if loose else None
         own = [n['tag'], n.get('role'), n.get('level'), n.get('interactable'), layout_mode(st), st,
-               (n.get('image') or {}).get('asset'), n.get('iframe'),
-               [r.get('text') for r in n['runs']] if n.get('runs') else None]
+               n.get('xf'), n.get('image'), n.get('iframe'), n.get('origin'), (n.get('lines') or 1) > 1,
+               box, at, [r.get('text') for r in n['runs']] if n.get('runs') else None]
         sig[i] = hashlib.sha1(json.dumps([own, [sig[c] for c in kids[i]]], sort_keys=True).encode()).hexdigest()
         size[i] = 1 + sum(size[c] for c in kids[i])
 
@@ -244,6 +255,8 @@ def import_spec(a):
     envelope = {'flagged': spec.get('flagged', []), 'components': load_components(a.components),
                 'meta': spec.get('meta', {})}
 
+    if a.chunk_bytes < 1:
+        sys.exit('figma_capture.py: --chunk-bytes must be a positive byte count')
     if a.componentize:
         componentize(nodes)
     budget = min(a.chunk_bytes, EVAL_B64_MAX * 3 // 4 - len(importer) - len(js(envelope)) - 64)

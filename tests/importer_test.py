@@ -43,6 +43,22 @@ def run_stub(spec_path, *flags):
     return out
 
 
+def run_edited(edit, *flags):
+    """Run the stub on a copy of capture_spec.json changed by edit(nodes)."""
+    spec = load_spec()
+    edit(spec['nodes'])
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+        json.dump(spec, f)
+    try:
+        return spec, run_stub(f.name, *flags)
+    finally:
+        os.unlink(f.name)
+
+
+def lis_of(nodes):
+    return [n for n in nodes if n['tag'] == 'li']
+
+
 def idx(spec, ax):
     return next(n['i'] for n in spec['nodes'] if n['axName'] == ax)
 
@@ -89,6 +105,20 @@ class Sizing(unittest.TestCase):
         node = self.out['node'](body['i'])
         self.assertEqual(node['type'], 'TEXT')
         self.assertEqual(node['sizing'][0], 'FILL')
+
+    def test_frame_with_only_positioned_children_keeps_its_height(self):
+        def all_absolute(nodes):
+            nodes[7]['styles']['position'] = 'absolute'
+        for flags in [(), ('--chunk-bytes', '1500')]:
+            spec, out = run_edited(all_absolute, *flags)
+            self.assertEqual(out['node'](idx(spec, 'abs-parent'))['sizing'], ['FILL', 'FIXED'])
+            self.assertEqual(out['node'](idx(spec, 'card-list'))['sizing'], ['FILL', 'HUG'])
+
+    def test_wrapping_row_never_hugs_its_width(self):
+        def wrap(nodes):
+            nodes[44]['styles'].update(flexWrap='wrap', alignSelf='flex-start')
+        spec, out = run_edited(wrap)
+        self.assertEqual(out['node'](44)['sizing'], ['FIXED', 'HUG'])
 
     def test_no_legacy_layout_fields(self):
         for n in self.out['all']:
@@ -178,6 +208,43 @@ class Annotate(unittest.TestCase):
         masters = self.groups(kept)
         self.assertEqual([kept[i]['tag'] for i in masters], ['div'])
 
+    def split_off(self, edit):
+        """Mark after edit(nodes); return which li cards stayed in the group."""
+        nodes = self.spec['nodes']
+        edit(nodes)
+        figma_capture.componentize(nodes)
+        return ['rep' in li for li in lis_of(nodes)]
+
+    def test_transform_splits_a_member(self):
+        def tilt(ns):
+            lis_of(ns)[1]['xf'] = [0.98, 0.17, -0.17, 0.98, 0, 0]
+        self.assertEqual(self.split_off(tilt), [True, False, True, True])
+
+    def test_wrapping_text_splits_a_member(self):
+        def wrap(ns):
+            ns[lis_of(ns)[2]['i'] + 2]['lines'] = 2
+        self.assertEqual(self.split_off(wrap), [True, True, False, True])
+
+    def test_fixed_size_difference_splits_a_member(self):
+        def fixed(ns):
+            for li in lis_of(ns):
+                ns[li['i'] + 3]['styles']['sz'] = ['px', 'auto']
+            ns[lis_of(ns)[3]['i'] + 3]['rect']['w'] = 120
+        self.assertEqual(self.split_off(fixed), [True, True, True, False])
+
+    def test_offset_outside_auto_layout_splits_a_member(self):
+        def grid(ns):
+            for li in lis_of(ns):
+                li['styles']['display'] = 'grid'
+            ns[lis_of(ns)[1]['i'] + 3]['rect']['x'] += 40
+        self.assertEqual(self.split_off(grid), [True, False, True, True])
+
+    def test_image_mode_splits_a_member(self):
+        def img(ns):
+            for k, li in enumerate(lis_of(ns)):
+                ns[li['i'] + 3]['image'] = {'asset': 'a1', 'mode': 'TILE' if k == 0 else 'FILL'}
+        self.assertEqual(self.split_off(img), [False, True, True, True])
+
     def test_outermost_group_wins(self):
         nodes = self.spec['nodes']
         figma_capture.componentize(nodes)
@@ -192,6 +259,13 @@ class Componentize(unittest.TestCase):
         cls.spec = load_spec()
         cls.runs = [run_stub(SPEC, '--componentize'),
                     run_stub(SPEC, '--componentize', '--chunk-bytes', '1500')]
+
+    def test_chunk_bytes_must_be_positive(self):
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_capture.py'), 'import', SPEC,
+                            '--chunk-bytes', '0', '--dry-run', tempfile.gettempdir()],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('--chunk-bytes must be a positive', r.stderr)
 
     def test_off_by_default(self):
         out = run_stub(SPEC)
@@ -250,6 +324,45 @@ class Componentize(unittest.TestCase):
         self.assertEqual([out['node'](li['i'])['type'] for li in lis], ['FRAME'] * 4)
         self.assertEqual(out['node'](lis[1]['i'] + 1)['characters'], 'Beta')
         self.assertEqual(out['report']['warnings'], [])
+
+    def test_text_without_a_property_is_overridden_directly(self):
+        def drop_prop(nodes):
+            del nodes[lis_of(nodes)[0]['i'] + 1]['rep']['prop']
+        spec, out = self.run_marked(drop_prop)
+        for li in lis_of(spec['nodes']):
+            title = spec['nodes'][li['i'] + 1]
+            self.assertEqual(out['node'](title['i'])['characters'], title['text'])
+        self.assertEqual(out['report']['warnings'], [])
+
+    def test_instances_hug_only_where_their_master_does(self):
+        def pinned(ns):
+            for li in lis_of(ns):
+                for k in (1, 2, 3):
+                    ns[li['i'] + k]['styles']['position'] = 'absolute'
+        spec, out = run_edited(pinned, '--componentize')
+        for li in lis_of(spec['nodes']):
+            self.assertEqual(out['node'](li['i'])['sizing'], ['FILL', 'FIXED'])
+
+    def test_mapped_category_root_stays_an_instance_of_that_component(self):
+        spec, out = run_edited(lambda ns: None, '--componentize', '--stub-components', 'listitem')
+        comps = [c['name'] for c in out['report']['components']]
+        self.assertEqual(comps, ['stat'])
+        lis = lis_of(spec['nodes'])
+        self.assertEqual([out['node'](li['i']).get('main') for li in lis], ['listitem'] * 4)
+        self.assertEqual(out['report']['warnings'], [])
+
+    def test_mapped_category_inside_a_master_stays_a_nested_instance(self):
+        def labels(ns):
+            for li, word in zip(lis_of(ns), ['Open', 'Edit', 'View', 'Share']):
+                ns[li['i'] + 3]['text'] = ns[li['i'] + 3]['axName'] = word
+        for flags in [(), ('--chunk-bytes', '1500')]:
+            spec, out = run_edited(labels, '--componentize', '--stub-components', 'button', *flags)
+            for li in lis_of(spec['nodes']):
+                button = out['node'](li['i'] + 3)
+                self.assertEqual(button['type'], 'INSTANCE')
+                self.assertEqual(button['main'], 'button')
+                self.assertEqual(button['children'][0]['characters'], spec['nodes'][li['i'] + 3]['text'])
+            self.assertEqual(out['report']['warnings'], [])
 
     def test_unmatched_instance_layer_is_built_loose(self):
         def break_layer(nodes):

@@ -344,16 +344,22 @@
     return instance;
   }
 
+  function isRepeatComponent(node) {
+    return !!node && report.components.some(function (c) { return c.nodeId === node.id; });
+  }
+
   // The layer of n's instance (rep.in) that mirrors master layer rep.src: the master
-  // layer's child-index path under its component, followed from the instance. Applies
-  // the text's TEXT property override. Null when the member root is not an instance (the
-  // node is built normally); false when the instance has no such layer.
+  // layer's child-index path under its component, followed from the instance. Overrides
+  // a differing text through its TEXT property, else directly. Null when the member root
+  // is not a repeat instance (the node is built normally); false when the instance has no
+  // such layer.
   async function instanceLayer(n) {
     var host = await nodeAt(n.rep.in);
     if (!host || host.type !== 'INSTANCE') return null;
     var main = await host.getMainComponentAsync();
+    if (!isRepeatComponent(main)) return null;
     var path = [], cur = await nodeAt(n.rep.src);
-    while (cur && main && cur.id !== main.id) {
+    while (cur && cur.id !== main.id) {
       var up = cur.parent, at = -1;
       if (up) for (var j = 0; j < up.children.length; j++) if (up.children[j].id === cur.id) at = j;
       path.unshift(at);
@@ -362,24 +368,24 @@
     var twin = cur ? host : null;
     for (var q = 0; twin && q < path.length; q++) twin = (twin.children || [])[path[q]] || null;
     if (!twin) { warn(n, 'instance layer', 'no match for [cap:' + n.rep.src + ']'); return false; }
-    var key = propKeys[n.rep.src];
-    if (key && isText(n)) {
+    var txt = isText(n) ? textIn(twin) : null;
+    if (txt && txt.characters !== n.text) {
       try {
-        var txt = textIn(twin);
-        if (txt) await loadFontsOf(txt);
-        var values = {};
-        values[key] = n.text;
-        host.setProperties(values);
-      } catch (e) { warn(n, 'text property', e); }
+        await loadFontsOf(txt);
+        var key = propKeys[n.rep.src], values = {};
+        if (key) { values[key] = n.text; host.setProperties(values); }
+        else txt.characters = n.text;
+      } catch (e) { warn(n, 'text override', e); }
     }
     return twin;
   }
 
-  // Bind a master text to a new TEXT property on its component (rep.c).
+  // Bind a master text to a new TEXT property on its component (rep.c). A text inside a
+  // nested instance can't hold a reference; members override it directly.
   async function bindTextProperty(n, node) {
     try {
-      var comp = await nodeAt(n.rep.c), txt = textIn(node);
-      if (!comp || comp.type !== 'COMPONENT' || !txt) return;
+      var comp = await nodeAt(n.rep.c), txt = node.type === 'INSTANCE' ? null : textIn(node);
+      if (!isRepeatComponent(comp) || !txt) return;
       var key = comp.addComponentProperty(n.rep.prop, 'TEXT', n.text);
       txt.componentPropertyReferences = { characters: key };
       propKeys[n.i] = key;
@@ -475,8 +481,9 @@
       if (node) kind = 'repeat';
     }
 
-    // 1. component instance — not inside a repeat group, whose layers mirror its master
-    var category = (n.iframe === 'cross-origin' || n.rep) ? null : categoryOf(n);
+    // 1. component instance — a mapped group root or master layer stays one, so the
+    // group's members follow it
+    var category = (n.iframe === 'cross-origin') ? null : categoryOf(n);
     var componentId = category ? components[category] : null;
     if (!node && componentId) {
       try { node = await instantiate(n, st, category, componentId); }
@@ -580,7 +587,7 @@
 
     idMap[n.i] = node.id;
     rectMap[n.i] = n.rect;
-    layoutMap[n.i] = layout.mode !== 'NONE'
+    var nodeLayout = layoutMap[n.i] = layout.mode !== 'NONE'
       ? { mode: layout.mode, alignItems: kind === 'textbox' ? 'center' : (st.alignItems || 'normal'), primaryGap: primaryGap }
       : { mode: 'NONE' };
     report.created++;
@@ -594,9 +601,12 @@
     // HUG/FIXED: wrapped text keeps its captured width; only its width ever FILLs. Other
     // nodes: FILL from fill[]; HUG where the source size is auto and the node is an
     // auto-layout frame with children (a single-line textbox hugs its width too) — never
-    // an auto width a non-auto-layout parent gave a block, nor an axis pinned at both
-    // edges; else FIXED at the captured rect.
+    // an auto width a non-auto-layout parent gave a block, an axis pinned at both edges,
+    // nor a wrapping row's width; else FIXED at the captured rect. A frame's HUG waits in
+    // captureLayout until an in-flow child lands (positioned children alone would collapse
+    // it); a repeat instance hugs where its master does.
     var hug = [false, false];
+    var repeatMain = kind === 'repeat' ? await nodeAt(n.rep.m) : null;
     if (kind === 'text') {
       fill[1] = false;
       if ((n.lines || 1) > 1 || fill[0]) {
@@ -607,19 +617,27 @@
       }
     } else {
       var pin = st.pin || ['l', 't'];
-      var frameHugs = (kind === 'frame' || kind === 'repeat') && !!n.kids && node.layoutMode !== 'NONE';
+      var frameHugs = kind === 'frame' && !!n.kids && node.layoutMode !== 'NONE';
       for (var ax = 0; ax < 2; ax++) {
-        if (fill[ax] || sz[ax] !== 'auto') continue;
+        if (repeatMain) { hug[ax] = !fill[ax] && repeatMain[SIZING[ax]] === 'HUG'; continue; }
+        if (fill[ax] || sz[ax] !== 'auto' || (ax === 0 && node.layoutWrap === 'WRAP')) continue;
         if (!(frameHugs || (kind === 'textbox' && (ax === 1 || (n.lines || 1) === 1)))) continue;
         hug[ax] = positioned ? pin[ax].length === 1 : (ax === 1 || inFlow || inlineLevel);
       }
     }
+    if (kind === 'frame' && (hug[0] || hug[1])) { nodeLayout.hug = hug; hug = [false, false]; }
     for (var a2 = 0; a2 < 2; a2++) {
       if (!fill[a2] && !hug[a2]) continue;
       try {
         if (fill[a2]) unhug(p, rectMap[n.parent], a2);
         node[SIZING[a2]] = fill[a2] ? 'FILL' : 'HUG';
       } catch (e) { warn(n, SIZING[a2], e); }
+    }
+    var pending = inFlow && pl.hug;
+    for (var a3 = 0; pending && a3 < 2; a3++) {
+      if (!pending[a3]) continue;
+      pending[a3] = false;
+      if (!fill[a3]) try { p[SIZING[a3]] = 'HUG'; } catch (e) { warn(n, 'parent ' + SIZING[a3], e); }
     }
 
     var rx = canAppend ? n.rect.x - pr.x : n.rect.x;

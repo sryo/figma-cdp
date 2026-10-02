@@ -4,7 +4,8 @@
 // sandbox that scripts most often break: fonts loaded before fontName/characters, FILL
 // sizing only inside an auto-layout parent, HUG only on auto-layout frames and text,
 // ABSOLUTE positioning only inside auto layout, component properties added on and read from
-// the set rather than a variant, and no removing the current page.
+// the set rather than a variant, no property references inside an instance, and no removing
+// the current page.
 //
 //   const { createFigma } = require('./figma_stub');
 //   global.figma = createFigma();
@@ -164,7 +165,12 @@ function createFigma() {
           if (k === 'layoutGrow' ? v > 0 : v === 'STRETCH') target._sizing[axis] = 'FILL';
         }
         if (k === 'fills' || k === 'strokes' || k === 'effects') v = clone(v);
-        if (k === 'componentPropertyReferences') v = clone(v);
+        if (k === 'componentPropertyReferences') {
+          for (let up = target.parent; up && up.type !== 'COMPONENT'; up = up.parent) {
+            if (up.type === 'INSTANCE') throw new Error('Cannot set componentPropertyReferences on a node inside an instance');
+          }
+          v = clone(v);
+        }
         target[k] = v;
         return true;
       },

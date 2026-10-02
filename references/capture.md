@@ -201,11 +201,11 @@ Every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose r
 
 ### Componentize (`--componentize`, opt-in)
 
-Before chunking, the helper hashes every captured subtree: each node's tag, role, layout mode, child count, full `styles`, image asset and (for styled `runs`) run text, plus the root's rect rounded to 4 px. Text content is left out. Every group of **3+** identical-shape subtrees — siblings or cousins anywhere in the page, never overlapping, outermost group first — imports as one component plus instances:
+Before chunking, the helper hashes every captured subtree: each node's tag, role, layout mode, child count, full `styles`, `xf`, `image`, whether its text wraps and (for styled `runs`) run text, plus, rounded to 4 px, the root's rect, every fixed-size (`sz` px / other) axis and textless leaf's size, and the offset of every positioned node or child of a non-Auto-Layout parent. Text content is left out. Every group of **3+** identical-shape subtrees — siblings or cousins anywhere in the page, never overlapping, outermost group first — imports as one component plus instances:
 
 - The first member is built in its own slot as a `COMPONENT` named from the members' shared `axName`, else `role`, else `tag`. Each of its texts that differs across members is bound to a `TEXT` component property (named the same way, from the texts), and the TEXT layer is named `[cap:<i>] <property>`.
-- Every later member is `createInstance()` of it in its own slot, named `[cap:<i>] <readable>`, with the differing texts set through `setProperties`. Its captured layers are not built: `captureIds` maps each to the instance layer at the same child-index path as the master's, so cleanup workers still resolve every spec index.
-- The `--components` category map is not consulted inside a group. A master that failed to build degrades its members to plain subtrees.
+- Every later member is `createInstance()` of it in its own slot, named `[cap:<i>] <readable>`, hugging where the master hugs, with the differing texts set through `setProperties` (directly on the text when it has no property, e.g. inside a nested instance). Its captured layers are not built: `captureIds` maps each to the instance layer at the same child-index path as the master's, so cleanup workers still resolve every spec index.
+- `--components` still wins: a mapped group root makes every member an instance of the mapped component (no new component), and a mapped layer inside a master stays a nested instance. A master that failed to build degrades its members to plain subtrees.
 
 The helper marks group nodes with `rep` (`{m, name}` master root, `{c, prop?}` master layer, `{m}` other root, `{src, in}` other layer) before chunking; the importer only follows the marks. Identical styles are part of the shape, so instances never need fill or stroke overrides.
 
@@ -294,7 +294,7 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `overflow` hidden / clip / auto / scroll | `clipsContent = true` (else false) |
 | in-flow child of Auto Layout: `flexGrow` > 0, or `sz` `"pct"`, along the parent's primary axis | that axis `layoutSizing* = 'FILL'` |
 | in-flow child of Auto Layout: `sz` `"auto"` / `"pct"` on the counter axis AND `alignSelf` auto / normal / stretch AND parent `alignItems` normal / stretch, not inline-level (`display` starting with `inline`) | that axis `'FILL'` |
-| `sz` `"auto"` on an axis that doesn't FILL, node an Auto Layout frame with children (or a textbox: height, and width when single-line) | `'HUG'` — except a width outside Auto Layout flow on a non-positioned block-level box (it fills a container Figma can't express) and an absolute axis with `pin` on both edges; those stay `'FIXED'` |
+| `sz` `"auto"` on an axis that doesn't FILL, node an Auto Layout frame with children (or a textbox: height, and width when single-line) | `'HUG'` — except a width outside Auto Layout flow on a non-positioned block-level box (it fills a container Figma can't express) an absolute axis with `pin` on both edges, and a wrapping row's width; those stay `'FIXED'`. A frame's HUG waits until its first in-flow child lands, so one holding only positioned children stays `'FIXED'` |
 | `sz` `"px"` / `"other"`, leaf frames, svg, iframe placeholders, category instances | `'FIXED'` at the captured rect (FILL still applies) |
 | a child FILLs an axis its parent HUGs | the parent goes `'FIXED'` at its captured size on that axis first |
 | `minW` `maxW` `minH` `maxH` | `minWidth` `maxWidth` `minHeight` `maxHeight` |
