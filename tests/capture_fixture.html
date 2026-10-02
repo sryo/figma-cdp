@@ -21,6 +21,12 @@
   .card { background: #f4f4f8; border-radius: 8px; padding: 12px; }
   .anchor { position: relative; }
   .badge { position: absolute; top: 4px; right: 4px; background: #e05533; color: #fff; padding: 2px 6px; border-radius: 10px; }
+  .overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.1); }
+  .centered { position: absolute; left: 0; right: 0; bottom: 4px; margin: 0 auto; width: 80px; height: 12px; background: #e05533; }
+  .cards { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin: 0; list-style: none; }
+  .tile { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #f4f4f8; border-radius: 8px; }
+  .tile h3, .tile p { margin: 0; }
+  .tile button { align-self: flex-start; background: #e05533; color: #fff; border: 0; border-radius: 4px; padding: 4px 8px; }
   .rot { transform: rotate(10deg); width: 120px; height: 60px; background: #cde; }
   .scl { transform: scale(1.5); width: 80px; height: 40px; background: #dec; margin-left: 40px; }
   .nested { transform: rotate(10deg); width: 160px; height: 80px; padding: 10px; background: #fed; margin-left: 60px; }
@@ -82,7 +88,16 @@
   <section class="row anchor" aria-label="abs-parent">
     <div class="card">Anchor content</div>
     <div class="badge" aria-label="abs-child">abs</div>
+    <div class="overlay" aria-label="overlay"></div>
+    <div class="centered" aria-label="centered"></div>
   </section>
+
+  <ul class="cards" aria-label="card-list">
+    <li class="tile"><h3>Alpha</h3><p>First card body</p><button>Open</button></li>
+    <li class="tile"><h3>Beta</h3><p>Second card body</p><button>Open</button></li>
+    <li class="tile"><h3>Gamma</h3><p>Third card body</p><button>Open</button></li>
+    <li class="tile"><h3>Delta</h3><p>Fourth card body</p><button>Open</button></li>
+  </ul>
 
   <section class="row" aria-label="transforms">
     <div class="rot" aria-label="rotated">Rotated</div>

@@ -3,7 +3,14 @@
 // loop). Reads window.__captureSpec {nodes, flagged, components, meta}; assets arrive
 // ahead of the chunks in window.__batchState.captureAssets[key]. Cross-batch state in
 // window.__batchState: captureIds (i → Figma id), captureRects (i → layout-space rect),
-// captureLayout (i → {mode, alignItems, primaryGap}), captureFonts, captureReport.
+// captureLayout (i → {mode, alignItems, primaryGap}), captureFonts, captureReport,
+// captureProps (master text i → TEXT property key).
+//
+// Repeats: a node carrying `rep` (set by `figma_capture.py import --componentize`) belongs
+// to a group of identical-shape subtrees. The first member is built as a COMPONENT in its
+// own slot, its varying texts bound to TEXT properties; every later member is an instance
+// of it, and that member's layers resolve to the instance's matching layers (by child-index
+// path) instead of being built, with TEXT overrides from their text.
 //
 // Component-aware: a category→componentId map at window.__captureSpec.components,
 // category a normalized role/kind
@@ -15,7 +22,8 @@
 // tag on flagged nodes) for source↔Figma traceability.
 //
 // Returns {created, flagged:[{nodeId,reason}], fontsFallenBack:[string],
-//   instantiated:[{nodeId, category, componentId}], warnings:[string], batchDone}.
+//   instantiated:[{nodeId, category, componentId}], components:[{nodeId, name}],
+//   warnings:[string], batchDone}. A repeat instance's category is "repeat".
 //   reason ∈ grid | block | transform | image.
 (async function () {
   var spec = window.__captureSpec;
@@ -27,8 +35,9 @@
   var layoutMap = bs.captureLayout = bs.captureLayout || {};
   var assets = bs.captureAssets = bs.captureAssets || {};
   var fontCache = bs.captureFonts = bs.captureFonts || {};
+  var propKeys = bs.captureProps = bs.captureProps || {};
   var report = bs.captureReport = bs.captureReport ||
-    { created: 0, flagged: [], fontsFallenBack: [], instantiated: [], warnings: [] };
+    { created: 0, flagged: [], fontsFallenBack: [], instantiated: [], components: [], warnings: [] };
   var components = spec.components || {};
   var meta = spec.meta || {};
   var flaggedIdx = {};
@@ -282,12 +291,22 @@
   }
 
   // [cap:<i>] <readable> [<flag tag>] — readable is axName, else role, else tag; the
-  // root takes the page title. `extra` carries a flag tag like "[capture:grid] div".
+  // root takes the page title and a master text its TEXT property's name. `extra`
+  // carries a flag tag like "[capture:grid] div".
   function nameFor(n, extra) {
-    var readable = (n.i === 0 && meta.title && meta.title.trim()) ||
+    var readable = (n.i === 0 && meta.title && meta.title.trim()) || (n.rep && n.rep.prop) ||
       (n.axName && n.axName.trim()) || n.role || n.tag || 'node';
     var label = '[cap:' + n.i + '] ' + readable;
     return extra ? label + ' ' + extra : label;
+  }
+
+  function textIn(node) {
+    return node.type === 'TEXT' ? node : node.findOne(function (c) { return c.type === 'TEXT'; });
+  }
+  async function loadFontsOf(txt) {
+    var names = txt.fontName === figma.mixed
+      ? txt.getRangeAllFontNames(0, txt.characters.length) : [txt.fontName];
+    for (var j = 0; j < names.length; j++) await figma.loadFontAsync(names[j]);
   }
 
   async function instantiate(n, st, category, componentId) {
@@ -296,12 +315,10 @@
     var instance = comp.createInstance();
     instance.resize(size(n.rect.w), size(n.rect.h));
     if (n.text && n.text.trim()) {
-      var txt = instance.findOne(function (c) { return c.type === 'TEXT'; });
+      var txt = textIn(instance);
       if (txt) {
         try {
-          var names = txt.fontName === figma.mixed
-            ? txt.getRangeAllFontNames(0, txt.characters.length) : [txt.fontName];
-          for (var j = 0; j < names.length; j++) await figma.loadFontAsync(names[j]);
+          await loadFontsOf(txt);
           txt.characters = n.text;
         } catch (e) { warn(n, 'instance text', e); }
       }
@@ -309,6 +326,85 @@
     instance.name = nameFor(n);
     report.instantiated.push({ nodeId: instance.id, category: category, componentId: componentId });
     return instance;
+  }
+
+  // ---- repeats ------------------------------------------------------------------
+
+  async function nodeAt(i) { return idMap[i] ? await figma.getNodeByIdAsync(idMap[i]) : null; }
+
+  // A later group member's root: an instance of the master's component, or null when
+  // the master is missing (the member is then built as a plain subtree).
+  async function repeatInstance(n) {
+    var main = await nodeAt(n.rep.m);
+    if (!main || main.type !== 'COMPONENT') return null;
+    var instance = main.createInstance();
+    instance.resize(size(n.rect.w), size(n.rect.h));
+    instance.name = nameFor(n);
+    report.instantiated.push({ nodeId: instance.id, category: 'repeat', componentId: main.id });
+    return instance;
+  }
+
+  function isRepeatComponent(node) {
+    return !!node && report.components.some(function (c) { return c.nodeId === node.id; });
+  }
+
+  // The layer of n's instance (rep.in) that mirrors master layer rep.src: the master
+  // layer's child-index path under its component, followed from the instance. Overrides
+  // a differing text through its TEXT property, else directly. Null when the member root
+  // is not a repeat instance (the node is built normally); false when the instance has no
+  // such layer.
+  async function instanceLayer(n) {
+    var host = await nodeAt(n.rep.in);
+    if (!host || host.type !== 'INSTANCE') return null;
+    var main = await host.getMainComponentAsync();
+    if (!isRepeatComponent(main)) return null;
+    var path = [], cur = await nodeAt(n.rep.src);
+    while (cur && cur.id !== main.id) {
+      var up = cur.parent, at = -1;
+      if (up) for (var j = 0; j < up.children.length; j++) if (up.children[j].id === cur.id) at = j;
+      path.unshift(at);
+      cur = up;
+    }
+    var twin = cur ? host : null;
+    for (var q = 0; twin && q < path.length; q++) twin = (twin.children || [])[path[q]] || null;
+    if (!twin) { warn(n, 'instance layer', 'no match for [cap:' + n.rep.src + ']'); return false; }
+    var txt = isText(n) ? textIn(twin) : null;
+    if (txt && txt.characters !== n.text) {
+      try {
+        await loadFontsOf(txt);
+        var key = propKeys[n.rep.src], values = {};
+        if (key) { values[key] = n.text; host.setProperties(values); }
+        else txt.characters = n.text;
+      } catch (e) { warn(n, 'text override', e); }
+    }
+    return twin;
+  }
+
+  // Bind a master text to a new TEXT property on its component (rep.c). A text inside a
+  // nested instance can't hold a reference; members override it directly.
+  async function bindTextProperty(n, node) {
+    try {
+      var comp = await nodeAt(n.rep.c), txt = node.type === 'INSTANCE' ? null : textIn(node);
+      if (!isRepeatComponent(comp) || !txt) return;
+      var key = comp.addComponentProperty(n.rep.prop, 'TEXT', n.text);
+      txt.componentPropertyReferences = { characters: key };
+      propKeys[n.i] = key;
+    } catch (e) { warn(n, 'text property', e); }
+  }
+
+  // ---- sizing -------------------------------------------------------------------
+
+  var SIZING = ['layoutSizingHorizontal', 'layoutSizingVertical'];
+  var PIN = { l: 'MIN', t: 'MIN', r: 'MAX', b: 'MAX', lr: 'STRETCH', tb: 'STRETCH', c: 'CENTER' };
+
+  // A parent hugging the axis a child is about to fill goes FIXED at its captured size,
+  // so the fill has a definite slot and the parent keeps the size the page gave it.
+  function unhug(p, rect, axis) {
+    if (p[SIZING[axis]] !== 'HUG') return;
+    var other = SIZING[1 - axis], keep = p[other];
+    p.resize(axis ? p.width : size(rect.w), axis ? size(rect.h) : p.height);
+    p[SIZING[axis]] = 'FIXED';
+    if (p[other] !== keep) p[other] = keep;
   }
 
   // ---- placement --------------------------------------------------------------
@@ -335,11 +431,25 @@
     var n = spec.nodes[k];
     var st = n.styles || {};
 
+    var loose = false;
+    if (n.rep && n.rep.src !== undefined) {
+      var twin = await instanceLayer(n);
+      if (twin) {
+        idMap[n.i] = twin.id;
+        rectMap[n.i] = n.rect;
+        layoutMap[n.i] = { mode: 'NONE' };
+        report.created++;
+        continue;
+      }
+      loose = twin === false;
+    }
+
     var parentFigmaId = n.parent >= 0 ? idMap[n.parent] : null;
     var p = parentFigmaId ? await figma.getNodeByIdAsync(parentFigmaId) : null;
     // An instance subtree is structurally frozen — appendChild into it throws. Children
-    // of an instantiated node stay at their absolute rect instead.
-    var canAppend = !!(p && 'appendChild' in p && p.type !== 'INSTANCE');
+    // of an instantiated node, and an unmatched layer of a repeat instance, stay at
+    // their absolute rect instead.
+    var canAppend = !!(p && 'appendChild' in p && p.type !== 'INSTANCE') && !loose;
     var pl = (canAppend && layoutMap[n.parent]) || { mode: 'NONE' };
     var pr = (canAppend && rectMap[n.parent]) || { x: 0, y: 0 };
     var autoParent = canAppend && pl.mode !== 'NONE';
@@ -347,15 +457,16 @@
     var inFlow = autoParent && !positioned;
     var pureRotation = n.xf ? isPureRotation(n.xf) : false;
 
-    var grow = false, stretch = false;
+    // fill[axis], axis 0 = width, 1 = height: the node takes its slot's size on that axis.
+    var sz = st.sz || ['auto', 'auto'];
+    var inlineLevel = (st.display || '').indexOf('inline') === 0;
+    var fill = [false, false];
     if (inFlow) {
-      var sz = st.sz || ['auto', 'auto'];
       var pi = pl.mode === 'HORIZONTAL' ? 0 : 1, ci = 1 - pi;
-      grow = st.flexGrow > 0 || sz[pi] === 'pct';
       var selfStretches = ['auto', 'normal', 'stretch'].indexOf(st.alignSelf || 'auto') !== -1;
       var parentStretches = ['normal', 'stretch'].indexOf(pl.alignItems || 'normal') !== -1;
-      var inlineLevel = (st.display || '').indexOf('inline') === 0;
-      stretch = (sz[ci] === 'auto' || sz[ci] === 'pct') && selfStretches && parentStretches && !inlineLevel;
+      fill[pi] = st.flexGrow > 0 || sz[pi] === 'pct';
+      fill[ci] = (sz[ci] === 'auto' || sz[ci] === 'pct') && selfStretches && parentStretches && !inlineLevel;
     }
 
     var node = null, kind = null;
@@ -363,10 +474,18 @@
     var layout = { mode: 'NONE' };
     var primaryGap = 0;
 
-    // 1. component instance
+    // 0. repeat instance
+    if (n.rep && n.rep.m !== undefined && n.rep.m !== n.i) {
+      try { node = await repeatInstance(n); }
+      catch (e) { warn(n, 'repeat instance', e); node = null; }
+      if (node) kind = 'repeat';
+    }
+
+    // 1. component instance — a mapped group root or master layer stays one, so the
+    // group's members follow it
     var category = (n.iframe === 'cross-origin') ? null : categoryOf(n);
     var componentId = category ? components[category] : null;
-    if (componentId) {
+    if (!node && componentId) {
       try { node = await instantiate(n, st, category, componentId); }
       catch (e) { warn(n, 'instantiate ' + category, e); node = null; }
       if (node) kind = 'instance';
@@ -412,7 +531,7 @@
           var pad = st.padding || [0, 0, 0, 0];
           text.resize(size(n.rect.w - pad[1] - pad[3]), size(n.rect.h - pad[0] - pad[2]));
           text.textAutoResize = 'HEIGHT';
-          try { text.layoutAlign = 'STRETCH'; } catch (e) { warn(n, 'text layoutAlign', e); }
+          try { text.layoutSizingHorizontal = 'FILL'; } catch (e) { warn(n, 'text layoutSizing', e); }
         } else {
           text.textAutoResize = 'WIDTH_AND_HEIGHT';
         }
@@ -441,8 +560,10 @@
 
     // 5. frame
     if (!node) {
-      node = figma.createFrame();
+      var master = !!(n.rep && n.rep.m === n.i);
+      node = master ? figma.createComponent() : figma.createFrame();
       kind = 'frame';
+      if (master) report.components.push({ nodeId: node.id, name: n.rep.name });
       layout = layoutFor(n, st);
       layoutReason = layout.reason || null;
       primaryGap = applyLayout(node, st, layout.mode, size(n.rect.w), size(n.rect.h));
@@ -456,7 +577,8 @@
     // flag, then an in-flow transform Auto Layout can't express.
     var xfReason = (inFlow && n.xf && !pureRotation) ? 'transform' : null;
     var reason = imageReason || layoutReason || flaggedIdx[n.i] || xfReason || null;
-    if (kind !== 'instance' && kind !== 'placeholder') {
+    if (node.type === 'COMPONENT') node.name = n.rep.name;
+    else if (kind !== 'instance' && kind !== 'repeat' && kind !== 'placeholder') {
       node.name = reason
         ? nameFor(n, '[capture:' + reason + (imageDetail ? ' ' + imageDetail : '') + '] ' + (n.tag || kind))
         : nameFor(n);
@@ -465,7 +587,7 @@
 
     idMap[n.i] = node.id;
     rectMap[n.i] = n.rect;
-    layoutMap[n.i] = layout.mode !== 'NONE'
+    var nodeLayout = layoutMap[n.i] = layout.mode !== 'NONE'
       ? { mode: layout.mode, alignItems: kind === 'textbox' ? 'center' : (st.alignItems || 'normal'), primaryGap: primaryGap }
       : { mode: 'NONE' };
     report.created++;
@@ -475,22 +597,52 @@
       if (!node.parent || node.parent.id !== p.id) warn(n, 'appendChild', 'reparent failed');
     }
 
+    // Per-axis sizing, set once the node sits in its parent. A text's auto-resize is its
+    // HUG/FIXED: wrapped text keeps its captured width; only its width ever FILLs. Other
+    // nodes: FILL from fill[]; HUG where the source size is auto and the node is an
+    // auto-layout frame with children (a single-line textbox hugs its width too) — never
+    // an auto width a non-auto-layout parent gave a block, an axis pinned at both edges,
+    // nor a wrapping row's width; else FIXED at the captured rect. A frame's HUG waits in
+    // captureLayout until an in-flow child lands (positioned children alone would collapse
+    // it); a repeat instance hugs where its master does.
+    var hug = [false, false];
+    var repeatMain = kind === 'repeat' ? await nodeAt(n.rep.m) : null;
     if (kind === 'text') {
-      if ((n.lines || 1) > 1 || stretch) {
+      fill[1] = false;
+      if ((n.lines || 1) > 1 || fill[0]) {
         node.resize(size(n.rect.w), size(n.rect.h));
         node.textAutoResize = 'HEIGHT';
       } else {
         node.textAutoResize = 'WIDTH_AND_HEIGHT';
       }
+    } else {
+      var pin = st.pin || ['l', 't'];
+      var frameHugs = kind === 'frame' && !!n.kids && node.layoutMode !== 'NONE';
+      for (var ax = 0; ax < 2; ax++) {
+        if (repeatMain) { hug[ax] = !fill[ax] && repeatMain[SIZING[ax]] === 'HUG'; continue; }
+        if (fill[ax] || sz[ax] !== 'auto' || (ax === 0 && node.layoutWrap === 'WRAP')) continue;
+        if (!(frameHugs || (kind === 'textbox' && (ax === 1 || (n.lines || 1) === 1)))) continue;
+        hug[ax] = positioned ? pin[ax].length === 1 : (ax === 1 || inFlow || inlineLevel);
+      }
+    }
+    if (kind === 'frame' && (hug[0] || hug[1])) { nodeLayout.hug = hug; hug = [false, false]; }
+    for (var a2 = 0; a2 < 2; a2++) {
+      if (!fill[a2] && !hug[a2]) continue;
+      try {
+        if (fill[a2]) unhug(p, rectMap[n.parent], a2);
+        node[SIZING[a2]] = fill[a2] ? 'FILL' : 'HUG';
+      } catch (e) { warn(n, SIZING[a2], e); }
+    }
+    var pending = inFlow && pl.hug;
+    for (var a3 = 0; pending && a3 < 2; a3++) {
+      if (!pending[a3]) continue;
+      pending[a3] = false;
+      if (!fill[a3]) try { p[SIZING[a3]] = 'HUG'; } catch (e) { warn(n, 'parent ' + SIZING[a3], e); }
     }
 
     var rx = canAppend ? n.rect.x - pr.x : n.rect.x;
     var ry = canAppend ? n.rect.y - pr.y : n.rect.y;
     if (inFlow) {
-      try {
-        if (grow) node.layoutGrow = 1;
-        if (stretch) node.layoutAlign = 'STRETCH';
-      } catch (e) { warn(n, 'layoutAlign', e); }
       if (n.xf && pureRotation) {
         var deg = rotationOf(n.xf);
         if (Math.abs(deg) > 1e-6) try { node.rotation = deg; } catch (e) { warn(n, 'rotation', e); }
@@ -498,7 +650,13 @@
     } else {
       if (autoParent) try { node.layoutPositioning = 'ABSOLUTE'; } catch (e) { warn(n, 'layoutPositioning', e); }
       try { setTransform(node, n.xf, rx, ry); } catch (e) { warn(n, 'transform', e); }
+      if (canAppend && st.pin) {
+        try { node.constraints = { horizontal: PIN[st.pin[0]], vertical: PIN[st.pin[1]] }; }
+        catch (e) { warn(n, 'constraints', e); }
+      }
     }
+
+    if (n.rep && n.rep.prop) await bindTextProperty(n, node);
 
     if (autoParent || layout.mode !== 'NONE') {
       for (var m = 0; m < MIN_MAX.length; m++) {
@@ -509,5 +667,6 @@
   }
 
   return { created: report.created, flagged: report.flagged, fontsFallenBack: report.fontsFallenBack,
-    instantiated: report.instantiated, warnings: report.warnings, batchDone: spec.nodes.length };
+    instantiated: report.instantiated, components: report.components, warnings: report.warnings,
+    batchDone: spec.nodes.length };
 })()

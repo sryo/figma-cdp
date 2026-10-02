@@ -951,10 +951,21 @@ class CapturePerch(Harness):
         rep = json.loads(body)
         self.assertEqual(body, json.dumps(rep, indent=1))
         self.assertEqual((rep['created'], rep['batchDone'], rep['warnings']), (4, 4, []))
-        self.assertEqual(summary, 'created=4 flagged=0 fontsFallenBack=0 instantiated=0 warnings=0')
+        self.assertEqual(summary, 'created=4 flagged=0 fontsFallenBack=0 components=0 instantiated=0 warnings=0')
         self.assertEqual(len(self.calls('eval_js')), n)
         self.assertEqual(len(self.calls('list_tabs')), 1)
         self.assertEqual({c['args']['target']['tabId'] for c in self.calls('eval_js')}, {'chrome:1'})
+
+    def test_import_componentize_matches_the_importer_stub(self):
+        spec = os.path.join(ROOT, 'tests', 'capture_spec.json')
+        r = self.capture('import', spec, '--componentize', PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        stub = subprocess.run(['node', os.path.join(ROOT, 'tests', 'importer_stub.js'), spec, '--componentize'],
+                              capture_output=True, text=True)
+        self.assertEqual(stub.returncode, 0, stub.stderr)
+        perch, stub = json.loads(r.stdout.rstrip('\n').rsplit('\n', 1)[0]), json.loads(stub.stdout)
+        self.assertEqual((len(perch['components']), len(perch['instantiated'])), (stub['components'], stub['instantiated']))
+        self.assertGreater(stub['components'], 0)
 
     def test_import_targets_the_named_file(self):
         r = self.capture('import', self.spec(), '--file', 'BBB222', PERCH_STUB_FIGMA='full',

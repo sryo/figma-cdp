@@ -26,11 +26,17 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 └── tests/
     ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
     ├── figma_stub.js         # stub Plugin API (node tree, components/variants/instances, variables, sandbox ordering rules) shared by the offline tests
+<<<<<<< HEAD
     ├── figma_lib_test.js     # `node --test tests/figma_lib_test.js`: every figma_lib.js helper against figma_stub.js, plus its version pin
     ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against figma_stub.js, no Figma tab needed
     ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: the helpers and figma_capture.py on the perch backend (daemon and one-shot) against perch_stub/, offline
     ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
     ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
+=======
+    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json> [--componentize]` — replays `figma_capture.py import --dry-run` against figma_stub.js, no Figma tab needed
+    ├── importer_test.py      # `python3 tests/importer_test.py`: import sizing, constraints and componentize over capture_spec.json (hand-built spec of capture_fixture.html), offline
+    ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend (daemon and one-shot) against perch_stub/, offline
+>>>>>>> cand/importer-quality
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
     ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)

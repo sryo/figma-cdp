@@ -4,15 +4,17 @@
 // sandbox that scripts most often break: fonts loaded before fontName/characters, FILL
 // sizing only inside an auto-layout parent, HUG only on auto-layout frames and text,
 // ABSOLUTE positioning only inside auto layout, component properties added on and read from
-// the set rather than a variant, and no removing the current page. `figma._stats.variantDefReads`
-// counts reads of componentPropertyDefinitions on a variant, which throw as in Figma;
-// `figma._unloadFonts()` forgets loaded fonts, as a new session in the tab would.
+// the set rather than a variant, no property references inside an instance, and no removing
+// the current page. `figma._stats.variantDefReads` counts reads of componentPropertyDefinitions
+// on a variant, which throw as in Figma; `figma._unloadFonts()` forgets loaded fonts, as a new
+// session in the tab would.
 //
 //   const { createFigma } = require('./figma_stub');
 //   global.figma = createFigma();
 'use strict';
 
 const CONTAINERS = { DOCUMENT: 1, PAGE: 1, FRAME: 1, COMPONENT: 1, COMPONENT_SET: 1, INSTANCE: 1, GROUP: 1, SECTION: 1 };
+const CHILD_API = { appendChild: 1, insertChild: 1, findAll: 1, findOne: 1, findChildren: 1, findAllWithCriteria: 1 };
 const DEFAULT_NAME = { FRAME: 'Frame', TEXT: 'Text', RECTANGLE: 'Rectangle', ELLIPSE: 'Ellipse', COMPONENT: 'Component',
   COMPONENT_SET: 'Component set', INSTANCE: 'Instance', PAGE: 'Page', GROUP: 'Group', VECTOR: 'Vector', SECTION: 'Section' };
 const solid = (r, g, b) => [{ type: 'SOLID', visible: true, opacity: 1, blendMode: 'NORMAL', color: { r, g, b } }];
@@ -131,6 +133,10 @@ function createFigma() {
     };
 
     const proxy = new Proxy(t, {
+      has(target, k) {
+        if (CHILD_API[k]) return !!target.children;
+        return k in api || k in target;
+      },
       get(target, k) {
         if (k === '_raw') return target;
         if (k in api) return api[k];
@@ -157,6 +163,13 @@ function createFigma() {
           target._sizing[k === 'layoutSizingHorizontal' ? 'h' : 'v'] = v;
           return true;
         }
+        // A text's auto-resize mode is its HUG/FIXED sizing; FILL survives a HEIGHT resize.
+        if (target.type === 'TEXT' && k === 'textAutoResize') {
+          const s = target._sizing;
+          if (v === 'WIDTH_AND_HEIGHT') target._sizing = { h: 'HUG', v: 'HUG' };
+          else if (v === 'HEIGHT') target._sizing = { h: s.h === 'FILL' ? 'FILL' : 'FIXED', v: 'HUG' };
+          else target._sizing = { h: s.h === 'FILL' ? 'FILL' : 'FIXED', v: s.v === 'FILL' ? 'FILL' : 'FIXED' };
+        }
         if (k === 'layoutPositioning' && v === 'ABSOLUTE' && !isAL(target.parent)) throw new Error('ABSOLUTE positioning needs an auto-layout parent');
         if (k === 'layoutMode' && v !== 'NONE' && target._sizing && target.type !== 'TEXT') {
           target._sizing = { h: 'HUG', v: 'HUG' };
@@ -173,7 +186,12 @@ function createFigma() {
           if (k === 'layoutGrow' ? v > 0 : v === 'STRETCH') target._sizing[axis] = 'FILL';
         }
         if (k === 'fills' || k === 'strokes' || k === 'effects') v = clone(v);
-        if (k === 'componentPropertyReferences') v = clone(v);
+        if (k === 'componentPropertyReferences') {
+          for (let up = target.parent; up && up.type !== 'COMPONENT'; up = up.parent) {
+            if (up.type === 'INSTANCE') throw new Error('Cannot set componentPropertyReferences on a node inside an instance');
+          }
+          v = clone(v);
+        }
         target[k] = v;
         return true;
       },
