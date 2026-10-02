@@ -4,7 +4,7 @@
 Reads a .js file and runs it in the Figma tab. Avoids shell syntax (heredocs,
 pipes, redirects) that trigger Claude Code warnings.
 
-  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <js_file>
+  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] <js_file>
   python3 figma_run.py [--file <figma-url-or-key>] --screenshot <out.png>
 
 Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
@@ -13,8 +13,9 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (or FIGMA_FILE) names the file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
+--lib: figma_lib.js goes in front of the script, installing window.__fx once per tab.
 """
-import argparse, base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
+import argparse, atexit, base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, tempfile, time
 
 def cdp_port():
     p = os.environ.get('FIGMA_CDP_PORT')
@@ -223,10 +224,28 @@ def perch(op, file, *paths, timeout=120.0):
         sys.exit(f"perch: {out['fatal']}")
     return out
 
+def with_lib(path):
+    """A temp copy of the script at path with figma_lib.js (next to this script) in front, removed at exit."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_lib.js')
+    try:
+        with open(lib, 'rb') as f:
+            src = f.read()
+    except OSError:
+        sys.exit(f'figma_lib.js not found next to {os.path.basename(__file__)}; copy it alongside')
+    with open(path, 'rb') as f:
+        body = f.read()
+    fd, out = tempfile.mkstemp(prefix='figma_lib_', suffix='.js')
+    with os.fdopen(fd, 'wb') as f:
+        f.write(src + b'\n' + body)
+    atexit.register(lambda: os.path.exists(out) and os.unlink(out))
+    return out
+
 ap = argparse.ArgumentParser(prog='figma_run.py')
 ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
 ap.add_argument('--timeout', metavar='SECONDS',
                 help='how long a script may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 120)')
+ap.add_argument('--lib', action='store_true',
+                help='install figma_lib.js (window.__fx) in the tab first; a no-op once the tab has this version')
 ap.add_argument('--screenshot', metavar='PNG', help='capture the Figma tab instead of running a script')
 ap.add_argument('js_file', nargs='?')
 a = ap.parse_args()
@@ -236,6 +255,8 @@ if not a.screenshot and not a.js_file:
 if a.js_file and not os.path.isfile(a.js_file):
     print(f'figma_run.py: no such file: {a.js_file}', file=sys.stderr)
     sys.exit(1)
+if a.lib and a.js_file:
+    a.js_file = with_lib(a.js_file)
 
 if backend() == 'perch':
     if a.screenshot:

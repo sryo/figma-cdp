@@ -51,12 +51,17 @@ def load_tasks(names):
 
 
 def compose(rel, ctx):
-    """One script for figma_run.py: lib.js and the body inside an async function given EVAL."""
+    """One script for figma_run.py: lib.js and the body inside an async function given EVAL, with
+    this repo's figma_lib.js as a private FX. Never the tab's window.__fx, which the skill under
+    test may have replaced with its own copy."""
+    with open(os.path.join(ROOT, 'figma_lib.js')) as f:
+        fx = f.read()
     with open(os.path.join(HERE, 'lib.js')) as f:
         lib = f.read()
     with open(os.path.join(HERE, rel)) as f:
         body = f.read()
-    return f'(async function (EVAL) {{\n{lib}\n{body}\n}})({json.dumps(ctx)})\n'
+    return (f'(async function (EVAL) {{\nvar FX = (function (window) {{\n{fx}\nreturn window.__fx;\n}})({{}});\n'
+            f'{lib}\n{body}\n}})({json.dumps(ctx)})\n')
 
 
 class FigmaError(Exception):

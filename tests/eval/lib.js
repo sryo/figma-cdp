@@ -1,10 +1,11 @@
 // Shared helpers for eval seeds, scorers and harness ops. run.py composes every script as
-//   (async function (EVAL) { <lib.js> <script body> })(<json>)
-// so a body sees these helpers and `EVAL` = {task, rep, prefix, pageId, pageName, expect,
+//   (async function (EVAL) { var FX = <figma_lib.js's __fx, private>; <lib.js> <script body> })(<json>)
+// so a body sees these helpers, FX, and `EVAL` = {task, rep, prefix, pageId, pageName, expect,
 // seed (the seed's return value, scorers only), answer (the session's final text, scorers only)}.
 // Plain Plugin API, no optional chaining: it runs in Figma's sandbox and in tests/figma_stub.js.
 
-var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
+var DEFAULT_NAME = FX.DEFAULT_NAME;
+var inInstance = FX.inInstance, inComponent = FX.inComponent, solidPaints = FX.solidPaints, toHex = FX.hex;
 
 function belongs(name) { return name === EVAL.prefix || name.indexOf(EVAL.prefix + ' · ') === 0; }
 function evalPages() { return figma.root.children.filter(function (p) { return belongs(p.name); }); }
@@ -13,10 +14,6 @@ async function targetPage() { return loadPage(await figma.getNodeByIdAsync(EVAL.
 function round(v) { return Math.round(v * 1000) / 1000; }
 function share(num, den) { return den ? round(num / den) : 0; }
 
-function toHex(c) {
-  function h(v) { var s = Math.round(v * 255).toString(16); return s.length < 2 ? '0' + s : s; }
-  return '#' + h(c.r) + h(c.g) + h(c.b);
-}
 function fromHex(hex) {
   var n = parseInt(hex.slice(1), 16);
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
@@ -28,22 +25,11 @@ function near(a, b) {
 function norm(s) { return String(s).replace(/\s+/g, ' ').trim().toLowerCase(); }
 function baseName(name) { var parts = String(name).split('/'); return parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
-function inInstance(n) { for (var p = n.parent; p; p = p.parent) if (p.type === 'INSTANCE') return true; return false; }
-function inComponent(n) { for (var p = n.parent; p; p = p.parent) if (p.type === 'COMPONENT' || p.type === 'COMPONENT_SET') return true; return false; }
 // What the screen shows: every node on the page except component definitions.
 function screenNodes(page) { return page.findAll(function (n) { return n.type !== 'COMPONENT_SET' && n.type !== 'COMPONENT' && !inComponent(n); }); }
 function nodesOf(pages) {
   var out = [];
   pages.forEach(function (p) { out = out.concat(p.findAll()); });
-  return out;
-}
-function solidPaints(n) {
-  var out = [];
-  ['fills', 'strokes'].forEach(function (k) {
-    var v = n[k];
-    if (!v || v === figma.mixed || !v.length) return;
-    v.forEach(function (p) { if (p.type === 'SOLID' && p.visible !== false) out.push(p); });
-  });
   return out;
 }
 
@@ -68,31 +54,13 @@ function colorMatch(keys, nodes) {
   return { onPalette: share(on.length, hexes.length), tokensUsed: share(present.length, keys.length) };
 }
 
-// Design-quality metrics over every node on the run's pages. QUALITY_LOWER names the metrics
-// where less is better; the rest are better higher.
+// Design-quality metrics over every node on the run's pages, from figma_lib.js's measure() (the
+// counts the skill's own audit uses). QUALITY_LOWER names the metrics where less is better; the
+// rest are better higher.
 async function quality(pages) {
   var all = nodesOf(pages);
-  var own = all.filter(function (n) { return !inInstance(n); });
-  var containers = own.filter(function (n) {
-    return (n.type === 'FRAME' || n.type === 'COMPONENT') && n.children && n.children.length >= 1;
-  });
-  var auto = containers.filter(function (n) { return n.layoutMode && n.layoutMode !== 'NONE'; });
-  var stacks = containers.filter(function (n) { return n.children.length >= 2 && auto.indexOf(n) === -1; });
-  var flowKids = [], sized = 0, absKids = [], constrained = 0;
-  auto.forEach(function (f) {
-    f.children.forEach(function (c) {
-      if (c.layoutPositioning === 'ABSOLUTE') {
-        absKids.push(c);
-        if (c.constraints && (c.constraints.horizontal !== 'MIN' || c.constraints.vertical !== 'MIN')) constrained++;
-        return;
-      }
-      if (c.type === 'RECTANGLE' || c.type === 'ELLIPSE' || c.type === 'VECTOR' || c.type === 'LINE') return;
-      flowKids.push(c);
-      if (c.layoutSizingHorizontal !== 'FIXED' || c.layoutSizingVertical !== 'FIXED') sized++;
-    });
-  });
-  var instances = own.filter(function (n) { return n.type === 'INSTANCE'; });
-  var rawFrames = own.filter(function (n) { return n.type === 'FRAME' && !inComponent(n); });
+  var q = FX.measure(all);
+  var own = q.own, rawFrames = q.rawFrames;
   var comps = all.filter(function (n) {
     return n.type === 'COMPONENT_SET' || (n.type === 'COMPONENT' && !(n.parent && n.parent.type === 'COMPONENT_SET'));
   });
@@ -101,16 +69,15 @@ async function quality(pages) {
   var dup = 0;
   Object.keys(byBase).forEach(function (b) { dup += byBase[b] - 1; });
   var detached = rawFrames.filter(function (f) { return byBase[baseName(f.name)]; }).length;
-  var named = own.filter(function (n) { return DEFAULT_NAME.test(n.name); }).length;
   var m = {
-    autoLayoutShare: share(auto.length, containers.length),
-    absoluteStacks: stacks.length,
-    sizingShare: share(sized, flowKids.length),
-    constrainedAbsShare: absKids.length ? share(constrained, absKids.length) : 1,
-    instanceRatio: share(instances.length, instances.length + rawFrames.length),
+    autoLayoutShare: share(q.auto.length, q.containers.length),
+    absoluteStacks: q.stacks.length,
+    sizingShare: share(q.flow.length - q.fixedFlow.length, q.flow.length),
+    constrainedAbsShare: q.abs.length ? share(q.abs.length - q.absDefault.length, q.abs.length) : 1,
+    instanceRatio: share(q.instances.length, q.instances.length + rawFrames.length),
     duplicateComponents: dup,
     detachedLike: detached,
-    defaultNames: named,
+    defaultNames: q.defaultNamed.length,
   };
   var vars = await figma.variables.getLocalVariablesAsync('COLOR');
   if (vars.length) {

@@ -43,6 +43,34 @@ For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), swit
 
 When NOT to batch: when step N needs to read the result of step N-1 before deciding what step N+1 should do, or when parallel workers each have their own chain (each parallel worker calls `figma_run.py` for its own chain; you don't batch across workers).
 
+## Resident helper library (`--lib`)
+
+`python3 /tmp/figma_run.py --lib <js>` (and `figma_batch_run.py --lib`, on the first script) puts `figma_lib.js` in front of the script. It installs `window.__fx` once per tab; later `--lib` calls skip the install, and a newer copy replaces an older one. Every helper is async; `ref` / `parent` take a node or its id.
+
+| Call | Does |
+|------|------|
+| `__fx.recon({nodeId, depth, maxChars})` | `{pages, tree, truncated}`: the page list (`*` current) and a flat text tree, 3 levels for a page, full depth for a node, 8000 chars |
+| `__fx.inventory({match, maxChars, scope, fresh})` | what the file has to reuse, one line each: `references/reading.md` → Component inventory |
+| `__fx.frame({parent, name, dir, gap, pad, align, justify, w, h, fill, stroke, radius, component, abs, x, y, constraints})` | a frame (or component). `dir` V\|H; `pad` n, [v,h] or [t,r,b,l]; `align` / `justify` start\|center\|end\|between; `w` / `h` a number (FIXED), `'fill'` or `'hug'` (the default with `dir`) |
+| `__fx.autoLayout(ref, opts)` | the same layout options on an existing frame |
+| `__fx.text(chars, {parent, name, family, weight, size, lineHeight, textStyle, color, w, align})` | loads the font first; `textStyle` by name or id; `w` `'fill'` or a width wraps |
+| `__fx.instance(idOrKeyOrName, props, {parent, name, w, h})` | variant axes in `props` pick the variant; other properties by short name (`Label`, not `Label#1:2`) |
+| `__fx.bindFill(ref, value, field)` | `value` a hex, or a variable or paint style (name, id or object). A hex binds the local variable (else paint style) with exactly that value, else paints raw. Returns `{bound, id}`; `field` `'strokes'` for strokes |
+| `__fx.audit(rootId, {limit})` | structural problems under a node or page: `{counts, ids}` (up to 5 ids each) |
+
+`frame` and `text` take `fill` / `stroke` / `color` the way `bindFill` does, so a source hex lands bound when the file has a matching token.
+
+```js
+(async () => {
+  var s = await __fx.frame({ name: 'Login', dir: 'V', w: 375, gap: 16, pad: 24, fill: '#ffffff' });
+  await __fx.text('Welcome back', { parent: s, weight: 'Bold', size: 28, color: 'color/text' });
+  await __fx.instance('Button', { Variant: 'Primary', Label: 'Sign in' }, { parent: s, w: 'fill' });
+  return __fx.audit(s.id);
+})()
+```
+
+`audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references). `instanceRatio` and `autoLayoutShare` are shares, higher is better.
+
 ## State between evals
 
 `window.__batchState` persists across separate eval calls (same browser tab).

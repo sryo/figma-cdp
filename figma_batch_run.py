@@ -7,7 +7,7 @@ Prefer over multiple figma_run.py calls for >= 3 sequential evals with no
 intermediate inspection. Each result is printed under a '== <file> ==' header.
 On the perch backend one figma_perch.mjs run evaluates the scripts in order.
 
-  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] <js_file> [<js_file> ...]
+  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] <js_file> [<js_file> ...]
 
 Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
 else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
@@ -15,8 +15,9 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (or FIGMA_FILE) names the file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
+--lib: figma_lib.js goes in front of the first script, installing window.__fx once per tab.
 """
-import argparse, base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
+import argparse, atexit, base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, tempfile, time
 
 def cdp_port():
     p = os.environ.get('FIGMA_CDP_PORT')
@@ -208,19 +209,39 @@ def perch(op, file, *paths, timeout=120.0):
         sys.exit(f"perch: {out['fatal']}")
     return out
 
+def with_lib(path):
+    """A temp copy of the script at path with figma_lib.js (next to this script) in front, removed at exit."""
+    lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_lib.js')
+    try:
+        with open(lib, 'rb') as f:
+            src = f.read()
+    except OSError:
+        sys.exit(f'figma_lib.js not found next to {os.path.basename(__file__)}; copy it alongside')
+    with open(path, 'rb') as f:
+        body = f.read()
+    fd, out = tempfile.mkstemp(prefix='figma_lib_', suffix='.js')
+    with os.fdopen(fd, 'wb') as f:
+        f.write(src + b'\n' + body)
+    atexit.register(lambda: os.path.exists(out) and os.unlink(out))
+    return out
+
 ap = argparse.ArgumentParser(prog='figma_batch_run.py')
 ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
 ap.add_argument('--timeout', metavar='SECONDS',
                 help='how long a script may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 120)')
+ap.add_argument('--lib', action='store_true',
+                help='install figma_lib.js (window.__fx) in the tab first; a no-op once the tab has this version')
 ap.add_argument('js_files', nargs='+')
 a = ap.parse_args()
 for path in a.js_files:
     if not os.path.isfile(path):
         print(f'figma_batch_run.py: no such file: {path}', file=sys.stderr)
         sys.exit(1)
+# The batch shares one tab: the first script installs the library for the rest.
+run_files = [with_lib(a.js_files[0])] + a.js_files[1:] if a.lib else a.js_files
 
 if backend() == 'perch':
-    out = perch('eval', a.file, *a.js_files, timeout=timeout_seconds(a.timeout))
+    out = perch('eval', a.file, *run_files, timeout=timeout_seconds(a.timeout))
     # As agent-browser batch prints: a success is {origin: the page URL, result} with keys
     # sorted and non-ASCII escaped, a failure its error.
     for path, res in zip(a.js_files, out['results']):
@@ -232,7 +253,7 @@ if backend() == 'perch':
     sys.exit(0 if all(r['ok'] for r in out['results']) else 1)
 
 cmds = []
-for path in a.js_files:
+for path in run_files:
     with open(path, 'rb') as f:
         cmds.append(f'eval -b {base64.b64encode(f.read()).decode()}')
 

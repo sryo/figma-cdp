@@ -155,6 +155,17 @@ class Scorers(StubFigma):
     def test_capture(self):
         self.check('capture')
 
+    def test_scripts_measure_with_a_private_figma_lib(self):
+        os.makedirs(os.path.join(self.tmp.name, 'src'))
+        newer, probe = (os.path.join(self.tmp.name, 'src', n) for n in ('newer.js', 'probe.js'))
+        with open(newer, 'w') as f:
+            f.write('window.__fx = { v: 1e9, measure: null, DEFAULT_NAME: null }; return 1;')
+        with open(probe, 'w') as f:
+            f.write('return [typeof FX.measure, DEFAULT_NAME instanceof RegExp, window.__fx.v];')
+        self.figma(newer, {})
+        self.assertEqual(self.figma(probe, {}), ['function', True, 1e9],
+                         "a newer __fx in the tab (the skill under test's) must not change what scorers measure")
+
     def test_every_task_has_offline_states(self):
         for f in os.listdir(os.path.join(HERE, 'tasks')):
             with open(os.path.join(HERE, 'tasks', f)) as fh:

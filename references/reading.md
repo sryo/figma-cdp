@@ -45,7 +45,7 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
 ## Flat text tree (preferred recon shape)
 
-**Reach for this first during recon.** It renders the page or subtree as an indented text outline — easier to skim than nested JSON and cheaper in tokens.
+**Reach for this first during recon.** It renders the page or subtree as an indented text outline — easier to skim than nested JSON and cheaper in tokens. `__fx.recon({nodeId})` (`references/execution.md` → Resident helper library) returns the same outline capped at 8000 chars, plus the page list.
 
 Write `/tmp/figma_eval.js`:
 ```js
@@ -196,38 +196,23 @@ Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
 ## Component inventory (run before building anything new)
 
-Lists every local Component and ComponentSet in the file, with property definitions and key. Use this before deciding to create a new component or a raw frame — if a matching component (or a variant of one) already exists, instantiate it.
+One call lists what the file already has to reuse: local component sets (variant axes collapsed, no per-variant ids) and components with their property names, library components the file already uses, local paint / text / effect styles, variables by collection with default-mode values (aliases resolved), and raw frames repeated on the current page (de facto components).
 
-Write `/tmp/figma_eval.js`:
-```js
-(async function() {
-  await figma.loadAllPagesAsync();
-  var out = {components: [], componentSets: []};
-  var nodes = figma.root.findAllWithCriteria({types: ['COMPONENT', 'COMPONENT_SET']});
-  for (var i = 0; i < nodes.length; i++) {
-    var n = nodes[i];
-    var entry = {
-      id: n.id,
-      name: n.name,
-      key: n.key,
-      w: Math.round(n.width),
-      h: Math.round(n.height),
-      page: n.parent && n.parent.type === 'PAGE' ? n.parent.name :
-            (n.type === 'COMPONENT' && n.parent && n.parent.type === 'COMPONENT_SET' ? '(variant)' : '(nested)'),
-      props: n.componentPropertyDefinitions || null
-    };
-    if (n.type === 'COMPONENT_SET') {
-      entry.variants = n.children.map(function(c) { return {id: c.id, name: c.name}; });
-      out.componentSets.push(entry);
-    } else if (n.parent && n.parent.type !== 'COMPONENT_SET') {
-      out.components.push(entry);
-    }
-  }
-  return out;
-})()
+Write `/tmp/figma_eval.js` as `__fx.inventory()` and run `python3 /tmp/figma_run.py --lib /tmp/figma_eval.js`. Its `text` holds one line each:
 ```
+SET Button [1:2] Variant=Primary|Secondary; State=Default|Disabled props: Label:TEXT
+COMP Input [1:9] props: Label:TEXT, Placeholder:TEXT
+LIB Avatar [3:4] key=0f3c... uses=12 Size=sm|md
+PAINT Brand/Primary [S:ab12,] #2563eb
+TEXTSTYLE Body [S:cd34,] Inter Regular 16/24
+EFFECT Shadow/md [S:ef56,] DROP_SHADOW 0,4 blur 12 #0000001a
+VARS Tokens [VariableCollectionId:1:3] modes: Light|Dark
+  color/primary [VariableID:1:5] #2563eb =blue/600
+PATTERN x3 FRAME:H[TEXT,FRAME:V[TEXT,TEXT]] ~320x64 ids: 1:20, 1:31, 1:42
+```
+`{match: 'button|input'}` keeps matching lines (a matching variable keeps its collection header); output stops at `maxChars` (8000) with `truncated: true`. The scan is cached in `window.__batchState.fxInventory`, so later calls in the tab, workers' included, filter it instead of rescanning; `{fresh: true}` rescans after creating components, styles or variables.
 
-If nothing comes back, the file has no local library — proceed to create. If matches exist, pick the closest one and instantiate with `component.createInstance()` (then override text/icons as needed). Use `instance.setProperties({...})` to switch variants. See `references/api-components.md` for property formats.
+If nothing fits, create. Otherwise instantiate the match with `__fx.instance(id, props)` (a LIB row by its key) and bind colors with `__fx.bindFill`. See `references/api-components.md` for property formats.
 
 ## Pre-flight workflow
 

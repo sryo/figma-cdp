@@ -12,6 +12,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
 ├── figma_run.py          # single-eval helper — base64 → agent-browser eval
 ├── figma_batch_run.py    # multi-eval helper — base64 N scripts → one agent-browser batch
+├── figma_lib.js          # resident helpers the helpers' --lib prepends: window.__fx (recon, inventory, frame/text/instance/bindFill, audit), once per tab, version-stamped
 ├── figma_perch.mjs       # perch backend for both helpers: list_tabs → eval_js {world:"main"}, no CDP; `serve` keeps it warm behind a unix socket
 ├── figma_capture.py      # live-URL → Figma: `walk <url>` (--session capture → /tmp JSON) and `import <spec>` (default session: reset, assets streamed in pieces, node chunks through figma_importer.js)
 ├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
@@ -23,6 +24,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 └── tests/
     ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
     ├── figma_stub.js         # stub Plugin API (node tree, components/variants/instances, variables, sandbox ordering rules) shared by the offline tests
+    ├── figma_lib_test.js     # `node --test tests/figma_lib_test.js`: every figma_lib.js helper against figma_stub.js, plus its version pin
     ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against figma_stub.js, no Figma tab needed
     ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend (daemon and one-shot) against perch_stub/, offline
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo

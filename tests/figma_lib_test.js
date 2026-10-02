@@ -1,0 +1,447 @@
+// Offline tests for figma_lib.js (window.__fx) against the stub Plugin API in tests/figma_stub.js.
+//
+//   node --test tests/figma_lib_test.js
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const { createFigma } = require('./figma_stub');
+
+const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
+// The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
+// changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
+// new pair here.
+const PIN = { v: 1, sha: '535b342775074937' };
+
+function load(src) { (0, eval)(src || LIB); return window.__fx; }
+function fresh() {
+  global.figma = createFigma();
+  global.window = {};
+  return load();
+}
+function solid(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return { type: 'SOLID', visible: true, opacity: 1, color: { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 } };
+}
+async function fonts() { for (const s of ['Regular', 'Medium', 'Bold']) await figma.loadFontAsync({ family: 'Inter', style: s }); }
+function mkText(parent, chars, name) {
+  const t = figma.createText();
+  t.characters = chars;
+  t.name = name || chars;
+  parent.appendChild(t);
+  return t;
+}
+function mkFrame(parent, name, dir, w, h) {
+  const f = figma.createFrame();
+  if (name) f.name = name;
+  if (parent) parent.appendChild(f);
+  if (dir) f.layoutMode = dir;
+  if (w) f.resize(w, h || f.height);
+  return f;
+}
+// Button set: Variant=Primary|Secondary x State=Default|Disabled, a Label TEXT property linked
+// on every variant.
+function buttonSet(parent) {
+  const comps = [], labels = [];
+  for (const variant of ['Primary', 'Secondary']) {
+    for (const state of ['Default', 'Disabled']) {
+      const c = figma.createComponent();
+      c.name = 'Variant=' + variant + ', State=' + state;
+      c.layoutMode = 'HORIZONTAL';
+      labels.push(mkText(c, 'Button', 'Label'));
+      comps.push(c);
+    }
+  }
+  const set = figma.combineAsVariants(comps, parent);
+  set.name = 'Button';
+  const key = set.addComponentProperty('Label', 'TEXT', 'Button');
+  labels.forEach((t) => { t.componentPropertyReferences = { characters: key }; });
+  return set;
+}
+// A row: FRAME:H[TEXT, FRAME:V[TEXT, TEXT]] at 320x64.
+function row(parent, label) {
+  const r = mkFrame(parent, 'Row', 'HORIZONTAL', 320, 64);
+  mkText(r, label, 'Title');
+  const col = mkFrame(r, 'Meta', 'VERTICAL');
+  mkText(col, 'a', 'A');
+  mkText(col, 'b', 'B');
+  return r;
+}
+function tokens() {
+  const col = figma.variables.createVariableCollection('Tokens');
+  col.modes[0].name = 'Light';
+  col.modes.push({ modeId: 'm2', name: 'Dark' });
+  const blue = figma.variables.createVariable('blue/600', col, 'COLOR');
+  blue.setValueForMode('m1', { r: 0x25 / 255, g: 0x63 / 255, b: 0xeb / 255, a: 1 });
+  const primary = figma.variables.createVariable('color/primary', col, 'COLOR');
+  primary.setValueForMode('m1', { type: 'VARIABLE_ALIAS', id: blue.id });
+  const space = figma.variables.createVariable('space/4', col, 'FLOAT');
+  space.setValueForMode('m1', 16);
+  return { col, blue, primary, space };
+}
+
+// ---- install guard
+
+test('installs once per tab; a newer copy replaces it, an equal or older one does not', () => {
+  const fx = fresh();
+  assert.equal(fx.v, PIN.v);
+  fx.mark = 1;
+  assert.equal(load(), fx, 'same version: the guard returns before building anything');
+  assert.equal(load(LIB.replace(/var V = \d+;/, 'var V = 0;')).mark, 1);
+  const next = load(LIB.replace(/var V = \d+;/, 'var V = ' + (PIN.v + 1) + ';'));
+  assert.notEqual(next, fx);
+  assert.equal(next.v, PIN.v + 1);
+});
+
+test('the version is bumped whenever the file changes', () => {
+  const v = Number(/var V = (\d+);/.exec(LIB)[1]);
+  const sha = crypto.createHash('sha256').update(LIB).digest('hex').slice(0, 16);
+  assert.ok(v === PIN.v && sha === PIN.sha,
+    `figma_lib.js changed (sha ${sha}): bump its V past ${PIN.v} and set PIN in tests/figma_lib_test.js to { v: ${v === PIN.v ? PIN.v + 1 : v}, sha: '<new sha>' }`);
+});
+
+test('the source is ASCII, so both backends carry it byte for byte', () => {
+  assert.ok(/^[\x00-\x7f]*$/.test(LIB));
+});
+
+// ---- recon
+
+test('recon: page list and a depth-capped flat tree of the current page', async () => {
+  const fx = fresh();
+  await fonts();
+  const p2 = figma.createPage();
+  p2.name = 'Library';
+  const screen = mkFrame(figma.currentPage, 'Screen', 'VERTICAL', 375, 812);
+  const r = row(screen, 'Hello world');
+  const set = buttonSet(figma.currentPage);
+  const inst = set.children[0].createInstance();
+  screen.appendChild(inst);
+  const out = await fx.recon();
+  assert.deepEqual(out.pages, ['Page 1 [' + figma.currentPage.id + '] *', 'Library [' + p2.id + ']']);
+  const lines = out.tree.split('\n');
+  assert.equal(lines[0], 'PAGE "Page 1" [' + figma.currentPage.id + ']');
+  assert.equal(lines[1], '  FRAME "Screen" [' + screen.id + '] 375x812 auto:V');
+  assert.ok(lines.includes('    FRAME "Row" [' + r.id + '] 320x64 auto:H'), out.tree);
+  assert.ok(lines.includes('      TEXT "Title" [' + r.children[0].id + '] "Hello world" 12px'), out.tree);
+  assert.ok(lines.includes('      FRAME "Meta" [' + r.children[1].id + '] 100x100 auto:V +2'), 'depth 3 stops here and counts what it hid');
+  assert.ok(out.tree.includes('INSTANCE "Button" [' + inst.id + '] -> Button {Variant=Primary, State=Default}'), out.tree);
+  assert.equal(out.truncated, false);
+  assert.equal(out.lines, lines.length);
+});
+
+test('recon: a node scope goes full depth; maxChars cuts whole lines and says so', async () => {
+  const fx = fresh();
+  await fonts();
+  const screen = mkFrame(figma.currentPage, 'Screen', 'VERTICAL', 375, 812);
+  const r = row(screen, 'One');
+  const scoped = await fx.recon({ nodeId: r.id });
+  assert.equal(scoped.tree.split('\n').length, 5);
+  assert.ok(scoped.tree.includes('TEXT "A"'));
+  for (let i = 0; i < 40; i++) row(screen, 'Row ' + i);
+  const capped = await fx.recon({ nodeId: screen.id, maxChars: 500 });
+  assert.equal(capped.truncated, true);
+  assert.ok(capped.tree.length <= 500);
+  assert.ok(capped.tree.endsWith(']') || /\S$/.test(capped.tree));
+  await assert.rejects(fx.recon({ nodeId: '9:999' }), /node 9:999 not found/);
+});
+
+// ---- inventory
+
+async function designSystem() {
+  await fonts();
+  const page = figma.currentPage;
+  const set = buttonSet(page);
+  const input = figma.createComponent();
+  input.name = 'Input';
+  input.layoutMode = 'VERTICAL';
+  mkText(input, 'Label').componentPropertyReferences = { characters: input.addComponentProperty('Label', 'TEXT', 'Label') };
+  mkText(input, 'Placeholder').componentPropertyReferences = { characters: input.addComponentProperty('Placeholder', 'TEXT', 'x') };
+  // Library components: remote mains on another page, used by instances here.
+  const lib = figma.createPage();
+  lib.name = 'Remote';
+  await figma.setCurrentPageAsync(lib);
+  const avatar = figma.createComponent();
+  avatar.name = 'Avatar';
+  avatar.addComponentProperty('Initials', 'TEXT', 'AB');
+  avatar.remote = true;
+  const sm = figma.createComponent(), md = figma.createComponent();
+  sm.name = 'Size=sm'; md.name = 'Size=md';
+  const tag = figma.combineAsVariants([sm, md], lib);
+  tag.name = 'Tag';
+  [tag, sm, md].forEach((n) => { n.remote = true; });
+  await figma.setCurrentPageAsync(page);
+  const screen = mkFrame(page, 'Screen', 'VERTICAL', 375, 812);
+  screen.appendChild(avatar.createInstance());
+  screen.appendChild(avatar.createInstance());
+  screen.appendChild(md.createInstance());
+  const rows = [row(screen, 'One'), row(screen, 'Two'), row(screen, 'Three')];
+  const odd = mkFrame(screen, 'Wide', 'HORIZONTAL', 640, 64);
+  mkText(odd, 'x');
+  const col = mkFrame(odd, 'Meta', 'VERTICAL');
+  mkText(col, 'a'); mkText(col, 'b');
+  // Styles and variables.
+  const red = figma.createPaintStyle();
+  red.name = 'Brand/Primary';
+  red.paints = [solid('#2563eb')];
+  const body = figma.createTextStyle();
+  body.name = 'Body';
+  Object.assign(body, { fontName: { family: 'Inter', style: 'Medium' }, fontSize: 16, lineHeight: { unit: 'PIXELS', value: 24 } });
+  const shadow = figma.createEffectStyle();
+  shadow.name = 'Shadow/md';
+  shadow.effects = [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.1 }, offset: { x: 0, y: 4 }, radius: 12, spread: 0, visible: true }];
+  const tk = tokens();
+  return { set, input, avatar, tag, rows, red, body, shadow, tk, screen };
+}
+
+test('inventory: sets with collapsed axes, components, library, styles, variables and patterns as text lines', async () => {
+  const fx = fresh();
+  const d = await designSystem();
+  const out = await fx.inventory();
+  const lines = out.text.split('\n');
+  const want = [
+    'SET Button [' + d.set.id + '] Variant=Primary|Secondary; State=Default|Disabled props: Label:TEXT',
+    'COMP Input [' + d.input.id + '] props: Label:TEXT, Placeholder:TEXT',
+    'LIB Avatar [' + d.avatar.id + '] key=k' + d.avatar.id + ' uses=2 props: Initials:TEXT',
+    'LIB Tag [' + d.tag.id + '] key=k' + d.tag.id + ' uses=1 Size=sm|md',
+    'PAINT Brand/Primary [' + d.red.id + '] #2563eb',
+    'TEXTSTYLE Body [' + d.body.id + '] Inter Medium 16/24',
+    'EFFECT Shadow/md [' + d.shadow.id + '] DROP_SHADOW 0,4 blur 12 #0000001a',
+    'VARS Tokens [' + d.tk.col.id + '] modes: Light|Dark',
+    '  blue/600 [' + d.tk.blue.id + '] #2563eb',
+    '  color/primary [' + d.tk.primary.id + '] #2563eb =blue/600',
+    '  space/4 [' + d.tk.space.id + '] 16',
+    'PATTERN x3 FRAME:H[TEXT,FRAME:V[TEXT,TEXT]] ~320x64 ids: ' + d.rows.map((r) => r.id).join(', '),
+  ];
+  assert.deepEqual(lines, want);
+  assert.equal(out.truncated, false);
+  assert.equal(figma._stats.variantDefReads, 0, 'componentPropertyDefinitions read on a variant: Figma throws there');
+  for (const v of d.set.children) assert.ok(!out.text.includes('[' + v.id + ']'), 'no per-variant ids');
+});
+
+test('inventory: survives a set whose variants throw on componentPropertyDefinitions', async () => {
+  const fx = fresh();
+  await fonts();
+  const set = buttonSet(figma.currentPage);
+  assert.throws(() => set.children[0].componentPropertyDefinitions, /Can only get definitions/);
+  const out = await fx.inventory();
+  assert.match(out.text, /^SET Button \[/);
+});
+
+test('inventory: cached in __batchState; fresh rescans; match filters; maxChars caps', async () => {
+  const fx = fresh();
+  const d = await designSystem();
+  await fx.inventory();
+  assert.ok(Array.isArray(window.__batchState.fxInventory.lines));
+  const late = figma.createComponent();
+  late.name = 'Late';
+  assert.ok(!(await fx.inventory()).text.includes('COMP Late'), 'served from the cache');
+  assert.ok((await fx.inventory({ fresh: true })).text.includes('COMP Late [' + late.id + ']'));
+
+  const m = await fx.inventory({ match: 'button|primary' });
+  assert.deepEqual(m.text.split('\n'), [
+    'SET Button [' + d.set.id + '] Variant=Primary|Secondary; State=Default|Disabled props: Label:TEXT',
+    'PAINT Brand/Primary [' + d.red.id + '] #2563eb',
+    'VARS Tokens [' + d.tk.col.id + '] modes: Light|Dark',
+    '  color/primary [' + d.tk.primary.id + '] #2563eb =blue/600',
+  ]);
+  const capped = await fx.inventory({ maxChars: 120 });
+  assert.equal(capped.truncated, true);
+  assert.ok(capped.text.length <= 120);
+  assert.ok(capped.total > capped.lines);
+});
+
+// ---- build helpers
+
+test('frame: auto layout with padding shorthand, fill sizing in a parent, hug by default, fill bound to a matching variable', async () => {
+  const fx = fresh();
+  const tk = tokens();
+  const screen = await fx.frame({ name: 'Screen', dir: 'V', w: 375, h: 812 });
+  assert.equal(screen.layoutMode, 'VERTICAL');
+  assert.equal(screen.width, 375);
+  assert.deepEqual([screen.layoutSizingHorizontal, screen.layoutSizingVertical], ['FIXED', 'FIXED']);
+  assert.deepEqual(screen.fills, [], 'no fill unless asked');
+  const r = await fx.frame({ parent: screen.id, name: 'Row', dir: 'H', gap: 8, pad: [12, 16], align: 'center', justify: 'between', w: 'fill', fill: '#2563eb', radius: 6 });
+  assert.equal(r.parent, screen);
+  assert.deepEqual([r.itemSpacing, r.paddingTop, r.paddingRight, r.paddingBottom, r.paddingLeft], [8, 12, 16, 12, 16]);
+  assert.deepEqual([r.counterAxisAlignItems, r.primaryAxisAlignItems, r.cornerRadius], ['CENTER', 'SPACE_BETWEEN', 6]);
+  assert.deepEqual([r.layoutSizingHorizontal, r.layoutSizingVertical], ['FILL', 'HUG']);
+  assert.equal(r.fills[0].boundVariables.color.id, tk.primary.id, 'the semantic alias wins over the primitive');
+  const box = await fx.frame({ parent: r, name: 'Box', w: 24, h: 24 });
+  assert.equal(box.layoutMode, 'NONE');
+  const abs = await fx.frame({ parent: screen, name: 'Badge', abs: true, constraints: { horizontal: 'MAX', vertical: 'MIN' }, x: 300, y: 8 });
+  assert.equal(abs.layoutPositioning, 'ABSOLUTE');
+  assert.deepEqual([abs.x, abs.y, abs.constraints.horizontal], [300, 8, 'MAX']);
+  await assert.rejects(fx.frame({ name: 'Bad', dir: 'V', w: 'stretchy' }), /sizing/);
+  const al = await fx.autoLayout(box.id, { dir: 'H', pad: 4 });
+  assert.deepEqual([al.layoutMode, al.paddingLeft, al.paddingTop], ['HORIZONTAL', 4, 4]);
+});
+
+test('text: loads its font, binds color by variable name, fills width, applies a text style', async () => {
+  const fx = fresh();
+  const tk = tokens();
+  const body = figma.createTextStyle();
+  body.name = 'Body';
+  Object.assign(body, { fontName: { family: 'Inter', style: 'Medium' }, fontSize: 16, lineHeight: { unit: 'PIXELS', value: 24 } });
+  const row = await fx.frame({ name: 'Row', dir: 'H', w: 320 });
+  const t = await fx.text('Hello', { parent: row, weight: 'Bold', size: 18, color: 'color/primary', w: 'fill' });
+  assert.deepEqual(t.fontName, { family: 'Inter', style: 'Bold' });
+  assert.deepEqual([t.characters, t.name, t.fontSize], ['Hello', 'Hello', 18]);
+  assert.equal(t.fills[0].boundVariables.color.id, tk.primary.id);
+  assert.deepEqual([t.layoutSizingHorizontal, t.textAutoResize], ['FILL', 'HEIGHT']);
+  const s = await fx.text('Styled', { parent: row, textStyle: 'Body', name: 'Caption' });
+  assert.deepEqual([s.textStyleId, s.fontName.style, s.fontSize, s.name], [body.id, 'Medium', 16, 'Caption']);
+  const fixed = await fx.text('Wrap me', { parent: row, w: 120 });
+  assert.deepEqual([fixed.width, fixed.textAutoResize], [120, 'HEIGHT']);
+  await assert.rejects(fx.text('x', { family: 'Missing' }), /font Missing Regular is not available/);
+  await assert.rejects(fx.text('x', { textStyle: 'Nope' }), /no text style Nope/);
+});
+
+test('instance: by set id, name or key; variant props pick the variant, short property names map to keys', async () => {
+  const fx = fresh();
+  await fonts();
+  const set = buttonSet(figma.currentPage);
+  const screen = await fx.frame({ name: 'Screen', dir: 'V', w: 375 });
+  const a = await fx.instance(set.id, { Variant: 'Secondary', Label: 'Go' }, { parent: screen, name: 'Submit', w: 'fill' });
+  const main = await a.getMainComponentAsync();
+  assert.equal(main.name, 'Variant=Secondary, State=Default');
+  assert.equal(a.parent, screen);
+  assert.equal(a.name, 'Submit');
+  assert.equal(a.layoutSizingHorizontal, 'FILL');
+  assert.equal(a.findOne((n) => n.type === 'TEXT').characters, 'Go');
+  const b = await fx.instance('Button', { state: 'disabled' });
+  assert.equal((await b.getMainComponentAsync()).name, 'Variant=Primary, State=Disabled');
+  const key = 'a'.repeat(40);
+  figma.importComponentSetByKeyAsync = async (k) => { if (k === key) return set; throw new Error('not published'); };
+  figma.importComponentByKeyAsync = async () => { throw new Error('a set key'); };
+  const c = await fx.instance(key, {});
+  assert.equal((await c.getMainComponentAsync()).parent, set);
+  await assert.rejects(fx.instance(set.id, { Colour: 'x' }), /unknown property Colour on Button; has Variant, State, Label/);
+  await assert.rejects(fx.instance(set.id, { Variant: 'Ghost' }), /no variant of Button/);
+  await assert.rejects(fx.instance('Nope', {}), /no component named Nope/);
+  await assert.rejects(fx.instance(screen.id, {}), /not a component/);
+});
+
+test('bindFill: variable when a value matches, else a matching paint style, else raw; ids and names too', async () => {
+  const fx = fresh();
+  const tk = tokens();
+  const red = figma.createPaintStyle();
+  red.name = 'Brand/Red';
+  red.paints = [solid('#ff0000')];
+  const f = figma.createFrame();
+  assert.deepEqual(await fx.bindFill(f, '#2563EB'), { bound: 'variable', id: tk.primary.id });
+  assert.equal(f.fills[0].boundVariables.color.id, tk.primary.id);
+  assert.equal(fx.hex(f.fills[0].color), '#2563eb');
+  assert.deepEqual(await fx.bindFill(f, '#f00'), { bound: 'style', id: red.id });
+  assert.equal(f.fillStyleId, red.id);
+  assert.deepEqual(await fx.bindFill(f, '#123456'), { bound: 'raw', id: null });
+  assert.equal(fx.hex(f.fills[0].color), '#123456');
+  assert.deepEqual(await fx.bindFill(f, tk.blue), { bound: 'variable', id: tk.blue.id });
+  assert.deepEqual(await fx.bindFill(f.id, tk.blue.id, 'strokes'), { bound: 'variable', id: tk.blue.id });
+  assert.equal(f.strokes[0].boundVariables.color.id, tk.blue.id);
+  assert.deepEqual(await fx.bindFill(f, red.id, 'strokes'), { bound: 'style', id: red.id });
+  assert.equal(f.strokeStyleId, red.id);
+  assert.deepEqual(await fx.bindFill(f, 'Brand/Red'), { bound: 'style', id: red.id });
+  const late = figma.variables.createVariable('color/late', tk.col, 'COLOR');
+  late.setValueForMode('m1', { r: 1, g: 1, b: 0, a: 1 });
+  assert.deepEqual(await fx.bindFill(f, '#ffff00'), { bound: 'variable', id: late.id }, 'a miss rescans before falling back to raw');
+  await assert.rejects(fx.bindFill(f, 'color/nope'), /no color variable or paint style named color\/nope/);
+});
+
+// ---- audit
+
+test('audit: counts every structural problem with capped offending ids', async () => {
+  const fx = fresh();
+  await fonts();
+  const tk = tokens();
+  const page = figma.currentPage;
+  const screen = mkFrame(page, 'Screen', 'VERTICAL', 400, 800);
+  screen.layoutSizingHorizontal = 'FIXED';
+  screen.fills = [solid('#2563eb')];
+  const rows = [row(screen, 'One'), row(screen, 'Two'), row(screen, 'Three')];
+  const box = mkFrame(screen, null, null, 50, 50);
+  const rect = figma.createRectangle(); rect.name = 'Swatch'; box.appendChild(rect);
+  const r2 = figma.createRectangle(); r2.name = 'Dot'; box.appendChild(r2);
+  const group = figma.group([r2], box);
+  const badge = mkFrame(screen, 'Badge');
+  badge.layoutPositioning = 'ABSOLUTE';
+  const none = mkText(screen, 'Clipped');
+  none.textAutoResize = 'NONE';
+  const wide = mkText(screen, 'Too wide');
+  wide.resize(500, 20);
+  const card = figma.createComponent();
+  card.name = 'Card';
+  const cardText = mkText(card, 'Card title');
+  const chip = figma.createComponent();
+  chip.name = 'Chip';
+  chip.layoutMode = 'HORIZONTAL';
+  mkText(chip, 'Chip label');
+  chip.addComponentProperty('Label', 'TEXT', 'Chip');
+  screen.appendChild(chip.createInstance());
+
+  const a = await fx.audit(page.id, { limit: 2 });
+  assert.equal(a.root, page.id);
+  assert.deepEqual(a.counts, {
+    rawRepeats: 3, instanceRatio: 0.1, autoLayoutShare: 0.8, fixedInFlow: 1, absDefaultConstraints: 3, groups: 1,
+    defaultNames: 2, unboundPaints: 1, textFixedInAutoLayout: 1, textOverflow: 1, componentsWithoutAutoLayout: 1, unlinkedProps: 1,
+  });
+  assert.deepEqual(a.ids.rawRepeats, [rows[0].id, rows[1].id]);
+  assert.deepEqual(a.ids.fixedInFlow, [box.id]);
+  assert.deepEqual(a.ids.absDefaultConstraints, [badge.id, group.id]);
+  assert.deepEqual(a.ids.groups, [group.id]);
+  assert.deepEqual(a.ids.defaultNames, [box.id, group.id]);
+  assert.deepEqual(a.ids.unboundPaints, [screen.id]);
+  assert.deepEqual(a.ids.textFixedInAutoLayout, [none.id]);
+  assert.deepEqual(a.ids.textOverflow, [wide.id]);
+  assert.deepEqual(a.ids.componentsWithoutAutoLayout, [card.id]);
+  assert.deepEqual(a.ids.unlinkedProps, [chip.id + ':Label']);
+  assert.ok(cardText);
+  assert.ok(!('instanceRatio' in a.ids));
+});
+
+test('audit: a clean component-built screen has no problems', async () => {
+  const fx = fresh();
+  await fonts();
+  const tk = tokens();
+  const chip = await fx.frame({ component: true, name: 'Chip', dir: 'H', pad: 4 });
+  const label = await fx.text('Chip', { parent: chip, name: 'Label' });
+  label.componentPropertyReferences = { characters: chip.addComponentProperty('Label', 'TEXT', 'Chip') };
+  const screen = await fx.frame({ name: 'Screen', dir: 'V', w: 375, fill: '#2563eb' });
+  for (const s of ['One', 'Two', 'Three']) await fx.instance(chip.id, { Label: s }, { parent: screen });
+  const a = await fx.audit(screen.id);
+  for (const k of Object.keys(a.counts)) {
+    if (k === 'instanceRatio' || k === 'autoLayoutShare') continue;
+    assert.equal(a.counts[k], 0, k + ': ' + JSON.stringify(a.ids[k]));
+  }
+  assert.deepEqual([a.counts.instanceRatio, a.counts.autoLayoutShare], [0.75, 1]);
+  assert.deepEqual(a.ids, {});
+  assert.ok(tk);
+});
+
+test('recon and audit load a page other than the current one before reading it', async () => {
+  const fx = fresh();
+  const other = figma.createPage();
+  other.name = 'Other';
+  await figma.setCurrentPageAsync(other);
+  mkFrame(other, 'Screen', 'VERTICAL', 375, 812);
+  await figma.setCurrentPageAsync(figma.root.children[0]);
+  assert.ok(!other._raw._loaded);
+  assert.match((await fx.recon({ nodeId: other.id })).tree, /FRAME "Screen"/);
+  assert.ok(other._raw._loaded);
+  other._raw._loaded = false;
+  assert.equal((await fx.audit(other.id)).nodes, 1);
+  assert.ok(other._raw._loaded);
+});
+
+test('measure: the counts tests/eval/lib.js quality() is built on', async () => {
+  const fx = fresh();
+  await fonts();
+  const screen = mkFrame(figma.currentPage, 'Screen', 'VERTICAL', 400, 800);
+  row(screen, 'One');
+  const stack = mkFrame(screen, 'Stack', null, 50, 50);
+  mkText(stack, 'a'); mkText(stack, 'b');
+  const m = fx.measure(figma.currentPage.findAll());
+  assert.deepEqual([m.containers.length, m.auto.length, m.stacks.length, m.flow.length, m.fixedFlow.length,
+    m.instances.length, m.rawFrames.length, m.defaultNamed.length], [4, 3, 1, 6, 1, 0, 4, 0]);
+});

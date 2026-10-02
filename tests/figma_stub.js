@@ -4,7 +4,8 @@
 // sandbox that scripts most often break: fonts loaded before fontName/characters, FILL
 // sizing only inside an auto-layout parent, HUG only on auto-layout frames and text,
 // ABSOLUTE positioning only inside auto layout, component properties added on and read from
-// the set rather than a variant, and no removing the current page.
+// the set rather than a variant, and no removing the current page. `figma._stats.variantDefReads`
+// counts reads of componentPropertyDefinitions on a variant, which throw as in Figma.
 //
 //   const { createFigma } = require('./figma_stub');
 //   global.figma = createFigma();
@@ -21,6 +22,13 @@ function createFigma() {
   const byId = {};
   const loadedFonts = {};
   const variables = {}, collections = {};
+  const styles = [];
+  const stats = { variantDefReads: 0 };
+  const styleOf = (id, type) => {
+    const s = styles.find((x) => x.id === id && !x.removed);
+    if (!s || (type && s.type !== type)) throw new Error('no ' + (type || '') + ' style ' + id);
+    return s;
+  };
   const mixed = Symbol('mixed');
   let currentPage = null;
   const isAL = (n) => n && n.layoutMode && n.layoutMode !== 'NONE';
@@ -62,6 +70,13 @@ function createFigma() {
       findAllWithCriteria(q) { return api.findAll((n) => !q.types || q.types.indexOf(n.type) !== -1); },
       getRangeAllFontNames() { return [t.fontName]; },
       setRangeFontName() {}, setRangeFontSize() {}, setRangeFills() {}, setRangeTextDecoration() {},
+      async setFillStyleIdAsync(id) { const s = styleOf(id, 'PAINT'); t.fills = clone(s.paints); t.fillStyleId = id; },
+      async setStrokeStyleIdAsync(id) { const s = styleOf(id, 'PAINT'); t.strokes = clone(s.paints); t.strokeStyleId = id; },
+      async setTextStyleIdAsync(id) {
+        const s = styleOf(id, 'TEXT');
+        if (!loadedFonts[s.fontName.family + '/' + s.fontName.style]) throw new Error('setTextStyleIdAsync before loading the style font');
+        Object.assign(t, { fontName: clone(s.fontName), fontSize: s.fontSize, lineHeight: clone(s.lineHeight), textStyleId: id });
+      },
       setBoundVariable(field, v) { t.boundVariables[field] = v ? { type: 'VARIABLE_ALIAS', id: v.id } : undefined; },
       createInstance() {
         if (type !== 'COMPONENT') throw new Error('createInstance is only on components');
@@ -106,7 +121,7 @@ function createFigma() {
         }
       },
       clone() { const c = makeNode(type); copyInto(proxy, c); if (t.parent) insert(t.parent, c, t.parent.children.indexOf(proxy) + 1); return c; },
-      async loadAsync() {},
+      async loadAsync() { t._loaded = true; },
     };
 
     const proxy = new Proxy(t, {
@@ -173,6 +188,7 @@ function createFigma() {
       for (const [k, vals] of Object.entries(axes)) out[k] = { type: 'VARIANT', defaultValue: vals[0], variantOptions: vals };
     }
     if (t.type === 'COMPONENT' && t.parent && t.parent.type === 'COMPONENT_SET') {
+      stats.variantDefReads++;
       throw new Error('Can only get definitions of a component set or non-variant component');
     }
     return Object.assign(out, clone(t._props));
@@ -233,6 +249,13 @@ function createFigma() {
   insert(root, firstPage, 0);
   currentPage = firstPage;
 
+  function newStyle(type, extra) {
+    const s = Object.assign({ id: 'S:' + (nextId++) + ',', type, name: type.toLowerCase() + ' style', removed: false,
+      remove() { this.removed = true; } }, extra);
+    styles.push(s);
+    return s;
+  }
+
   function create(type) {
     const n = makeNode(type);
     insert(currentPage, n, currentPage._raw.children.length);
@@ -275,8 +298,20 @@ function createFigma() {
     // Every family loads except "Missing", so font fallback paths are exercised.
     loadFontAsync: async (f) => { if (f.family === 'Missing') throw new Error('font not found'); loadedFonts[f.family + '/' + f.style] = true; },
     async listAvailableFontsAsync() { return [{ fontName: { family: 'Inter', style: 'Regular' } }]; },
-    getLocalPaintStylesAsync: async () => [],
-    getLocalTextStylesAsync: async () => [],
+    _stats: stats,
+    group(nodes, parent) {
+      const g = makeNode('GROUP');
+      insert(parent, g, parent._raw.children.length);
+      nodes.forEach((n) => insert(g, n, g._raw.children.length));
+      return g;
+    },
+    createPaintStyle: () => newStyle('PAINT', { paints: [] }),
+    createTextStyle: () => newStyle('TEXT', { fontName: { family: 'Inter', style: 'Regular' }, fontSize: 12, lineHeight: { unit: 'AUTO' } }),
+    createEffectStyle: () => newStyle('EFFECT', { effects: [] }),
+    getLocalPaintStylesAsync: async () => styles.filter((s) => s.type === 'PAINT' && !s.removed),
+    getLocalTextStylesAsync: async () => styles.filter((s) => s.type === 'TEXT' && !s.removed),
+    getLocalEffectStylesAsync: async () => styles.filter((s) => s.type === 'EFFECT' && !s.removed),
+    getStyleByIdAsync: async (id) => styles.find((s) => s.id === id && !s.removed) || null,
     variables: {
       createVariableCollection(name) {
         const c = { id: 'VariableCollectionId:' + nextId++, name, modes: [{ modeId: 'm1', name: 'Mode 1' }], defaultModeId: 'm1', variableIds: [],
@@ -298,7 +333,8 @@ function createFigma() {
       setBoundVariableForPaint(paint, field, v) {
         const p = clone(paint);
         p.boundVariables = Object.assign({}, p.boundVariables, { [field]: { type: 'VARIABLE_ALIAS', id: v.id } });
-        if (v.valuesByMode.m1) { const c = v.valuesByMode.m1; p.color = { r: c.r, g: c.g, b: c.b }; }
+        const c = v.valuesByMode.m1;
+        if (c && 'r' in c) p.color = { r: c.r, g: c.g, b: c.b };
         return p;
       },
     },
