@@ -228,20 +228,27 @@ def perch(req, timeout=120.0):
         sys.exit(f"perch: {out['fatal']}")
     return out
 
-# Every script runs as this program on both backends. Its value is the script's completion value,
-# as CDP's Runtime.evaluate gives it (awaited when a promise). A script that parses only as an
-# async function body (top-level await or return) runs as one instead; its value is what it
-# returns. Indirect eval keeps a script's let/const to itself. A SyntaxError raised while the
-# script ran is rethrown, never retried: the probe parses the script behind a throw, so nothing
-# in it runs a second time.
+# Every script runs as this program on both backends. It parses the script before running any of
+# it. A script that parses as a program runs as one: its value is its completion value, as CDP's
+# Runtime.evaluate gives it (awaited when a promise), and indirect eval keeps its let/const to
+# itself. A script that parses only as an async function body (top-level await or return) runs as
+# one; its value is what it returns. So does a program with `await` as an identifier at its top
+# level, as in `await (p)`: a class static block, where that is an error, finds it. The parse
+# probes run in a function scope (direct eval behind a throw), so they declare nothing global.
+# Nothing runs twice.
 AUTO_ASYNC = r'''(function (src) {
-  try { return (0, eval)(src); } catch (e) {
-    if (!(e instanceof SyntaxError)) throw e;
-    var body;
-    try { body = new (Object.getPrototypeOf(async function () {}).constructor)(src); } catch (_) { throw e; }
-    try { (0, eval)('throw "figma-parse-probe";\n' + src); } catch (p) { if (p !== "figma-parse-probe") return body(); }
-    throw e;
+  function syntaxError(parse) {
+    try { parse(); } catch (e) { if (e instanceof SyntaxError) return e; if (e !== "figma-parse-probe") throw e; }
+    return null;
   }
+  var body = null;
+  var asScript = syntaxError(function () { eval('throw "figma-parse-probe";\n' + src); });
+  var asBody = syntaxError(function () { body = new (Object.getPrototypeOf(async function () {}).constructor)(src); });
+  var awaitAtTop = body && /\bawait\b/.test(src) && /await|reserved/i.test(
+    (syntaxError(function () { Function('(class { static {\n' + src + '\n} })'); }) || {}).message);
+  if (!asScript && !awaitAtTop) return (0, eval)(src);
+  if (body) return body();
+  throw /return|await/i.test(asScript.message) ? asBody : asScript;
 })'''
 
 def program(src):

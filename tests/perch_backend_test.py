@@ -198,6 +198,34 @@ class PerchBackend(Harness):
         self.assertEqual(lines[-2:], ['== -e[3] ==', '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
                                       '"result": 1}'])
 
+    def test_a_parenthesized_top_level_await_runs_as_an_async_function(self):
+        # `await (x)` also parses as a call to a function named await; run as a script it would
+        # run the lines above it, then fail with "await is not defined".
+        r = self.run_helper('figma_batch_run.py', '-e', 'globalThis.__m = (globalThis.__m || 0) + 1;\n'
+                            'const r = await (Promise.resolve(3));\nr', '-e', '__m')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([json.loads(l)['result'] for l in r.stdout.splitlines()[1::2]], [None, 1])
+        r = self.run_helper('figma_run.py', '-e', 'await (async () => { globalThis.__k = 7 })();\n'
+                            'const o = { await: 1 };\nreturn __k + o.await')
+        self.assertEqual((r.returncode, r.stdout), (0, '8\n'), r.stderr)
+
+    def test_await_only_in_nested_functions_keeps_the_completion_value(self):
+        r = self.run_helper('figma_run.py', '-e', 'const o = { await: 2 };\nconst g = async x => await (x);\no.await')
+        self.assertEqual((r.returncode, r.stdout), (0, '2\n'), r.stderr)
+
+    def test_a_syntax_error_in_an_async_script_names_the_real_problem(self):
+        r = self.run_helper('figma_run.py', '-e', 'await 0;\nreturn )')
+        self.assertEqual(r.returncode, 1)
+        self.assertTrue(r.stderr.startswith('✗ Evaluation error: SyntaxError'), r.stderr)
+        self.assertNotIn('return', r.stderr.splitlines()[0])
+        self.assertNotIn('await', r.stderr.splitlines()[0])
+
+    def test_a_syntax_error_the_script_threw_leaves_its_declarations_alone(self):
+        r = self.run_helper('figma_batch_run.py', '-e', 'function g() {}\nglobalThis.g0 = g;\nJSON.parse("{")',
+                            '-e', 'g === g0')
+        self.assertEqual(r.stdout.splitlines()[-1], '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
+                                                    '"result": true}', r.stdout)
+
     def test_top_level_declarations_stay_in_their_script(self):
         r = self.run_helper('figma_batch_run.py', '-e', 'const a = 1; a', '-e', 'let a = 2; a')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -426,6 +454,10 @@ class SameOutputOnBothBackends(Harness):
                          f'{script} {args}\ncdp stderr: {cdp.stderr}\nperch stderr: {perch.stderr}')
         self.assertEqual(strip(cdp.stderr).splitlines()[:1], strip(perch.stderr).splitlines()[:1])
 
+    def test_both_helpers_wrap_scripts_alike(self):
+        wrapper = lambda name: re.search(r"AUTO_ASYNC = r'''(.*?)'''", open(os.path.join(ROOT, name)).read(), re.S).group(1)
+        self.assertEqual(wrapper('figma_run.py'), wrapper('figma_batch_run.py'))
+
     def test_figma_run(self):
         self.both('figma_run.py', '-e', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", tiny: 1e-7, big: 1e21, f: 0.5 })')
         self.both('figma_run.py', self.js('a.js', 'const n = 2;\n(async () => ({ n }))()'))
@@ -440,6 +472,8 @@ class SameOutputOnBothBackends(Harness):
                   '-e', 'const a = 2;\nreturn __batchState.n + a', '-', stdin='await 0;\nreturn [1e-7, null]')
         self.both('figma_batch_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
         self.both('figma_batch_run.py', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
+        self.both('figma_batch_run.py', '-e', 'globalThis.__m = 1;\nawait (Promise.resolve());\n__m', '-e', '__m',
+                  '-e', 'await 0;\nreturn )', '-e', 'const x = )')
 
 
 class PerchDaemon(Harness):
