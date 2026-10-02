@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign in · Lumen</title><link rel="stylesheet" href="components.css"></head>
+<body>
+  <main class="login" style="width: 400px; margin: 80px auto; display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-8); background: var(--color-surface); border-radius: var(--radius-md);">
+    <header style="display: flex; flex-direction: column; gap: var(--space-2);">
+      <h1 style="margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold);">Welcome back to Lumen</h1>
+      <p style="margin: 0; font-size: var(--text-sm); color: var(--color-text-muted);">Sign in to keep your playlists in sync</p>
+    </header>
+    <form style="display: flex; flex-direction: column; gap: var(--space-4);">
+      <label class="input">
+        <span class="input__label">Work email</span>
+        <input class="input__field" type="email" placeholder="you@lumen.fm">
+      </label>
+      <label class="input">
+        <span class="input__label">Password</span>
+        <input class="input__field" type="password" placeholder="At least 12 characters">
+      </label>
+      <a href="#reset" style="font-size: var(--text-xs); color: var(--color-primary); align-self: flex-end;">Forgot your passphrase?</a>
+      <button class="button button--primary" type="submit">Sign in</button>
+      <button class="button button--secondary" type="button">Create an account</button>
+    </form>
+  </main>
+</body>
+</html>

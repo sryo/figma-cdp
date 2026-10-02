@@ -1,0 +1,7 @@
+{
+  "id": "recon",
+  "covers": "read-only structure question: no mutation, pure speed and token cost",
+  "prompt": "On the page \"{PAGE}\" of {FILE_URL}: which top-level frames are there, what size is each, and how many text layers does each contain? Don't change anything.",
+  "seed": "seeds/recon.js",
+  "score": "scorers/recon.js"
+}

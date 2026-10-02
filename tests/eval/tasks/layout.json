@@ -1,0 +1,7 @@
+{
+  "id": "layout",
+  "covers": "auto layout and hug/fill sizing on header and grid, constraints on the absolute badge, reuse of the seeded card",
+  "prompt": "Build the store screen from {FIXTURE}/products.html, header nav bar and product grid, on the page \"{PAGE}\" of {FILE_URL}",
+  "seed": "seeds/layout.js",
+  "score": "scorers/layout.js"
+}

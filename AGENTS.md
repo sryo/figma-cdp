@@ -22,11 +22,23 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── references/           # task-shaped reference files (loaded on demand)
 └── tests/
     ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
-    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against a stub Plugin API, no Figma tab needed
+    ├── figma_stub.js         # stub Plugin API (node tree, components/variants/instances, variables, sandbox ordering rules) shared by the offline tests
+    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against figma_stub.js, no Figma tab needed
     ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend (daemon and one-shot) against perch_stub/, offline
+    ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
-    ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma`
-    └── evals.json            # state-only assertions for hand-verifying behavior
+    ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)
+    └── eval/                 # behavior evals: headless sessions on a scratch Figma file, scored on the resulting state
+        ├── run.py            # `run.py --file <url> [--skill-dir <worktree>] [--tasks a,b] [--reps N] [--out f]` → per-task medians
+        ├── compare.py        # `compare.py [baseline.json] <candidate.json>` — exit 1 on any regression
+        ├── session.py        # the headless `claude -p` command pinned to one skill copy; `session.py probe` verifies it offline
+        ├── offline_test.py   # `python3 tests/eval/offline_test.py`: seeds, scorers, run.py and compare.py with no Figma and no API
+        ├── lib.js            # helpers every seed/scorer/op body runs with (quality metrics, builders)
+        ├── tasks/            # <id>.json: prompt ({FILE_URL} {PAGE} {FIXTURE}), seed, score
+        ├── seeds/ scorers/ ops/  # Plugin API bodies: seed a page, score it ({metrics, lower, passed}), set up / clean up
+        ├── offline/          # hand-built good and bad end states per task, and a fake `claude` for run.py's offline test
+        ├── fixtures/app/     # the source app the tasks build from (HTML/CSS tokens + components.jsx)
+        └── fixtures/expect.json  # what the fixture renders (copy, token colors, rows, axes), checked against fixtures/app
 ```
 
 ## Architecture
@@ -88,6 +100,15 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 
 Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means CDP; else perch when it is usable; else CDP. Output and exit codes match the CDP path, so callers never branch on the backend: `figma_run.py` prints as agent-browser does (keys sorted, UTF-8, `1e-7`), `figma_batch_run.py` as its CDP branch does (keys sorted, `\u` escapes, `origin` the full page URL), and integers past 2^53 come back as doubles. Errors keep perch's leading code (`timeout`, `stale_tab`, `tab_not_scriptable`, `no_tab`, `ambiguous_tab`, `no_perch`). An awaited eval gets `--timeout` seconds (else `FIGMA_TIMEOUT`, else 120), clamped to 1-300 and passed to perch as `eval_js {timeout}` in ms; a value that isn't a number is refused before anything runs. A perch older than that option (no `AWAIT_MAX_MS` export) gets no `timeout` and awaits its own 30s, and the timeout hint says to update it. The daemon client waits for a reply up to (timeout + 70s) per script plus 30s, above perch's own cap of the await plus reading a long result. The perch path needs no base64 ceiling. The capture fast-path (`figma_capture.py`) stays CDP-only: `walk` opens the URL in its own agent-browser session.
 
+## Evals
+
+`tests/eval/run.py` measures the skill end to end on a scratch Figma file. Per task rep, under a per-file `flock` (parallel callers on one file queue): a fresh page `eval/<task>/<n>`; the task's seed through this repo's `figma_run.py`; a headless `claude -p --output-format stream-json` session on the task prompt; the scorer against the page; the rep's pages and `<prefix> tokens` variable collection removed unless `--keep`. The seeds, scorers and `figma_run.py` always come from the repo running `run.py`, so a candidate skill can't move the goalposts.
+
+- **Pinning the skill copy.** `session.py` wraps `--skill-dir` in a generated plugin (`figma-eval`, `skills/figma-cdp` → a symlink to the copy) passed with `--plugin-dir`, runs with `--setting-sources project` from an empty temp cwd (so `~/.claude/skills`, where the user's own `figma-cdp` and `figma-text` live, never loads) and `--strict-mcp-config`, and prefixes the prompt with `/figma-eval:figma-cdp` so the skill loads every run. `python3 tests/eval/session.py probe` checks it with the real CLI against a local fake Messages API: the only Figma skill listed is `figma-eval:figma-cdp`, and the skill body sent to the model carries a marker planted in a temp copy, by slash command and by the Skill tool.
+- **Unattended.** `--permission-mode dontAsk` with Bash/Read/Write/Edit/Glob/Grep/Agent/Skill allowed; anything else is denied and counts as a failed tool call. Auth is the user's CLI login (or `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`); env vars a host Claude Code session sets for its children are dropped.
+- **Metrics.** Cost: `wall_s`, `tokens_total` and its parts, `cost_usd`, `turns`, `tool_calls`, `failed_tool_calls`, summed over the main session and its subagents (`modelUsage` and every assistant message in the stream). Quality: each scorer's task metrics (instances of seeded components, duplicates, variant axes, diffs fixed, ids preserved, no mutation...) plus `quality()` in `lib.js` on every build: `autoLayoutShare`, `absoluteStacks`, `sizingShare`, `constrainedAbsShare`, `instanceRatio`, `duplicateComponents`, `detachedLike`, `defaultNames`, and `boundPaintShare` / `hardcodedPaints` when the file has color variables (every seed adds the fixture's tokens as variables). `pass_rate` is the share of reps whose scorer passed.
+- **Adding a task.** `tasks/<id>.json` with a prompt a user would type, a seed and a scorer, plus `offline/<id>_good.js` and `_bad.js` end states the scorer must tell apart in `offline_test.py`. A new expected string or color goes in `fixtures/expect.json` and the fixture app together.
+
 ## Rules for changes
 
 - **SKILL.md is always-loaded.** Every line is per-conversation token cost. Add only what every coordinator needs.
@@ -100,7 +121,8 @@ Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means 
 - **Worker Loop step descriptions stay explicit.** DISCOVER, READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
 - **No new references without table updates.** Any new `references/*.md` must land in `SKILL.md`'s references table with a distinct "load for" description. Orphans get pruned.
 - **No backwards-compat shims.** If a file's shape changes, update every caller. Don't ship deprecated aliases or "kept for compatibility" sections.
-- **`tests/evals.json` assertions are state-only.** Don't add transcript-introspection assertions ("worker reads state before modifying") — the eval framework can't observe agent behavior, only the resulting Figma state.
+- **Eval scorers are state-only.** A scorer reads the Figma state a session left (and, for read-only tasks, its final answer); don't score transcript introspection ("worker reads state before modifying"). How the skill got there shows up in the cost metrics instead.
+- **A skill change is done only when `tests/eval/compare.py` shows no regression against `tests/eval/baseline.json`.** Measure the change from a git worktree (`run.py --skill-dir <worktree>`, same file, model and reps as the baseline). Quality metrics may not drop at all; cost metrics (wall time, tokens, cost, turns, tool calls) may not grow past the noise tolerance compare.py documents. When a change improves on the baseline, refresh `baseline.json` from that run in the same change. `tests/budget_test.py` caps the always-loaded bytes the same way: lower a cap when a change frees room.
 
 ## Ceiling — what's out of scope
 
@@ -109,6 +131,5 @@ Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means 
 - **Sub-second design event streams.** Polling `window.__figmaEvents` at 1-2s is the floor — `agent-browser` cold-start makes anything faster wasteful. For real-time observation, the injected listeners buffer into a ring that consumers read non-destructively via per-consumer cursors (never drained — see `references/execution.md`).
 - **Bypassing Chrome 136+'s default-profile restriction.** Mode B's profile-copy dance is the documented workaround; we don't try to defeat the security hardening any further.
 - **Port discovery beyond `DevToolsActivePort` in Mode A.** Chrome assigns a new debugging port each launch; the helpers handle that by falling back to the `DevToolsActivePort` file when `FIGMA_CDP_PORT` is unset. Anything past that file — scanning Chrome processes, probing ports — is out of scope; the docs spell out the fallback's limits.
-- **A test harness for `tests/evals.json`.** The file is currently a hand-verifiable spec, not an automated test suite. Building a runner is separate work.
 - **Recursing into cross-origin iframes during live-page capture.** Would need CDP frame-target routing beyond the agent-browser surface we depend on; cross-origin iframes are captured as named placeholder frames only.
 - **Native-fidelity accessibility capture.** The walker emits a semantic layer (`role`/`axName`/`interactable`) computed in-page, which drives layer naming and component instantiation; a native `Accessibility.getFullAXTree` join over the agent-browser CDP surface is the documented accuracy upgrade (`references/capture.md` → Semantic layer), not built in v1.

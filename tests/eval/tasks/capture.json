@@ -1,0 +1,8 @@
+{
+  "id": "capture",
+  "covers": "live URL import through the capture fast path (CDP only, needs the network)",
+  "prompt": "Import https://example.com into the page \"{PAGE}\" of {FILE_URL}",
+  "seed": null,
+  "score": "scorers/capture.js",
+  "default": false
+}

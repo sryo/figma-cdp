@@ -4,7 +4,8 @@
 // exercised end to end. Every call is appended to $PERCH_STUB_LOG as a JSON line.
 //
 //   PERCH_STUB_TABS   JSON array of list_tabs rows (default: one Figma tab)
-//   PERCH_STUB_FIGMA  "0" leaves `figma` undefined
+//   PERCH_STUB_FIGMA  "0" leaves `figma` undefined; "full" is tests/figma_stub.js's Plugin API,
+//                     whose document lives as long as this process (the daemon keeps it)
 //   PERCH_STUB_ERROR  a perch error ("timeout: ...") every eval_js call fails with
 //   PERCH_STUB_TABS_FILE  a file holding the list_tabs rows, re-read on every call
 //                     (tabs that navigate or close); eval_js on a tab not in it is stale_tab
@@ -13,13 +14,16 @@
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
 // Scripts see `location` as the target tab's URL. Each log line carries this process's pid.
 import { appendFileSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 const DEFAULT_TABS = process.env.PERCH_STUB_TABS ? JSON.parse(process.env.PERCH_STUB_TABS) : [
   { app: "Google Chrome", tabId: "chrome:1", url: "https://www.figma.com/design/AAA111/Stub?node-id=0-1", title: "Stub – Figma" },
 ];
 const tabs = () => process.env.PERCH_STUB_TABS_FILE ? JSON.parse(readFileSync(process.env.PERCH_STUB_TABS_FILE, "utf8")) : DEFAULT_TABS;
 
-if (process.env.PERCH_STUB_FIGMA !== "0") {
+if (process.env.PERCH_STUB_FIGMA === "full") {
+  globalThis.figma = createRequire(import.meta.url)("../figma_stub.js").createFigma();
+} else if (process.env.PERCH_STUB_FIGMA !== "0") {
   globalThis.figma = {
     currentPage: { name: "Page 1" },
     root: { children: [{ name: "Page 1", children: [{ type: "FRAME" }] }, { name: "Page 2", children: [] }] },

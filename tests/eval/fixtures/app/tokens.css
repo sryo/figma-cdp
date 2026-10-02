@@ -1,0 +1,42 @@
+/* Design tokens for the Lumen fixture app. Every color, space and type size the screens use
+   comes from here; tests/eval/fixtures/expect.json mirrors these values for the scorers. */
+:root {
+  /* color */
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-on-primary: #ffffff;
+  --color-surface: #ffffff;
+  --color-background: #f5f5f7;
+  --color-text: #111827;
+  --color-text-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-disabled-bg: #e5e7eb;
+  --color-disabled-text: #9ca3af;
+  --color-toggle-on: #16a34a;
+  --color-toggle-off: #d1d5db;
+  --color-badge: #dc2626;
+
+  /* spacing scale (px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* type scale */
+  --font-family: "Inter", system-ui, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
+
+  /* radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
+}

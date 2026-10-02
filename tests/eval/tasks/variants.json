@@ -1,0 +1,7 @@
+{
+  "id": "variants",
+  "covers": "a source component with props becomes a component set with matching variant axes and a text property",
+  "prompt": "Add the Button from {FIXTURE}/components.jsx (styles in {FIXTURE}/components.css) to {FILE_URL} as a Figma component, on the page \"{PAGE}\"",
+  "seed": "seeds/tokens_only.js",
+  "score": "scorers/variants.js"
+}

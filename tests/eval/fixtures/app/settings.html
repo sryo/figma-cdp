@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Settings · Lumen</title><link rel="stylesheet" href="components.css"></head>
+<body>
+  <section style="width: 480px; margin: 40px auto; display: flex; flex-direction: column;">
+    <h2 style="margin: 0 0 var(--space-4); font-size: var(--text-lg);">Listening preferences</h2>
+    <!-- Rows come from SettingsRow in components.jsx; listed here as rendered. -->
+    <div class="settings-row">
+      <div class="settings-row__text"><span class="settings-row__label">Crossfade between tracks</span><span class="settings-row__hint">Blend the end of one song into the next</span></div>
+      <div class="toggle toggle--on" role="switch" aria-checked="true"><span class="toggle__knob"></span></div>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row__text"><span class="settings-row__label">Normalize loudness</span><span class="settings-row__hint">Keep every track at the same volume</span></div>
+      <div class="toggle toggle--on" role="switch" aria-checked="true"><span class="toggle__knob"></span></div>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row__text"><span class="settings-row__label">Show explicit lyrics</span><span class="settings-row__hint">Off for shared family accounts</span></div>
+      <div class="toggle toggle--off" role="switch" aria-checked="false"><span class="toggle__knob"></span></div>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row__text"><span class="settings-row__label">Download over cellular</span><span class="settings-row__hint">May use a lot of mobile data</span></div>
+      <div class="toggle toggle--off" role="switch" aria-checked="false"><span class="toggle__knob"></span></div>
+    </div>
+    <div class="settings-row">
+      <div class="settings-row__text"><span class="settings-row__label">Autoplay similar songs</span><span class="settings-row__hint">When your queue runs out</span></div>
+      <div class="toggle toggle--on" role="switch" aria-checked="true"><span class="toggle__knob"></span></div>
+    </div>
+  </section>
+</body>
+</html>

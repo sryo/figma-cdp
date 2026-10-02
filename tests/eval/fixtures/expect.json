@@ -1,0 +1,49 @@
+{
+  "_notes": "What the fixture app renders, for the scorers. offline_test.py checks every string and color here appears in fixtures/app, so the two cannot drift.",
+  "colors": {
+    "primary": "#4f46e5",
+    "primary-hover": "#4338ca",
+    "on-primary": "#ffffff",
+    "surface": "#ffffff",
+    "background": "#f5f5f7",
+    "text": "#111827",
+    "text-muted": "#6b7280",
+    "border": "#e5e7eb",
+    "disabled-bg": "#e5e7eb",
+    "disabled-text": "#9ca3af",
+    "toggle-on": "#16a34a",
+    "toggle-off": "#d1d5db",
+    "badge": "#dc2626"
+  },
+  "login": {
+    "copy": ["Welcome back to Lumen", "Sign in to keep your playlists in sync", "Work email", "you@lumen.fm",
+      "Password", "At least 12 characters", "Forgot your passphrase?", "Sign in", "Create an account"],
+    "colors": ["primary", "on-primary", "surface", "text", "text-muted", "border"]
+  },
+  "settings": {
+    "copy": ["Listening preferences"],
+    "rows": [
+      {"label": "Crossfade between tracks", "hint": "Blend the end of one song into the next", "on": true},
+      {"label": "Normalize loudness", "hint": "Keep every track at the same volume", "on": true},
+      {"label": "Show explicit lyrics", "hint": "Off for shared family accounts", "on": false},
+      {"label": "Download over cellular", "hint": "May use a lot of mobile data", "on": false},
+      {"label": "Autoplay similar songs", "hint": "When your queue runs out", "on": true}
+    ],
+    "colors": ["surface", "text", "text-muted", "border", "toggle-on", "toggle-off"]
+  },
+  "button": {
+    "axes": {"variant": ["primary", "secondary"], "disabled": ["true", "false"]},
+    "stateWords": ["default", "disabled", "enabled"],
+    "colors": ["primary", "on-primary", "surface", "border", "disabled-bg", "disabled-text"]
+  },
+  "products": {
+    "nav": ["Lumen", "Discover", "Library", "Store"],
+    "cards": [
+      {"title": "Orbit Headphones", "price": "$129", "cta": "Add to cart"},
+      {"title": "Tidal Turntable", "price": "$349", "cta": "Add to cart"},
+      {"title": "Pulse Earbuds", "price": "$89", "cta": "Add to cart"},
+      {"title": "Drift Speaker", "price": "$199", "cta": "Sold out"}
+    ],
+    "colors": ["primary", "on-primary", "surface", "background", "text", "text-muted", "border", "badge"]
+  }
+}

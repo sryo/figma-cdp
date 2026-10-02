@@ -1,0 +1,7 @@
+{
+  "id": "reuse",
+  "covers": "search before creating: reuse the seeded Button set and Input instead of drawing new ones; copy and token fidelity",
+  "prompt": "Build the login screen from {FIXTURE}/login.html as a mockup on the page \"{PAGE}\" of {FILE_URL}",
+  "seed": "seeds/reuse.js",
+  "score": "scorers/reuse.js"
+}

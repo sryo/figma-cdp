@@ -1,0 +1,7 @@
+{
+  "id": "componentize",
+  "covers": "repeated rows become one component (toggle state as a variant) instanced per row",
+  "prompt": "Mock up the settings screen in {FIXTURE}/settings.html (its components are in {FIXTURE}/components.jsx) on the page \"{PAGE}\" of {FILE_URL}",
+  "seed": "seeds/tokens_only.js",
+  "score": "scorers/componentize.js"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "fidelity-edit",
+  "covers": "check the design against the implementation and fix each diff in place, without rebuilding",
+  "prompt": "The \"Login\" frame on the page \"{PAGE}\" of {FILE_URL} was drawn from {FIXTURE}/login.html. Make the mockup match the implementation.",
+  "seed": "seeds/fidelity_edit.js",
+  "score": "scorers/fidelity_edit.js"
+}

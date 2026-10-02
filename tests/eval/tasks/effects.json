@@ -1,0 +1,7 @@
+{
+  "id": "effects",
+  "covers": "targeted edit of an existing node: add an effect, keep the ones already there",
+  "prompt": "Add a drop shadow to the \"Main\" frame on the page \"{PAGE}\" of {FILE_URL}",
+  "seed": "seeds/effects.js",
+  "score": "scorers/effects.js"
+}
