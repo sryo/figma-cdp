@@ -1,9 +1,9 @@
-# Execution: CDP eval patterns
+# Execution: eval patterns
 
-The eval patterns for all automation against Figma's Plugin API via `agent-browser`.
+The eval patterns for all automation against Figma's Plugin API, through perch or `agent-browser`.
 Connection setup lives in `references/connection.md` (Mode P perch, Mode A attach, Mode B Canary launch, troubleshooting).
 
-`agent-browser` commands and the `python3 /tmp/figma_*.py` helper invocations are pre-allowed (`Bash(agent-browser:*)`, `Bash(python3 /tmp/figma_run.py:*)`, `Bash(python3 /tmp/figma_batch_run.py:*)`) — no prompts.
+`agent-browser` commands and the `python3 <skill-dir>/figma_*.py` helper calls are pre-allowed (`Bash(agent-browser:*)`, `Bash(python3 *figma_*.py *)`), so they run without prompts. Every script below runs as `python3 <skill-dir>/figma_run.py --file <url> -e '<script>'`.
 
 ## Eval methods
 
@@ -44,7 +44,7 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 
 ## Resident helper library (`--lib`)
 
-`python3 /tmp/figma_run.py --lib <js>` (and `figma_batch_run.py --lib`, on the first script) puts `figma_lib.js` in front of the script. It installs `window.__fx` once per tab; later `--lib` calls skip the install, and a newer copy replaces an older one. Every helper is async; `ref` / `parent` take a node or its id.
+`python3 <skill-dir>/figma_run.py --lib -e '<js>'` (and `figma_batch_run.py --lib`, on the first script) puts `figma_lib.js` in front of the script. It installs `window.__fx` once per tab; later `--lib` calls skip the install, and a newer copy replaces an older one. Every helper is async; `ref` / `parent` take a node or its id.
 
 | Call | Does |
 |------|------|
@@ -60,72 +60,33 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 `frame` and `text` take `fill` / `stroke` / `color` the way `bindFill` does, so a source hex lands bound when the file has a matching token.
 
 ```js
-(async () => {
-  var s = await __fx.frame({ name: 'Login', dir: 'V', w: 375, gap: 16, pad: 24, fill: '#ffffff' });
-  await __fx.text('Welcome back', { parent: s, weight: 'Bold', size: 28, color: 'color/text' });
-  await __fx.instance('Button', { Variant: 'Primary', Label: 'Sign in' }, { parent: s, w: 'fill' });
-  return __fx.audit(s.id);
-})()
+const s = await __fx.frame({ name: 'Login', dir: 'V', w: 375, gap: 16, pad: 24, fill: '#ffffff' });
+await __fx.text('Welcome back', { parent: s, weight: 'Bold', size: 28, color: 'color/text' });
+await __fx.instance('Button', { Variant: 'Primary', Label: 'Sign in' }, { parent: s, w: 'fill' });
+return __fx.audit(s.id);
 ```
 
 `audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references). `instanceRatio` and `autoLayoutShare` are shares, higher is better.
 
 ## State between evals
 
-`window.__batchState` persists across separate eval calls (same browser tab).
+`window.__batchState` persists across separate eval calls (same browser tab). Fold steps into one eval unless you need to look at an intermediate result; steps you can't fold go in one `figma_batch_run.py` call:
 
-> The three-step example below demonstrates persistence — useful when you need to observe intermediate state. In real worker code, **fold the steps into one eval** unless you need that observation. For sequential steps you can't merge, use `figma_batch_run.py` (one CLI cold-start instead of three).
-
-**Step 1**: Write `/tmp/figma_step1.js`:
-```js
-(async function() {
-  window.__batchState = window.__batchState || {};
-  var frame = figma.createFrame();
-  frame.name = 'Card';
-  frame.resize(320, 200);
-  frame.layoutMode = 'VERTICAL';
-  frame.paddingTop = frame.paddingBottom = frame.paddingLeft = frame.paddingRight = 16;
-  frame.itemSpacing = 8;
-  window.__batchState.a_cardId = frame.id;
-  return {ok: true, id: frame.id};
-})()
+```bash
+python3 <skill-dir>/figma_batch_run.py --lib --file <url> \
+  -e 'const f = await __fx.frame({name: "Card", dir: "V", w: 320, gap: 8, pad: 16});
+window.__batchState = window.__batchState || {}; window.__batchState.a_cardId = f.id; return f.id' \
+  -e 'const card = await figma.getNodeByIdAsync(window.__batchState.a_cardId);
+await __fx.text("Card Title", {parent: card, weight: "Bold", size: 24, w: "fill"});
+figma.commitUndo(); return card.children.length'
 ```
-Run: `python3 /tmp/figma_run.py /tmp/figma_step1.js`
 
-**Step 2**: Write `/tmp/figma_step2.js`:
-```js
-(async function() {
-  var card = await figma.getNodeByIdAsync(window.__batchState.a_cardId);
-  await figma.loadFontAsync({family: 'Inter', style: 'Bold'});
-  var title = figma.createText();
-  title.fontName = {family: 'Inter', style: 'Bold'};
-  title.fontSize = 24;
-  title.characters = 'Card Title';
-  card.appendChild(title);
-  title.layoutSizingHorizontal = 'FILL';
-  return {ok: true, id: title.id};
-})()
-```
-Run: `python3 /tmp/figma_run.py /tmp/figma_step2.js`
-
-**Step 3**: Write `/tmp/figma_step3.js`:
-```js
-(async function() {
-  var card = await figma.getNodeByIdAsync(window.__batchState.a_cardId);
-  figma.viewport.scrollAndZoomIntoView([card]);
-  figma.commitUndo();
-  return {ok: true, childCount: card.children.length};
-})()
-```
-Run: `python3 /tmp/figma_run.py /tmp/figma_step3.js`
-
-Use namespaced keys when parallel workers share the same tab: `a_frameId`, `b_frameId`.
+Use namespaced keys when parallel workers share the same tab: `a_cardId`, `b_cardId`.
 
 ## Verification patterns
 
 ### Property check
 
-Write `/tmp/figma_eval.js`:
 ```js
 (async function() {
   var node = await figma.getNodeByIdAsync('NODE_ID');
@@ -139,11 +100,9 @@ Write `/tmp/figma_eval.js`:
   };
 })()
 ```
-Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
 ### Visual export (PNG)
 
-Write `/tmp/figma_eval.js`:
 ```js
 (async function() {
   var node = await figma.getNodeByIdAsync('NODE_ID');
@@ -151,7 +110,6 @@ Write `/tmp/figma_eval.js`:
   return figma.base64Encode(bytes);
 })()
 ```
-Run: `python3 /tmp/figma_run.py /tmp/figma_eval.js`
 
 ### Screenshot via agent-browser
 
@@ -161,7 +119,7 @@ For full-page screenshots without Plugin API:
 agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" screenshot /tmp/figma_screenshot.png
 ```
 
-On either backend (and the only way in Mode P): `python3 /tmp/figma_run.py --screenshot /tmp/figma_screenshot.png`. In Mode P the tab must be the one its window shows.
+On either backend (and the only way in Mode P): `python3 <skill-dir>/figma_run.py --screenshot /tmp/figma_screenshot.png`. In Mode P the tab must be the one its window shows.
 
 ## Parallelization
 
@@ -214,7 +172,6 @@ Returns:
 
 The COORDINATOR injects the listeners once during recon; workers only read.
 
-Write `/tmp/figma_listeners.js`:
 ```js
 (async function() {
   if (!window.__figmaEvents) {
@@ -244,11 +201,9 @@ Write `/tmp/figma_listeners.js`:
   return {ok: true, msg: 'event listeners active'};
 })()
 ```
-Run: `python3 /tmp/figma_run.py /tmp/figma_listeners.js`
 
 Reading is non-destructive: never `splice(0)` the buffer — with multiple consumers, a drain steals everyone else's events. Each consumer keeps its own cursor: a position in the monotonically-growing virtual stream (`__figmaEventsShed + buffer length`). The ring sheds oldest entries, so convert the cursor to a buffer index by subtracting the shed count.
 
-Write `/tmp/figma_events_read.js`:
 ```js
 (function() {
   var NS = 'a_'; // this consumer's namespace prefix
@@ -261,7 +216,6 @@ Write `/tmp/figma_events_read.js`:
   return {events: events, missed: missed};
 })()
 ```
-Run: `python3 /tmp/figma_run.py /tmp/figma_events_read.js`
 
 Poll at 1-2s intervals, not faster — each `agent-browser` invocation cold-starts the CLI (~200ms). The ring buffer holds 100 events, so 1s polling tolerates 100 events/sec before `missed` goes nonzero.
 
@@ -300,7 +254,7 @@ Eval can succeed but return values that signal "found nothing": each means somet
 
 Recheck the query before retrying: don't loop on a wrong selector.
 
-Pattern for safe mutations (`/tmp/figma_eval.js`):
+Pattern for safe mutations:
 ```js
 (async function() {
   var node = await figma.getNodeByIdAsync('TARGET_ID');
@@ -332,7 +286,6 @@ Pattern for safe mutations (`/tmp/figma_eval.js`):
 
 Run assertions programmatically after building. Compare actual state against expected spec.
 
-Write `/tmp/figma_verify.js`:
 ```js
 (async function() {
   var rootId = window.__batchState.rootId; // or hardcode the ID
@@ -365,7 +318,6 @@ Write `/tmp/figma_verify.js`:
 })()
 ```
 
-Run: `python3 /tmp/figma_run.py /tmp/figma_verify.js`
 
 Fix only the `failures` and re-verify.
 

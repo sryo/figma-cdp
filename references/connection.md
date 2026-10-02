@@ -1,12 +1,12 @@
 # Connection
 
-Coordinator-facing setup: how to connect to Figma's Plugin API via `agent-browser`. Workers receive a working connection and never run these steps.
+Coordinator-facing setup: how the helpers reach Figma's Plugin API, through perch (Mode P) or `agent-browser` over CDP (Modes A and B). Workers receive a working connection and never run these steps. The helpers run in place from the skill directory (`<skill-dir>`); nothing is copied.
 
 ## Quick start
 
-1. **Test existing connection**: skip the rest if `typeof figma` returns `"object"`:
+1. **Test existing connection**: skip the rest if this prints `"object"`:
    ```bash
-   agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma" 2>/dev/null && echo "connected"
+   python3 <skill-dir>/figma_run.py --file "FIGMA_URL_HERE" -e 'typeof figma'
    ```
 
 2. **Connect to Chrome.** Three paths. On macOS with perch, use Mode P; else try Mode A first.
@@ -16,16 +16,12 @@ Coordinator-facing setup: how to connect to Figma's Plugin API via `agent-browse
    No debugging toggle, no port, no "Allow debugging?" prompt. The helpers run scripts in your open Figma tab through [perch](https://github.com/sryo/perch)'s `eval_js {world:"main"}` over AppleScript.
 
    1. Have perch checked out at `~/Documents/perch` (or set `PERCH_DIR`), on a version with `eval_js` `world:"main"`, and its one-time setup done (Chrome: View > Developer > Allow JavaScript from Apple Events).
-   2. Copy `figma_perch.mjs` to `/tmp/` next to the helpers. Node 18+ runs it.
-   3. Test:
-      ```bash
-      python3 /tmp/figma_run.py --file "FIGMA_URL_HERE" /tmp/figma_eval.js   # figma_eval.js: typeof figma
-      ```
-      Expected `"object"`. The helpers pick perch on their own when `FIGMA_CDP_PORT` is unset and perch is usable; `FIGMA_BACKEND=perch` (or `cdp`) forces one.
+   2. Have Node 18+; it runs `figma_perch.mjs`, which sits next to the helpers.
+   3. Test with the command in step 1. Expected `"object"`. The helpers pick perch on their own when `FIGMA_CDP_PORT` is unset and perch is usable; `FIGMA_BACKEND=perch` (or `cdp`) forces one.
 
    The first call starts a small background helper (`figma_perch.mjs serve`) that keeps perch loaded, so later calls cost about what a CDP call does. It exits after 10 idle minutes (`FIGMA_PERCH_IDLE`, in seconds); `FIGMA_PERCH_DAEMON=0` runs every call on its own instead.
 
-   `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; put the script in a file and use the helpers. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) runs on Mode P too; see `references/capture.md`.
+   `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; use `figma_run.py -e`. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) runs on Mode P too; see `references/capture.md`.
 
 
    ### Mode A — Attach to your running Chrome (recommended)
@@ -93,9 +89,7 @@ Coordinator-facing setup: how to connect to Figma's Plugin API via `agent-browse
      "https://www.figma.com" &
    ```
 
-3. **Copy the helpers to `/tmp/`**: `figma_run.py` (single eval) and `figma_batch_run.py` (multiple evals in one CLI invocation). Both read `FIGMA_CDP_PORT` (default 9222), base64-encode the JS, and shell out to `agent-browser eval -b` / `agent-browser batch`.
-
-   Install `agent-browser` once: `npm i -g agent-browser && agent-browser install`.
+3. **Install `agent-browser`** (Modes A and B) once: `npm i -g agent-browser && agent-browser install`. The helpers read `FIGMA_CDP_PORT` (else `DevToolsActivePort`, else 9222), base64-encode the script and shell out to `agent-browser eval -b` / `agent-browser batch`. Raw `agent-browser --cdp <port> eval "..."` one-liners skip the `DevToolsActivePort` fallback, so they need the port exported.
 
 ## Troubleshooting
 

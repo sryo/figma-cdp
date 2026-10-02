@@ -4,7 +4,7 @@ How to create and modify design nodes via the Plugin API.
 
 ## Component workflow
 
-See `references/conventions.md` for atomic design hierarchy, naming (`Atoms/…`, `Molecules/…`, `Screens/…`), and page structure. Always prefer `component.createInstance()` over recreating structures, and `instance.swapComponent(target)` over rebuilding nested components. Verify visually with `node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}})`.
+See `references/conventions.md` for value precedence, the source → auto layout mapping and naming. Always prefer `component.createInstance()` over recreating structures, and `instance.swapComponent(target)` over rebuilding nested components. Verify visually with `node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}})`.
 
 ## Constraints and sizing
 
@@ -43,47 +43,40 @@ figma.base64Encode(bytes);
 
 ## Component variants
 
-Pattern for creating a component set with variants. VARIANT properties derive from `Prop=Value` node names set BEFORE combining; BOOLEAN/TEXT/INSTANCE_SWAP properties are added on the ComponentSet AFTER combining (they cannot be added to a variant inside a set):
+The one recipe for a component set. VARIANT axes come from `Prop=Value` names set BEFORE combining; TEXT, BOOLEAN and INSTANCE_SWAP properties go on the set AFTER combining (a variant inside a set can't take them) and are linked in every variant; the set itself gets auto layout and hugs.
+
 ```js
-// Create variant components — name them 'Prop=Value' BEFORE combining
-var primary = figma.createComponent();
-primary.name = 'Style=Primary';
-primary.resize(120, 40);
-primary.layoutMode = 'HORIZONTAL';
-primary.primaryAxisAlignItems = 'CENTER';
-primary.counterAxisAlignItems = 'CENTER';
-primary.fills = [{type: 'SOLID', color: {r: 0.15, g: 0.4, b: 0.95}}];
-primary.cornerRadius = 8;
+await figma.loadFontAsync({family: 'Inter', style: 'Medium'});
+const icon = await figma.getNodeByIdAsync('ICON_COMPONENT_ID');           // a COMPONENT
+const base = await __fx.frame({name: 'Variant=Primary, State=Default', component: true, dir: 'H',
+  gap: 8, pad: [8, 16], align: 'center', justify: 'center', radius: 8, fill: 'color/bg/primary'});
+base.appendChild(icon.createInstance());
+await __fx.text('Button', {parent: base, weight: 'Medium', size: 14, color: 'color/text/on-primary'});
 
-var secondary = primary.clone();
-secondary.name = 'Style=Secondary';
-secondary.fills = [{type: 'SOLID', color: {r: 0.9, g: 0.9, b: 0.9}}];
-
-// Combine into variant set
-var buttonSet = figma.combineAsVariants([primary, secondary], figma.currentPage);
-buttonSet.name = 'Button';
-
-// CRITICAL: position children after combining (they stack at 0,0)
-buttonSet.children.forEach(function(child, i) { child.x = i * 150; child.y = 0; });
-// Resize component set to fit
-var maxX = 0;
-for (var i = 0; i < buttonSet.children.length; i++) {
-  var right = buttonSet.children[i].x + buttonSet.children[i].width;
-  if (right > maxX) maxX = right;
+const variants = [base];
+for (const [name, fill] of [['Variant=Secondary, State=Default', 'color/bg/secondary'],
+                            ['Variant=Primary, State=Disabled', 'color/bg/disabled']]) {
+  const v = base.clone(); v.name = name; await __fx.bindFill(v, fill); variants.push(v);
 }
-buttonSet.resizeWithoutConstraints(maxX + 40, buttonSet.children[0].height + 40);
+const set = figma.combineAsVariants(variants, PARENT);
+set.name = 'Button';
+await __fx.autoLayout(set, {dir: 'H', wrap: true, gap: 16, pad: 16, w: 'hug', h: 'hug'});
 
-// Add a boolean property — on the ComponentSet, AFTER combining
-buttonSet.addComponentProperty('Disabled', 'BOOLEAN', false);
-// Returned name carries an #id suffix: see references/api-components.md → ComponentPropertiesMixin
+const label = set.addComponentProperty('Label', 'TEXT', 'Button');            // returns 'Label#1:2'
+const show = set.addComponentProperty('Show Icon', 'BOOLEAN', true);
+const swap = set.addComponentProperty('Icon', 'INSTANCE_SWAP', icon.id);
+for (const v of set.children) {
+  v.findOne(n => n.type === 'TEXT').componentPropertyReferences = {characters: label};
+  v.findOne(n => n.type === 'INSTANCE').componentPropertyReferences = {visible: show, mainComponent: swap};
+}
+return {setId: set.id, variants: set.children.map(c => c.id)};
 ```
 
-Working with instances:
-```js
-var instance = primary.createInstance();
-instance.setProperties({'Style': 'Secondary'});  // switch variant
-// BOOLEAN/TEXT props need the full suffixed name (see note above)
-```
+- Axes and values come from the source's prop and state enums, one axis per enum.
+- Text that changes per use is a TEXT property, never one variant per string. An optional part is a BOOLEAN on its `visible`; a swappable icon or slot is an INSTANCE_SWAP on its `mainComponent`.
+- A property no layer references does nothing; `__fx.audit` counts those as `unlinkedProps`.
+
+Using it: `__fx.instance('Button', {Variant: 'Secondary', Label: 'Cancel', 'Show Icon': false}, {parent})`. Raw API: `inst.setProperties({Variant: 'Secondary', 'Label#1:2': 'Cancel'})`; non-VARIANT names need their `#id` suffix (`references/api-components.md` → ComponentPropertiesMixin).
 
 ## Instance overrides
 
@@ -208,30 +201,9 @@ See `references/api-reference.md` → Utility (`figma.util`) for `rgb`, `rgba`, 
 
 ## Post-build audit
 
-After explicit assertions pass, run a convention audit on the same subtree. Assertions check the spec we wrote; the audit catches drift from the file's existing conventions that the spec didn't enumerate.
+After the spec's assertions pass, `__fx.audit(rootId)` checks what the spec didn't enumerate (`references/execution.md` → Resident helper library): repeated raw subtrees, FIXED frames in auto layout, absolute children at default constraints, groups, default names, raw paints equal to a variable, fixed text in auto layout, components without auto layout, unlinked properties. Every count should be 0. Then the coordinator runs `figma_fidelity.py` against the source manifest (`references/fidelity.md`): off-scale means "not in the source's values", not "not on a default scale".
 
-What to check:
-
-- **Raw color paints.** Walk fills and strokes. Flag any `SOLID` paint missing `boundVariables.color`; it should resolve to a color variable from the file.
-- **Off-scale spacing.** Read the file's existing auto-layout values to derive the spacing scale. Flag `itemSpacing` or `padding*` values not in that set.
-- **Unbound typography.** For each `TEXT` node, check whether its `(fontName, fontSize, lineHeight, letterSpacing)` matches a defined text style. If not, flag.
-- **Should-be-instance.** Detect raw frames whose structure matches an existing component. Suggest converting via `component.createInstance()`.
-- **Contrast (optional).** For each `TEXT` over a known background fill, run an APCA Lc check. Defaults: ±60 for body, ±75 for small text. Skip when the background isn't resolvable.
-
-Return format:
-
-```js
-return {
-  audit: [
-    {nodeId: '1:23', issue: 'raw-color', suggestion: 'bind fills[0].color to color/bg/primary'},
-    {nodeId: '1:25', issue: 'off-scale-spacing', actual: 13, expected: [12, 16, 24]}
-  ]
-};
-```
-
-A worker that finds audit items should report `DONE_WITH_CONCERNS` (not `DONE`), with the audit list in its report. The coordinator decides whether to ask the user to accept the drift or to dispatch a fix worker.
-
-See `references/reading.md` → Reading variable bindings for the helper that resolves `boundVariables` on a node.
+A worker left with audit counts it can't fix reports `DONE_WITH_CONCERNS` with the ids.
 
 ## Layout recipes
 

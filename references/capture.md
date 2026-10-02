@@ -13,8 +13,8 @@ Load when the source is a live URL to import into Figma: a rendered web page bec
 The helper does both halves and picks its backend as `figma_run.py` does (`FIGMA_BACKEND`, else CDP when `FIGMA_CDP_PORT` is set, else perch when usable). The spec crosses between them as a **`/tmp` file**, never a shared tab:
 
 ```bash
-python3 /tmp/figma_capture.py walk <url> [wait_ms]                 # → /tmp/figma_capture_<slug>.json
-python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components '<json-or-path>'   # into the Figma tab
+python3 <skill-dir>/figma_capture.py walk <url> [wait_ms]                 # → /tmp/figma_capture_<slug>.json
+python3 <skill-dir>/figma_capture.py import /tmp/figma_capture_<slug>.json --componentize --components '<json-or-path>'   # into the Figma tab
 ```
 
 ### perch (default)
@@ -195,7 +195,7 @@ This in-page role map is a deliberate v1. The fidelity upgrade is a native `Acce
 The helper runs the whole deterministic loop — never hand-roll chunk evals. After the component inventory (`references/reading.md` → Component inventory):
 
 ```bash
-python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components '{"button":"1:2","input":"1:7"}'
+python3 <skill-dir>/figma_capture.py import /tmp/figma_capture_<slug>.json --componentize --components '{"button":"1:2","input":"1:7"}'
 ```
 
 On CDP it targets the default session (`--cdp`, same port resolution as `figma_run.py`); on perch, the Figma tab `figma_run.py` would pick. It evals, in order:
@@ -207,7 +207,9 @@ On CDP it targets the default session (`--cdp`, same port resolution as `figma_r
 
 On CDP every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab; `--chunk-bytes N` shrinks the node-chunk budget to exercise cross-chunk state. `node tests/importer_stub.js <spec.json> [--componentize]` replays those dry-run evals against a stub Plugin API (font-before-characters and sizing rules enforced) and prints the report — the no-Figma smoke check after touching the importer; `python3 tests/importer_test.py` asserts sizing, constraints and componentize on `tests/capture_spec.json`.
 
-### Componentize (`--componentize`, opt-in)
+### Componentize (`--componentize`)
+
+Off unless passed; pass it on every import of a page with repeated rows, cards or items.
 
 Before chunking, the helper hashes every captured subtree: each node's tag, role, layout mode, child count, full `styles`, `xf`, `image`, whether its text wraps and (for styled `runs`) run text, plus, rounded to 4 px, the root's rect, every fixed-size (`sz` px / other) axis and textless leaf's size, and the offset of every positioned node or child of a non-Auto-Layout parent. Text content is left out. Every group of **3+** identical-shape subtrees — siblings or cousins anywhere in the page, never overlapping, outermost group first — imports as one component plus instances:
 
@@ -284,7 +286,7 @@ When several apply, one wins: `image` > `grid` / `block` > walker `transform` > 
 
 ## CSS → Figma mapping
 
-The deterministic import reads each node's sparse `styles` and maps to the nearest Figma primitive, same as `conventions.md` → Source → Figma primitives but keyed on computed CSS. (This is the ONE allowed CSS-property table — AGENTS.md carries a carve-out to the no-per-language-tables rule for it.) The semantic `role` runs alongside: it drives layer naming (source-ref above) and component selection (Component instantiation contract above) — a node that hits a category in the component map becomes an instance and skips the mapping below.
+The deterministic import reads each node's sparse `styles` and maps to the nearest Figma primitive, same as `conventions.md` → Source layout semantics → auto layout but keyed on computed CSS. (This is the ONE allowed CSS-property table — AGENTS.md carries a carve-out to the no-per-language-tables rule for it.) The semantic `role` runs alongside: it drives layer naming (source-ref above) and component selection (Component instantiation contract above) — a node that hits a category in the component map becomes an instance and skips the mapping below.
 
 | Spec construct | Figma |
 |---|---|

@@ -1,102 +1,68 @@
 ---
 name: figma-cdp
-description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API via the agent-browser CLI over Chrome DevTools Protocol, or via perch over AppleScript with no CDP. Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
-allowed-tools: Bash(agent-browser:*), Bash(python3 /tmp/figma_run.py:*), Bash(python3 /tmp/figma_batch_run.py:*), Bash(python3 /tmp/figma_capture.py:*)
+description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API through perch (AppleScript) or the agent-browser CLI (Chrome DevTools Protocol). Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
+allowed-tools: Bash(agent-browser:*), Bash(python3 *figma_*.py *)
 ---
 
 # Figma design automation
 
-Drives Figma's Plugin API (`agent-browser --cdp <port> eval`) in a read → modify → verify loop. Plugin API for everything; REST is only for image rendering and comments.
-
-You are a coordinator. For non-trivial work, you inspect the page, decompose into independent units, write specs with verifiable assertions, and dispatch each spec to a worker subagent. Run inline for trivial work (see Work decomposition).
+You coordinate: read the source and the file, plan components, run small work inline, dispatch the rest to workers (`figma-worker.md`), and gate the result. Plugin API for everything; REST only for image renders and comments.
 
 ## Setup
 
-1. **`agent-browser` installed?** If `which agent-browser` returns nothing, see `references/connection.md`.
-2. **Chrome connected?** With perch present (Mode P, no CDP), write `typeof figma` to `/tmp/figma_eval.js` and run `python3 /tmp/figma_run.py --file <figma-url> /tmp/figma_eval.js`; pass `--file` on every helper call (required when several Figma files are open). Otherwise run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/connection.md` (Mode P perch, Mode A attach, Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
-3. **Helper scripts.** Copy `figma_run.py` (one eval), `figma_batch_run.py` (several), `figma_perch.mjs` (perch), `figma_lib.js` (`--lib`) and `figma_capture.py` (live-URL capture, CDP) to `/tmp/`.
+`<skill-dir>` is this skill's base directory. Run every helper from there; nothing is copied. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. It uses perch when present (macOS, no debugging prompt), else CDP through `agent-browser`. Any failure or CDP setup: `references/connection.md`. Pass `--file` (or export `FIGMA_FILE`) on every helper call.
 
-## When you receive a Figma URL
+## Flow
 
-1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and the node ID (query param, hyphens become colons).
-2. Reconnaissance: use the flat text tree pattern in `references/reading.md` → Flat text tree to get the page structure. Switch to Full node inspection only when you need specific properties.
-3. Inventory local components: run `references/reading.md` → Component inventory. Note every Component / ComponentSet that exists; any worker that needs a button, card, input, icon, etc. should instantiate the matching one instead of building raw frames. New components only when nothing fits.
-4. Decide whether to dispatch a worker (see Work decomposition) or run inline.
-5. Before any mutating dispatch, snapshot via `figma.saveVersionHistoryAsync()`; on a BLOCKED result, see `references/execution.md` → Rollback.
-6. If dispatching: pre-create the target frames and assign each worker a specific frame or page — a worker builds only within its assigned frame. Fill in `figma-worker.md` with [Task], [Target Nodes], [Namespace], and [Reference], pass to the Agent tool. List the component IDs the worker should reuse so it doesn't rebuild from scratch. Run workers in parallel when their units share no state.
-7. Collect results and check each worker's status (`figma-worker.md` defines the emit contract):
-   - DONE → fold its node IDs and section summary into your report.
-   - NEEDS_CONTEXT → gather the named info, re-dispatch the same spec.
-   - BLOCKED → inspect the failing assertions and returned createdNodeIds; decide re-split vs cleanup vs user escalation.
-   - DONE_WITH_CONCERNS → verify the concern yourself before summarizing.
-8. Summarize back to the user: sections completed, node IDs created/modified, assertions that needed retries, escalations, next steps.
-
-## When you receive a mockup request without a source URL
-
-When a request names an existing app, screen, or feature instead of pointing at a Figma file: **code → Figma means the source artifact already exists** — locate the source repo/code (check `~/Documents/<name>`, else ask for the path or fetch the GitHub URL) and read the real UI before designing: real layout, real colors, real typography, real copy. If the app has no UI yet (a CLI, a library, a backend service), say so and ask the user what surface to design — don't invent screens. Then proceed from step 3 of the Figma-URL branch; each worker spec must cite the specific source files it mirrors. If the source is a live URL, use the capture fast-path — `references/capture.md`: `python3 /tmp/figma_capture.py walk <url>`, then inventory local components (`references/reading.md` → Component inventory) and run `python3 /tmp/figma_capture.py import <spec> --components <json>` so the importer instantiates them instead of building raw frames.
+1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and node id (`node-id`, `-` → `:`).
+2. **Source.** Code → Figma means the source exists: find it (`~/Documents/<name>`, a path, a GitHub URL, a live URL) and read the real UI. An app with no UI (CLI, library): ask what to design; never invent from a name. Write the manifest once: `python3 <skill-dir>/figma_source.py <files> -o /tmp/figma_source_<slug>.json` (`references/fidelity.md`). A live URL goes through capture instead: `figma_capture.py walk <url>`, then `import <spec> --componentize --components <json>` (`references/capture.md`); workers only fix after.
+3. **Recon, one call:** `python3 <skill-dir>/figma_run.py --lib --file <url> -e 'await figma.saveVersionHistoryAsync("pre <task>"); return [await __fx.recon({nodeId: "<id>"}), (await __fx.inventory()).text]'`: page list and text tree, plus one line per reusable set, component, library component, style, variable and repeated raw pattern (`references/reading.md`).
+4. **Component plan.** Search the inventory first (`__fx.inventory({match: 'button|card'})`); a match is REUSE `<id>`. A unit with no match becomes NEW when it repeats 2+ times or has prop/state enums. Enums and states become VARIANT axes of a component set; text that varies becomes a TEXT property, optional parts BOOLEAN, swappable icons INSTANCE_SWAP. A repeated PATTERN the task touches becomes a component first. Recipe: `references/building.md` → Component variants.
+5. **Inline or dispatch** (below). Dispatch: pre-create target frames, fill every `figma-worker.md` slot ([Reuse] gets only the inventory lines the task needs) and pass it to the Agent tool.
+6. **Statuses.** DONE: collect ids. DONE_WITH_CONCERNS: check its concerns and assumptions yourself. NEEDS_CONTEXT: get it, re-dispatch the same spec. BLOCKED: read the failures and `createdNodeIds`, then re-split, clean up (`references/execution.md` → Rollback) or ask the user.
+7. **Final gate** before summarizing: `__fx.audit(rootId)` counts at 0 and `python3 <skill-dir>/figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <url>` exit 0. Fix gaps with targeted edits; report any left on purpose.
+8. **Summarize:** what changed, node ids, retries, every worker assumption verbatim, gaps left, next steps.
 
 ## Work decomposition
 
-**Run inline** when the task is under ~5 operations AND under ~3 assertions — single-property dispatch pays overhead without buying verification; workers pay off at scale, not on renames.
+Run inline up to one frame or ~20 operations. Group small related units into one worker with Sections, never one worker each. Parallel workers only for independent large areas (different frames or pages); never the same nodes or dependent chains. Split a worker past ~40 operations or 25 assertions.
 
-**One worker** when units overlap or run sequentially. **Parallel workers** for independent areas (different pages or frames) that share no state. Never parallelize the same nodes, or chains where one worker depends on another's output. If a worker's task list exceeds 20 operations or its assertion block exceeds 25 items, split it. Hard rule.
-
-### Task boundaries
-
-Each worker gets explicit, self-contained instructions: real node IDs like `1:23 (TextNode "Hero Heading")` instead of "the heading", an exact end state instead of "make it better", verifiable assertions to run after building, and no TBDs.
-
-### Spec format with assertions
-
-Coordinator provides verifiable assertions; workers check after building. The full spec template (Task / Target Nodes / Namespace / Assertions / Sections) lives in `figma-worker.md`.
-
-### Large documents: section checkpointing
-
-For large tasks (e.g., converting an HTML site to Figma), break into sections. Workers complete and verify one section at a time, checkpoint progress in `window.__batchState[NS + 'checkpoint']` (the key is namespaced per worker), and resume from the last completed section if re-launched. See `references/execution.md` → Section checkpointing.
-
-## Files
-
-Worker template: `figma-worker.md` — spec-driven worker prompt with a verification loop; the coordinator fills it in and passes it to the Agent tool.
-
-References, loaded on demand:
-
-| File | Load for |
-|------|----------|
-| `references/capture.md` | Live URL → Figma import. Load when the source is a rendered web page |
-| `references/conventions.md` | Atomic design, naming, spacing, colors, typography. Always include for workers |
-| `references/gotchas.md` | WRONG/CORRECT examples for common API pitfalls. Always include for workers |
-| `references/reading.md` | Understanding design before modifying |
-| `references/rest-api.md` | REST endpoints for image rendering and comments |
-| `references/building.md` | Creating or modifying nodes, components, images, effects + Auto Layout patterns for Button, Card, Input, List + constraints decision table |
-| `references/copy.md` | Text extraction, updates, font loading patterns |
-| `references/connection.md` | Connection setup: install, Mode A attach, Mode B Canary launch, troubleshooting. Coordinator-only — load during setup |
-| `references/execution.md` | Eval patterns, batched evals, state persistence, error recovery, performance |
-| `references/api-reference.md` | Universal API: `figma` global, find/navigate, lifecycle, events, viewport, base mixins, GeometryMixin (fills/strokes) + hex helper. Start here, then load topical files below |
-| `references/api-text.md` | TextNode + range methods + font loading. Load for copy/text work |
-| `references/api-layout.md` | FrameNode, shape nodes, Layout / AutoLayout / Grid / Constraint mixins. Load for building screens |
-| `references/api-components.md` | Component, ComponentSet, Instance, Variables, Styles. Load for component / variant / design-system work |
-| `references/api-styling.md` | Blend mixin, gradient/image paints, Effect, Reaction + FramePrototypingMixin, Prototype types. Load for color / shadow / prototype work (solid fills/strokes live in api-reference.md) |
-
-Per-task reference combos for workers (a worker needing 3+ `api-*` files is a sign the task is too broad — split it):
-- Build screens: conventions + gotchas + building + api-reference + api-layout
-- Copy/text edit: conventions + gotchas + copy + api-text
-- Component/variant/design-system: conventions + gotchas + building + api-components
-- Color/effects/prototype: conventions + gotchas + api-styling (+ building if creating)
+Specs are self-contained: real ids (`1:23 (TEXT "Hero Heading")`), an exact end state, assertions, no TBDs.
 
 ## Before dispatch
 
-- [ ] Target nodes named with exact IDs, not descriptions
-- [ ] Each target ID verified to exist (`getNodeByIdAsync` returns a node, not null)
-- [ ] Component IDs to reuse listed (or: none — file has no library)
-- [ ] End state is exact (no "make it better")
-- [ ] Assertions list every verifiable check
-- [ ] Task fits under the complexity budget
+- [ ] Target ids verified to exist
+- [ ] Component plan covers every source unit; [Reuse] and [Manifest] filled
+- [ ] End state exact; assertions cover it; under the size limits
+
+## References (load on demand)
+
+| File | Load for |
+|------|----------|
+| `references/capture.md` | Live URL → Figma import |
+| `references/conventions.md` | Value precedence, source → Figma mapping, design defaults, naming |
+| `references/gotchas.md` | API pitfalls as WRONG/CORRECT |
+| `references/reading.md` | Recon, inventory, deep reads |
+| `references/building.md` | Creating nodes, variant recipe, layout recipes |
+| `references/copy.md` | Text edits, fonts |
+| `references/connection.md` | Setup, perch and CDP modes, troubleshooting |
+| `references/execution.md` | Helpers, `__fx`, batching, state, verification, rollback |
+| `references/fidelity.md` | Source manifest and fidelity check |
+| `references/rest-api.md` | REST renders and comments |
+| `references/api-reference.md` | `figma` global, base mixins, fills |
+| `references/api-text.md` | TextNode |
+| `references/api-layout.md` | Frames, auto layout, constraints |
+| `references/api-components.md` | Components, variables, styles |
+| `references/api-styling.md` | Effects, gradients, prototyping |
+
+Per-task reference combos (a worker reads these only for calls its cheat sheet lacks):
+- Build screens: conventions + building + api-layout
+- Copy/text edit: copy + api-text
+- Component/variant/design-system: building + api-components
+- Color/effects/prototype: conventions + api-styling
 
 ## Rules
 
-- Explain in plain English what you'll do.
-- Never use Chrome MCP tools (`mcp__claude-in-chrome__*`). Always go through the helpers or `agent-browser`.
-- Read state before writing. Inspect the Plugin API before mutating anything.
-- **Code → Figma means the source artifact already exists.** Before designing, locate and read it — repo, component file, README screenshots, or live page. Never generate from the app's name or category alone.
-- Preserve existing behavior unless asked.
-- Make targeted edits; don't rebuild.
-- Follow Figma conventions: components, Auto Layout, consistent naming, proper hierarchy.
+- Say in plain English what you'll do.
+- Never use Chrome MCP tools; always the helpers.
+- Read state before writing; make targeted edits; don't rebuild; preserve behavior unless asked.

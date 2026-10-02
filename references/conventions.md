@@ -1,210 +1,81 @@
 # Figma design conventions
 
-Standards for structuring Figma files. Based on Figma's official skills (figma-use, figma-generate-library) and atomic design (atoms → molecules → organisms → screens).
+How a source becomes Figma structure, and what to use when nothing decides it. Values below are defaults or examples, never overrides of the source or the file.
 
-**Everything below is a rule or a pattern. Specific values (colors, fonts, sizes, spacing) are EXAMPLES only: always discover the file's actual values first.**
+## Rule zero: precedence
 
-## Rule zero: discover before creating
+1. **Source values.** The source manifest (`references/fidelity.md`) and the cited files win: an 18px gap stays 18, a hex absent from the file stays that hex.
+2. **File conventions.** The inventory (`references/reading.md` → Component inventory) decides names, tokens and components wherever the source is silent, and how a source value is expressed: bind to the variable or style whose value equals it.
+3. **Defaults** (Design defaults below) only when the file is empty and the source says nothing.
 
-Two discoveries, in order:
+Bind only on an exact match. No match: write the source value raw and list it in the report's `assumptions`, or, when the task builds a design system, create the variable from the source token's name.
 
-1. **Source.** Read the source first — see the worker loop's DISCOVER step; the mockup mirrors the implementation.
-2. **Figma file.** Different files use different naming conventions, variable structures, and component patterns. Match what's already there. See `references/reading.md` for inspection scripts (pages, components, fonts, colors, spacing).
+## Source values → Figma (token-first)
 
-Defaults below apply only when the file has no consistent patterns. Otherwise match what's there (e.g. if the file uses 4px spacing, use 4px).
-
-## Atomic design hierarchy
-
-Build bottom-up: atoms first, then molecules from atom instances, then screens from instances.
-
-| Level | What | Naming pattern |
-|-------|------|----------------|
-| **Atoms** | Smallest reusable pieces (buttons, inputs, icons, dividers) | `Atoms/Name` |
-| **Molecules** | Compositions of atoms (cards, menu items, nav items) | `Molecules/Name` |
-| **Organisms** | Complex sections (navigation bars, sidebars, tables) | `Organisms/Name` |
-| **Screens** | Full pages composed from instances | `Screens/Name` |
-
-**Rules:**
-- Screens should contain almost exclusively instances, not raw nodes (component reuse: `gotchas.md` #16)
-
-## Component naming
-
-| Type | Convention | Example |
-|------|-----------|---------|
-| Public components | PascalCase, no prefix | `Button`, `Input` |
-| With hierarchy | Level/Name | `Atoms/Button`, `Molecules/Header Bar` |
-| Sub-components (internal) | `_` prefix + slash | `_Button/Slot`, `_Input/Indicator` |
-| Documentation-only | `.` prefix | `.ExampleCard` |
-| Variant values | `Property=Value` | `Size=Medium, Style=Primary` |
-
-**Variant property names** should match code props where possible.
-**Variant values** use Title Case in Figma.
-
-Match existing naming (e.g. `button-primary`, `btn/primary`).
-
-## Component structure
-
-### Every component must have:
-- **Auto Layout**: `layoutMode: 'VERTICAL'` or `'HORIZONTAL'`
-- **Proper padding**: `paddingTop/Right/Bottom/Left`
-- **Item spacing**: `itemSpacing` for gaps
-- **Descriptive name**: match existing naming convention
-
-### Creating variants
-
-Variant component names encode properties as `Property=Value` pairs, e.g. `Size=Medium, Style=Primary`: match the existing naming pattern in the file. Full walkthrough (naming before combining, post-combine positioning, adding properties): see `references/building.md` → Component variants.
-
-### Component properties
-```js
-// addComponentProperty returns an #id-suffixed key — never hardcode it: see references/api-components.md → ComponentPropertiesMixin
-var labelKey = comp.addComponentProperty('Label', 'TEXT', 'Default');
-
-// Link property to child node (REQUIRED or property does nothing)
-textNode.componentPropertyReferences = { characters: labelKey };
-
-// Boolean for visibility
-var showIconKey = comp.addComponentProperty('Show Icon', 'BOOLEAN', true);
-iconNode.componentPropertyReferences = { visible: showIconKey };
-
-// Instance swap (avoids variant explosion for icons, avatars, etc.)
-var iconSlotKey = comp.addComponentProperty('Icon', 'INSTANCE_SWAP', iconComp.id);
-iconInstance.componentPropertyReferences = { mainComponent: iconSlotKey };
-```
-
-**Add properties BEFORE `combineAsVariants`**, not after.
-
-## Page structure
-
-```
-Cover
----
-Foundations (colors, typography, spacing tokens)
-Icons
----
-Component pages (one per component or group)
----
-Screens
-Utilities
-```
-
-- **Cover** always first
-- **`---`** separator pages between sections
-- **Foundations** before components, components before screens
-- Match existing page structure if the file already has one
-
-## Variable / token naming
-
-Naming hierarchy, primitives vs semantic, scopes, and code-syntax mapping: see `references/api-components.md` → Variables.
-
-## Style naming
-
-Use `category/name` pattern. Example (adapt to project):
-```
-Display/Large     Heading/1         Body/Large        Label/Large
-Shadow/Subtle     Shadow/Medium     Shadow/Strong
-```
-
-## Auto Layout rules
-
-Critical ordering and common gotchas live in `references/gotchas.md`. Patterns below.
-
-### Common patterns
-- **Full-width children**: parent `counterAxisSizingMode = 'FIXED'`, child `layoutSizingHorizontal = 'FILL'`
-- **Push apart**: `primaryAxisAlignItems = 'SPACE_BETWEEN'`
-- **Center**: `primaryAxisAlignItems = 'CENTER'`, `counterAxisAlignItems = 'CENTER'`
-- **Push to bottom**: transparent spacer frame with `layoutSizingVertical = 'FILL'`
-
-### Avoid
-- Manual x/y inside Auto Layout frames
-- `layoutMode = 'NONE'` on components
-- `resize()` after setting sizing modes (it resets them to FIXED)
-
-## Color rules
-
-0-1 range, opacity on paint: see `gotchas.md` #3, #4. Read existing colors first; match the palette.
-
-## Typography rules
-
-`lineHeight`/`letterSpacing` use `{unit, value}` format: see `references/gotchas.md`.
-
-**Always discover the file's fonts first** via `figma.listAvailableFontsAsync()`. Don't assume Inter or any specific font. If `loadFontAsync` fails, list available fonts to find the correct style name or pick a fallback.
-
-## Spacing
-
-Use consistent values from a scale. Read existing spacing from the file's Auto Layout frames to discover the project's spacing system.
-
-**Rule:** Pick values from a harmonious scale (e.g., 4/8/12/16/24/32/48). Don't use arbitrary numbers.
-
-## Effects
-
-Match existing file effects when possible. Effects arrays are readonly; clone before mutating (see `references/gotchas.md`). See `references/building.md` for drop shadow / blur / inner shadow examples.
-
-**Corner radius:** read existing radii from the file. Common patterns: small (inputs/buttons), medium (cards), full (avatars = width/2).
-
-## Screen structure
-
-```
-Screen Frame (sized to target device, vertical auto layout)
-├── Header instance (FILL width)
-├── Divider instance (FILL width)
-├── Content section (FILL width, auto layout, padding)
-│   ├── Section titles
-│   └── Component instances (FILL width)
-├── Spacer frame (FILL vertical: pushes nav to bottom)
-└── Bottom Nav instance (FILL width)
-```
-
-- Position screens left-to-right with consistent gaps
-- New top-level nodes: always position away from (0,0) to avoid overlapping existing content
-
-**Screen size depends on the project**: discover from existing screens or ask the user. Don't assume a specific device size.
-
-## Incremental workflow
-
-1. **Inspect first**: discover what exists before creating
-2. **One thing per eval**: create variables, then components, then layouts in separate calls
-3. **Return ALL node IDs**: `return {createdNodeIds: [...], mutatedNodeIds: [...]}`
-4. **Validate after each section/checkpoint** (not each property set): the section's assertion block covers per-property checks. Per-step validation pays one `agent-browser` cold-start each — batch reads.
-5. **Fix before moving on**: don't build on a broken foundation
-
-## Pre-flight checklist
-
-- [ ] Inspected file conventions before creating (Rule Zero)
-- [ ] All repeated elements use component instances (no raw duplicates)
-- [ ] Components named to match file's existing convention
-- [ ] Auto Layout on every component and screen frame
-- [ ] `layoutSizingHorizontal = 'FILL'` set AFTER appendChild
-- [ ] Fonts loaded before every text modification
-- [ ] Colors in 0-1 range, opacity on paint not in color
-- [ ] lineHeight/letterSpacing use `{unit, value}` format
-- [ ] All created/mutated node IDs returned
-- [ ] Variable scopes set explicitly (never ALL_SCOPES)
-- [ ] `figma.commitUndo()` after logical work groups
-- [ ] `figma.viewport.scrollAndZoomIntoView()` at the end
-- [ ] New top-level nodes positioned away from (0,0)
-
-## Post-build audit
-
-See `references/building.md` → Post-build audit.
-
-## Source → Figma primitives
-
-When translating source code (HTML, SwiftUI, Compose, Flutter, etc.) or prose descriptions into Figma, map source constructs to their nearest Figma primitive rather than translating literally. The mapping is the same regardless of source language:
-
-| Source construct (any language) | Figma primitive |
+| Source value | Figma |
 |---|---|
-| Vertical container / column / stack | `layoutMode = 'VERTICAL'` |
-| Horizontal container / row | `layoutMode = 'HORIZONTAL'` |
-| Z-stack / overlay | child with `layoutPositioning: 'ABSOLUTE'` |
-| Padding modifier | `paddingTop` / `paddingLeft` / `paddingRight` / `paddingBottom` |
-| Spacing between children | `itemSpacing = N` |
-| Fixed-size constraint | `resize(w, h)` + `layoutSizing*: 'FIXED'` |
-| Fill-available constraint | `layoutSizingHorizontal/Vertical: 'FILL'` |
-| Hug-content constraint | `layoutSizingHorizontal/Vertical: 'HUG'` |
-| Background color | `fills = [figma.util.solidPaint('#hex')]` |
-| Border / stroke | `strokes = [figma.util.solidPaint('#hex')]` + `strokeWeight = N` |
-| Corner radius | `cornerRadius = N` |
-| Shadow / elevation | `effects = [{type: 'DROP_SHADOW', ...}]` |
-| Reusable subview / partial | check for existing component; otherwise `figma.createComponent()` + `.createInstance()` |
+| Color (token or literal) | `__fx.bindFill(node, value)`: binds the variable (else paint style) with that exact value, else paints raw. Strokes: `'strokes'` |
+| Spacing, padding, gap | `node.setBoundVariable('itemSpacing' / 'paddingLeft' ..., v)` when a FLOAT variable scoped `GAP` holds the value, else the number |
+| Corner radius | `setBoundVariable('topLeftRadius' ..., v)` with a `CORNER_RADIUS` variable, else `cornerRadius = n` |
+| Type (family, size, weight, line height) | `await text.setTextStyleIdAsync(style.id)` when a text style matches all four; else set them and list the text in assumptions if no style fits |
+| Shadow, blur | an effect style with the same values (`effectStyleId`), else `effects = [...]` |
+| Copy | the manifest string, verbatim, placeholders filled with realistic sample values |
 
-If a source construct doesn't map cleanly, prefer the closest Auto Layout shape and document the divergence in the worker's report rather than forcing a literal translation.
+```js
+// The bindings __fx.bindFill does for color, written out:
+const v = await figma.variables.getVariableByIdAsync('VariableID:1:5');
+node.fills = [figma.variables.setBoundVariableForPaint(figma.util.solidPaint('#2563eb'), 'color', v)];
+node.setBoundVariable('itemSpacing', gapVar);
+```
+
+## Source layout semantics → auto layout
+
+Name the kind of construct, not the syntax; the mapping holds for any source.
+
+| Source layout | Figma |
+|---|---|
+| Column / vertical stack | `layoutMode = 'VERTICAL'` |
+| Row / horizontal stack | `layoutMode = 'HORIZONTAL'` |
+| Gap between children | `itemSpacing` |
+| Children pushed apart (space-between) | `primaryAxisAlignItems = 'SPACE_BETWEEN'`, no spacer frames |
+| Cross-axis alignment (start/center/end/baseline) | `counterAxisAlignItems` `MIN` / `CENTER` / `MAX` / `BASELINE` |
+| Child that grows to fill (flex grow, weight, `1fr`, width 100%) | `layoutSizingHorizontal/Vertical = 'FILL'` after `appendChild` |
+| Content-sized element (auto width, hug) | `'HUG'` (auto-layout frames and text only) |
+| Fixed size | `resize(w, h)`, then `'FIXED'` |
+| Min / max width or height | `minWidth` / `maxWidth` / `minHeight` / `maxHeight` on an auto-layout frame or its child |
+| Wrapping row (flex-wrap, flow layout) | `layoutWrap = 'WRAP'` + `counterAxisSpacing`; width FIXED or FILL, never HUG |
+| Grid | rows of `HORIZONTAL` frames with FILL children, or `layoutMode = 'GRID'` |
+| Paragraph that wraps | text `layoutSizingHorizontal = 'FILL'`, `textAutoResize = 'HEIGHT'` (`__fx.text(chars, {w: 'fill'})`) |
+| Single-line label | text `textAutoResize = 'WIDTH_AND_HEIGHT'` |
+| Overlay, badge, absolute child | `layoutPositioning = 'ABSOLUTE'` + `constraints` from the anchored edges: right → `MAX`, left+right → `STRETCH`, centered → `CENTER` |
+| Children of a frame without auto layout | `constraints` the same way; never leave a pinned-right child at `MIN` |
+| Overflow hidden / scroll | `clipsContent = true` |
+| Reusable subview | per SKILL.md's component plan: an instance of the matched or new component |
+
+Screen roots: a FIXED width (the device or breakpoint the source targets), height HUG; full-width sections FILL.
+
+## Components
+
+- Build bottom-up: components first, then screens from their instances. A screen holds instances, not raw copies of components.
+- Every component has auto layout and hugs or fills; no `layoutMode = 'NONE'` components.
+- Variants, properties and the set's own layout: one recipe, `references/building.md` → Component variants.
+- Property names match the source's props (`Size`, `State`, `Label`); variant values in Title Case unless the file differs.
+
+## Naming
+
+Match the file. With no convention: components PascalCase (`Button`, `Card`), a `Group/Name` path only when the file groups (`Forms/Input`), internal parts `_Button/Slot`. Every layer gets a name from the source (`Header`, `Price row`); no `Frame 12`. Variables `color/bg/primary`, `space/4`, `radius/md`; styles `Heading/1`, `Body/Large`.
+
+## Design defaults (empty file, silent source)
+
+- **Spacing (4px base):** 4 inside a control (icon to label), 8 between tightly related items, 12-16 inside a card or list item, 24 between groups, 32-48 between sections, 16-24 screen padding (mobile 16, desktop 24+).
+- **Type:** one family; display 32-40/Bold, heading 24/Semibold, title 18/Semibold, body 16/Regular, label 14/Medium, caption 12/Regular; line height ~1.25 for headings, ~1.5 for body. Check the font with `figma.listAvailableFontsAsync()` only when `loadFontAsync` fails.
+- **Color roles:** background, surface, text, text-muted, border, primary (+ on-primary text), danger; one accent; body text contrast ≥ 4.5:1.
+- **Radius:** 4-8 controls, 8-12 cards, full for pills and avatars.
+- **Sizes:** touch targets ≥ 44px high; inputs and buttons share a height in a row.
+- New top-level frames go right of existing content, never at (0, 0).
+
+## Before reporting
+
+- [ ] Values trace to the manifest or [Reuse]; the rest are in `assumptions`
+- [ ] Repeated units are instances; `__fx.audit(rootId)` counts are 0
+- [ ] Created and mutated ids returned; `figma.commitUndo()` after each unit

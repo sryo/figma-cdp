@@ -36,4 +36,4 @@ If a long job in Figma stops with a timeout (a big export, a large file loading)
 
 If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
 
-Run the offline tests with `python3 tests/perch_backend_test.py`, `python3 tests/budget_test.py` and `python3 tests/eval/offline_test.py`. `tests/eval/run.py --file <scratch-figma-url>` runs the live evals; AGENTS.md → Evals has the details.
+Run the offline tests with `python3 tests/perch_backend_test.py`, `python3 tests/budget_test.py`, `python3 tests/eval/offline_test.py`, `python3 tests/importer_test.py`, `python3 tests/source_test.py`, `python3 tests/fidelity_test.py` and `node --test tests/figma_lib_test.js`. `tests/eval/run.py --file <scratch-figma-url>` runs the live evals; AGENTS.md → Evals has the details.

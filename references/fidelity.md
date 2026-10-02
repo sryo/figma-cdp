@@ -1,11 +1,11 @@
 # Fidelity check: Figma against the source
 
-Two helpers compare a built subtree with the implementation it mirrors, deterministically. Copy both, with `figma_run.py`, to `/tmp/`. `figma_fidelity.py` runs its eval through `figma_run.py`, so it works on either backend.
+Two helpers compare a built subtree with the implementation it mirrors, deterministically. They run from the skill directory next to `figma_run.py`; `figma_fidelity.py` runs its eval through it, so it works on either backend.
 
 ## 1. Source manifest, once, before dispatch
 
 ```bash
-python3 /tmp/figma_source.py <files-or-dirs the screen mirrors> -o /tmp/figma_source_<slug>.json
+python3 <skill-dir>/figma_source.py <files-or-dirs the screen mirrors> -o /tmp/figma_source_<slug>.json
 ```
 
 Pass the files behind the screen being built: its markup or UI code, the style sheets it uses, the theme or token files. A whole repo works too, but copy from other screens then shows up as missing. The script prints a one-line summary. The JSON holds:
@@ -21,7 +21,7 @@ Pass the files behind the screen being built: its markup or UI code, the style s
 ## 2. Check after workers report DONE
 
 ```bash
-python3 /tmp/figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <figma-url>
+python3 <skill-dir>/figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <figma-url>
 ```
 
 One eval collects the subtree's text, solid colors (bound variables resolved to their value), fonts, auto-layout padding and gaps, radii, and the component sets its instances come from. Output, one line per kind with gaps:

@@ -112,13 +112,15 @@ child.resize(200, 40);
 child.layoutSizingHorizontal = 'FILL';
 ```
 
-## 13. Async helpers like `new AsyncFunction(...)` are blocked — wrap code in an async IIFE
-QuickJS blocks `new AsyncFunction(...)` and `Function('async ...')()`.
+## 13. Top-level `await` or `return` makes the script an async body: its last expression is no longer the result
+The helpers run a plain script as a program (result: its last expression) and one with top-level `await` or `return` as an async function body (result: what it returns).
 ```js
-// WRONG
-new AsyncFunction('await foo()')();
-// CORRECT: async IIFE wrapper
-(async function() { await foo(); })();
+// WRONG: prints null; the trailing expression is dropped in an async body
+await figma.loadFontAsync(f);
+({ id: t.id })
+// CORRECT
+await figma.loadFontAsync(f);
+return { id: t.id };
 ```
 
 ## 14. Verify parent after appendChild: silent reparenting
@@ -144,7 +146,7 @@ window.__batchState.aId = t.id;                      // next eval: getNodeByIdAs
 ```
 
 ## 16. Find before create: reuse existing nodes and components
-Two failure modes: (a) re-running a worker creates duplicate top-level nodes; (b) building raw structures when a local component or variant already covers the case. Inventory first (see `references/reading.md` → Component inventory), then create only if nothing matches.
+Two failure modes: (a) re-running a worker creates duplicate top-level nodes; (b) building raw structures when a local component or variant already covers the case. Inventory first (`references/reading.md` → Component inventory), then create only if nothing matches.
 ```js
 // WRONG #1: second worker run leaves two "Hero" frames at page root
 var hero = figma.createFrame();
@@ -160,15 +162,7 @@ if (!hero) {
 
 // WRONG #2: rebuilding a button as raw frame + text when a Button component exists
 var btn = figma.createFrame(); btn.layoutMode = 'HORIZONTAL'; /* ...20 more lines... */
-// CORRECT: instantiate the existing component, override props
-await figma.loadAllPagesAsync();  // findAllWithCriteria misses unloaded pages otherwise
-var buttonComp = figma.root
-  .findAllWithCriteria({types: ['COMPONENT', 'COMPONENT_SET']})
-  .find(function(c) { return c.name === 'Button' || c.name.indexOf('Button') === 0; });
-if (buttonComp) {
-  var inst = buttonComp.type === 'COMPONENT_SET'
-    ? buttonComp.defaultVariant.createInstance()
-    : buttonComp.createInstance();
-  // For COMPONENT_SET, switch variant: inst.setProperties({'Style': 'Primary'})
-}
+// CORRECT: search the cached inventory, instantiate the match with its properties
+(await __fx.inventory({ match: 'button' })).text;  // SET Button [1:2] Variant=Primary|Secondary ...
+await __fx.instance('1:2', { Variant: 'Primary', Label: 'Sign in' }, { parent: form });
 ```
