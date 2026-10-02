@@ -6,9 +6,22 @@ Load when the source is a live URL to import into Figma: a rendered web page bec
 
 - The user gives a public web URL and wants it in Figma.
 - Replaces the screenshot-reconstruction slow path in `references/reading.md`.
-- Not for: authenticated pages (see Session choreography → limitation), code repos (use the no-source-URL branch — read the code, don't render it).
+- Not for: authenticated pages on CDP (see Session choreography → limitation), code repos (use the no-source-URL branch — read the code, don't render it).
 
 ## Session choreography
+
+The helper does both halves and picks its backend as `figma_run.py` does (`FIGMA_BACKEND`, else CDP when `FIGMA_CDP_PORT` is set, else perch when usable). The spec crosses between them as a **`/tmp` file**, never a shared tab:
+
+```bash
+python3 /tmp/figma_capture.py walk <url> [wait_ms]                 # → /tmp/figma_capture_<slug>.json
+python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components '<json-or-path>'   # into the Figma tab
+```
+
+### perch (default)
+
+`walk` opens the URL in a new background tab of the user's browser (perch `new_tab`; focus stays where it was), waits for the load plus `wait_ms` (default 2000), runs `figma_walker.js` there with `eval_js {world:"main", awaitPromise:true}`, and closes the tab. The walker runs inline, not through `eval`, so a page whose CSP bans `eval` still walks; one whose CSP bans inline scripts fails with `tab_not_scriptable`. The tab shares the browser's logins, so authenticated pages capture too. `import` sends every eval in one `figma_perch.mjs` request to the Figma tab (`--file <url-or-key>` or `FIGMA_FILE` when several files are open); the first eval that fails ends it. Both take `--timeout <seconds>` (or `FIGMA_TIMEOUT`, 1 to 300, default 120) per eval. No base64 ceiling applies.
+
+### CDP
 
 Empirically verified (Canary 151 @ CDP 9333). Do exactly this; the routing rules below are not assumptions.
 
@@ -23,12 +36,7 @@ agent-browser connect "${FIGMA_CDP_PORT:-9222}"   # binds the default session
 - **Source page** runs in `--session capture` — its own isolated tab set. A `--session capture` eval always hits the capture tab regardless of what the default session's active tab is doing.
 - **Figma import** runs in the **default** session on the Figma tab (Mode A — the user's existing logged-in tab).
 
-They never collide. The spec crosses between them as a **`/tmp` file**, never a shared tab. The helper does both halves:
-
-```bash
-python3 /tmp/figma_capture.py walk <url> [wait_ms]                 # capture session → /tmp/figma_capture_<slug>.json
-python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components '<json-or-path>'   # default session
-```
+They never collide.
 
 `walk` connects the capture session, `open`s the URL (`open`, not `navigate`/`goto`), waits `wait_ms` (default 2000) for the page to settle, then evals `figma_walker.js` — an async IIFE that agent-browser awaits. Asset fetches run inside the source tab during that eval; the envelope returns over the CDP WebSocket, so ARG_MAX never constrains the walker's output, only the importer's input (which the helper chunks).
 
@@ -189,14 +197,14 @@ The helper runs the whole deterministic loop — never hand-roll chunk evals. Af
 python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components '{"button":"1:2","input":"1:7"}'
 ```
 
-It targets the default session (`--cdp`, same port resolution as `figma_run.py`) and evals, in order:
+On CDP it targets the default session (`--cdp`, same port resolution as `figma_run.py`); on perch, the Figma tab `figma_run.py` would pick. It evals, in order:
 
 1. **Reset** — deletes the capture keys of `window.__batchState` (`captureIds`, `captureRects`, `captureLayout`, `captureReport`, `captureFonts`, `captureAssets`) and seeds `captureAssets = {}`. Every import starts clean.
 2. **Assets** — per asset, one eval setting `captureAssets[key]` to the metadata (`kind, mime, w, h, error` — no bytes), then the `b64` / `svg` string appended in ≤150 KB pieces (`a.b64 = (a.b64 || '') + piece`). The importer reads only finished objects.
 3. **Node chunks** — consecutive nodes packed by JSON size (≤150 KB per chunk, a node is never split, order preserved). Each eval is `window.__captureSpec = {nodes, flagged, components, meta};` followed by `figma_importer.js`. `flagged`, `components`, and `meta` repeat in every chunk; `meta.title` names the root `[cap:0] <title>`.
 4. **Report** — the last eval's return printed as JSON, then `created=N flagged=N fontsFallenBack=N instantiated=N warnings=N`.
 
-Every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab. `node tests/importer_stub.js <spec.json>` runs the importer over a spec against a stub Plugin API (font-before-characters enforced) and prints the report — the no-Figma smoke check after touching the importer.
+On CDP every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab. `node tests/importer_stub.js <spec.json>` runs the importer over a spec against a stub Plugin API (font-before-characters enforced) and prints the report — the no-Figma smoke check after touching the importer.
 
 Cross-batch state in `window.__batchState`:
 

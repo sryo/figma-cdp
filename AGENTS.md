@@ -12,8 +12,8 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
 ├── figma_run.py          # single-eval helper — base64 → agent-browser eval
 ├── figma_batch_run.py    # multi-eval helper — base64 N scripts → one agent-browser batch
-├── figma_perch.mjs       # perch backend for both helpers: list_tabs → eval_js {world:"main"}, no CDP; `serve` keeps it warm behind a unix socket
-├── figma_capture.py      # live-URL → Figma: `walk <url>` (--session capture → /tmp JSON) and `import <spec>` (default session: reset, assets streamed in pieces, node chunks through figma_importer.js)
+├── figma_perch.mjs       # perch backend for the helpers and figma_capture.py: list_tabs → eval_js {world:"main"}, no CDP; `serve` keeps it warm behind a unix socket
+├── figma_capture.py      # live-URL → Figma: `walk <url>` (own tab → /tmp JSON) and `import <spec>` (Figma tab: reset, assets streamed in pieces, node chunks through figma_importer.js); cdp or perch
 ├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
 ├── figma_importer.js     # runs once per node chunk in the default session — chunk → Figma nodes
 ├── AGENTS.md             # this file — architecture + invariants
@@ -24,7 +24,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
     ├── figma_stub.js         # stub Plugin API (node tree, components/variants/instances, variables, sandbox ordering rules) shared by the offline tests
     ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against figma_stub.js, no Figma tab needed
-    ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend (daemon and one-shot) against perch_stub/, offline
+    ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: the helpers and figma_capture.py on the perch backend (daemon and one-shot) against perch_stub/, offline
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
     ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)
@@ -88,6 +88,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - `list_tabs {urlContains}` to find the file's tab (a tab its window shows wins among duplicates; several files open and no `--file` is an `ambiguous_tab` error)
 - `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script is wrapped as `return await (0, eval)(<source>)` so a program's completion value comes back as CDP's `Runtime.evaluate` returns it, and a throw is caught in-page and reported as `✗ Evaluation error: ...`
 - `screenshot {target, maxWidth:0, format:"png"}` for `figma_run.py --screenshot` (the tab must be the one its window shows)
+- `new_tab {url}`, `wait {target, readyState:"complete"}` and `close_tab {tabId}` for `figma_capture.py walk`
 - the `buildMainKick` export, which marks a perch new enough to have `world:"main"`
 
 **Daemon.** A one-shot run pays node start, the perch import, osascript startup and `list_tabs` on every call (~650 ms). So the Python helpers talk to `node figma_perch.mjs serve <socket>` over a unix socket instead, starting it on first use:
@@ -98,7 +99,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - Exit: after `FIGMA_PERCH_IDLE` seconds without a call (default 600); `{"op":"stop"}` lets calls in flight finish first. `FIGMA_PERCH_DAEMON=0` turns the daemon off. A daemon that can't start (no node, an unwritable dir, perch failing to load) falls back to the one-shot run.
 - The daemon's environment is the first caller's. Per-call settings go in the request (`file`, `FIGMA_PERCH_TAB` as `tab`).
 
-Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means CDP; else perch when it is usable; else CDP. Output and exit codes match the CDP path, so callers never branch on the backend: `figma_run.py` prints as agent-browser does (keys sorted, UTF-8, `1e-7`), `figma_batch_run.py` as its CDP branch does (keys sorted, `\u` escapes, `origin` the full page URL), and integers past 2^53 come back as doubles. Errors keep perch's leading code (`timeout`, `stale_tab`, `tab_not_scriptable`, `no_tab`, `ambiguous_tab`, `no_perch`). An awaited eval gets `--timeout` seconds (else `FIGMA_TIMEOUT`, else 120), clamped to 1-300 and passed to perch as `eval_js {timeout}` in ms; a value that isn't a number is refused before anything runs. A perch older than that option (no `AWAIT_MAX_MS` export) gets no `timeout` and awaits its own 30s, and the timeout hint says to update it. The daemon client waits for a reply up to (timeout + 70s) per script plus 30s, above perch's own cap of the await plus reading a long result. The perch path needs no base64 ceiling. The capture fast-path (`figma_capture.py`) stays CDP-only: `walk` opens the URL in its own agent-browser session.
+Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means CDP; else perch when it is usable; else CDP. Output and exit codes match the CDP path, so callers never branch on the backend: `figma_run.py` prints as agent-browser does (keys sorted, UTF-8, `1e-7`), `figma_batch_run.py` as its CDP branch does (keys sorted, `\u` escapes, `origin` the full page URL), and integers past 2^53 come back as doubles. Errors keep perch's leading code (`timeout`, `stale_tab`, `tab_not_scriptable`, `no_tab`, `ambiguous_tab`, `no_perch`). An awaited eval gets `--timeout` seconds (else `FIGMA_TIMEOUT`, else 120), clamped to 1-300 and passed to perch as `eval_js {timeout}` in ms; a value that isn't a number is refused before anything runs. A perch older than that option (no `AWAIT_MAX_MS` export) gets no `timeout` and awaits its own 30s, and the timeout hint says to update it. The daemon client waits for a reply up to (timeout + 70s) per script plus 30s, above perch's own cap of the await plus reading a long result. The perch path needs no base64 ceiling. The capture fast-path (`figma_capture.py`) picks its backend the same way and carries its own copy of the helpers' daemon client (`tests/perch_backend_test.py` keeps the copies identical): `walk` is one `{op:"page", url, paths, settle}` request, which opens the URL with `new_tab` (a background tab), `wait`s for the load, runs the walker inline (no `eval`, so an eval-banning CSP still works) and `close_tab`s it; `import` is one `eval` request with `stop:true`, so the first failing eval ends the run as on CDP.
 
 ## Evals
 

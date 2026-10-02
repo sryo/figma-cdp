@@ -14,7 +14,7 @@ You are a coordinator. For non-trivial work, you inspect the page, decompose int
 
 1. **`agent-browser` installed?** If `which agent-browser` returns nothing, see `references/connection.md`.
 2. **Chrome connected?** With perch present (Mode P, no CDP), write `typeof figma` to `/tmp/figma_eval.js` and run `python3 /tmp/figma_run.py --file <figma-url> /tmp/figma_eval.js`; pass `--file` on every helper call (required when several Figma files are open). Otherwise run `agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "typeof figma"`. Should return `"object"`. If not, see `references/connection.md` (Mode P perch, Mode A attach, Mode B launch). Mode A: the helpers read `DevToolsActivePort` automatically when `FIGMA_CDP_PORT` is unset; exporting it is optional (it wins when set) but still required for raw `agent-browser` one-liners, which don't do the fallback.
-3. **Helper scripts.** Copy `figma_run.py` (single eval), `figma_batch_run.py` (multi-eval), `figma_perch.mjs` (their perch backend), and `figma_capture.py` (live-URL capture, CDP only) to `/tmp/`.
+3. **Helper scripts.** Copy `figma_run.py` (single eval), `figma_batch_run.py` (multi-eval), `figma_perch.mjs` (their perch backend), and `figma_capture.py` (live-URL capture) to `/tmp/`.
 
 ## When you receive a Figma URL
 

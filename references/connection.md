@@ -25,7 +25,7 @@ Coordinator-facing setup: how to connect to Figma's Plugin API via `agent-browse
 
    The first call starts a small background helper (`figma_perch.mjs serve`) that keeps perch loaded, so later calls cost about what a CDP call does. It exits after 10 idle minutes (`FIGMA_PERCH_IDLE`, in seconds); `FIGMA_PERCH_DAEMON=0` runs every call on its own instead.
 
-   `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; put the script in a file and use the helpers. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) still needs Mode A or B.
+   `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; put the script in a file and use the helpers. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) runs on Mode P too; see `references/capture.md`.
 
 
    ### Mode A — Attach to your running Chrome (recommended)
