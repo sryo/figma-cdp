@@ -88,7 +88,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - `list_tabs {urlContains}` to find the file's tab (a tab its window shows wins among duplicates; several files open and no `--file` is an `ambiguous_tab` error)
 - `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script is wrapped as `return await (0, eval)(<source>)` so a program's completion value comes back as CDP's `Runtime.evaluate` returns it, and a throw is caught in-page and reported as `✗ Evaluation error: ...`
 - `screenshot {target, maxWidth:0, format:"png"}` for `figma_run.py --screenshot` (the tab must be the one its window shows)
-- `new_tab {url}`, `wait {target, readyState:"complete"}` and `close_tab {tabId}` for `figma_capture.py walk`
+- `new_tab {url}`, `wait {target, expression}` (readyState complete off the new tab's initial `about:blank`) and `close_tab {tabId}` for `figma_capture.py walk`
 - the `buildMainKick` export, which marks a perch new enough to have `world:"main"`
 
 **Daemon.** A one-shot run pays node start, the perch import, osascript startup and `list_tabs` on every call (~650 ms). So the Python helpers talk to `node figma_perch.mjs serve <socket>` over a unix socket instead, starting it on first use:

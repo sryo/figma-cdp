@@ -14,7 +14,8 @@
 //   {fatal:"<code>: <message>"}          (no perch, no tab, perch call failed)
 //
 // A request is {op, file, paths, tab, timeout}, plus:
-//   stop: true     (eval) the first script that fails ends the run
+//   stop: true     (eval) the first script that fails, returns nothing or returns an
+//                  object with an `error` key ends the run (figma_capture.py's failures)
 //   op "page"      {url, paths, settle}: opens url in a new background tab, waits for it
 //                  to load and `settle` ms more, runs each script there, closes the tab.
 //                  Each script is one expression (awaited); it runs inline, not through
@@ -183,8 +184,11 @@ async function page(handleCall, { url, paths, settle }, ms) {
   const tab = { tabId, url, title: "", key: null };
   const results = [];
   try {
+    // A new tab shows an initial about:blank, already complete, until the URL commits.
     // A page that never settles to complete is still walked, as a CDP open's timeout would leave it.
-    try { await call(handleCall, "wait", { target: { tabId }, readyState: "complete", timeout: 30000 }); } catch {}
+    const loaded = url === "about:blank" ? { readyState: "complete" }
+      : { expression: 'document.readyState === "complete" && location.href !== "about:blank"' };
+    try { await call(handleCall, "wait", { target: { tabId }, ...loaded, timeout: 30000 }); } catch {}
     const rest = Math.max(0, Number(settle) || 0);
     if (rest) await new Promise((r) => setTimeout(r, rest));
     for (const src of srcs) {
@@ -258,7 +262,7 @@ export async function handle(handleCall, req, cache = null) {
       continue;
     }
     results.push(res);
-    if (stop && !res.ok) break;
+    if (stop && !(res.ok && res.value != null && !(typeof res.value === "object" && "error" in res.value))) break;
   }
   return { ...headOf(tab), results };
 }

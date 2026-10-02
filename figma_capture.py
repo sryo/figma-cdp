@@ -7,7 +7,7 @@
       persists it to /tmp/figma_capture_<slug>.json.
       cdp: binds an isolated `--session capture` to the CDP port (connect explicitly —
       a bare --cdp does not retarget a bound session) and `open`s the URL in it.
-      perch: a new background tab (it never takes focus), closed after the walk.
+      perch: a new unselected tab (perch new_tab; the browser may come forward), closed after the walk.
   import <spec.json> [--components <json-or-path>] [--file <figma-url-or-key>]
          [--timeout <seconds>] [--dry-run <dir>]
       Replays the spec into the Figma tab: a reset eval, the assets streamed in

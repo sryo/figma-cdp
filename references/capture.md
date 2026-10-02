@@ -19,7 +19,7 @@ python3 /tmp/figma_capture.py import /tmp/figma_capture_<slug>.json --components
 
 ### perch (default)
 
-`walk` opens the URL in a new background tab of the user's browser (perch `new_tab`; focus stays where it was), waits for the load plus `wait_ms` (default 2000), runs `figma_walker.js` there with `eval_js {world:"main", awaitPromise:true}`, and closes the tab. The walker runs inline, not through `eval`, so a page whose CSP bans `eval` still walks; one whose CSP bans inline scripts fails with `tab_not_scriptable`. The tab shares the browser's logins, so authenticated pages capture too. `import` sends every eval in one `figma_perch.mjs` request to the Figma tab (`--file <url-or-key>` or `FIGMA_FILE` when several files are open); the first eval that fails ends it. Both take `--timeout <seconds>` (or `FIGMA_TIMEOUT`, 1 to 300, default 120) per eval. No base64 ceiling applies.
+`walk` opens the URL in a new background tab of the user's browser (perch `new_tab`, unselected; the browser may come forward), waits for the load plus `wait_ms` (default 2000), runs `figma_walker.js` there with `eval_js {world:"main", awaitPromise:true}`, and closes the tab. The walker runs inline, not through `eval`, so a page whose CSP bans `eval` still walks; one whose CSP bans inline scripts fails with `tab_not_scriptable`. The tab shares the browser's logins, so authenticated pages capture too. `import` sends every eval in one `figma_perch.mjs` request to the Figma tab (`--file <url-or-key>` or `FIGMA_FILE` when several files are open); the first eval that fails ends it. Both take `--timeout <seconds>` (or `FIGMA_TIMEOUT`, 1 to 300, default 120) per eval. No base64 ceiling applies.
 
 ### CDP
 

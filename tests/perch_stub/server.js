@@ -13,7 +13,9 @@
 //   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
 // new_tab adds a tab (http(s), file or about:blank, as perch takes) that wait, eval_js and
-// close_tab address until it closes; it lives as long as this process.
+// close_tab address until it closes; it lives as long as this process. Like a browser's,
+// it shows its initial about:blank (readyState complete) until a wait {expression} poll
+// finds that falsy, and then the URL has loaded.
 // Scripts see `location` as the target tab's URL. Each log line carries this process's pid.
 import { appendFileSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -75,13 +77,18 @@ export async function handleCall(name, args = {}) {
   if (name === "new_tab") {
     const url = args.url == null ? "about:blank" : String(args.url);
     if (!/^(https?:|file:|about:blank$)/i.test(url)) return fail(`bad_url: new_tab takes http(s), file or about:blank URLs; got ${url}`);
-    const tab = { app: "Google Chrome", tabId: `chrome:${++openSeq}`, url, title: "" };
+    const tab = { app: "Google Chrome", tabId: `chrome:${++openSeq}`, url: "about:blank", title: "", loads: url };
     opened.push(tab);
     return text(JSON.stringify({ app: tab.app, tabId: tab.tabId }));
   }
   if (name === "wait") {
-    if (!tabs().some((t) => t.tabId === (args.target || {}).tabId)) return fail(`stale_tab: tab ${(args.target || {}).tabId} is gone; re-run list_tabs`);
-    return text(JSON.stringify({ ok: true, waited: false }));
+    const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
+    if (!tab) return fail(`stale_tab: tab ${(args.target || {}).tabId} is gone; re-run list_tabs`);
+    if (args.expression == null) return text(JSON.stringify({ ok: true, waited: false }));
+    const holds = () => new Function("location", "document", `return (${args.expression})`)(new URL(tab.url), { readyState: "complete" });
+    if (!holds() && tab.loads) { tab.url = tab.loads; delete tab.loads; }
+    if (!holds()) return fail(`timeout: wait timed out after ${args.timeout}ms`);
+    return text(JSON.stringify({ ok: true, waited: true, value: true }));
   }
   if (name === "close_tab") {
     const i = opened.findIndex((t) => t.tabId === args.tabId);

@@ -605,6 +605,13 @@ class CapturePerch(Harness):
         self.assertEqual(self.calls('wait')[0]['args']['target'], {'tabId': tab})
         self.assertEqual(self.calls('close_tab')[0]['args'], {'tabId': tab})
 
+    def test_walk_waits_for_the_page_not_the_new_tabs_blank_document(self):
+        # A new tab reports the initial about:blank as readyState complete before the URL commits.
+        url, out, r = self.walk('page', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out) as f:
+            self.assertEqual(json.load(f)['meta']['url'], url)
+
     def test_walk_waits_the_settle_time(self):
         t = time.monotonic()
         _, _, r = self.walk('settle', '400')
@@ -687,6 +694,15 @@ class CapturePerch(Harness):
         self.assertIn(f'figma_capture.py: eval {first} ({kinds[first][3:-3]}) failed — ReferenceError: figma is not defined',
                       r.stderr)
         self.assertEqual(len(self.calls('eval_js')), first + 1)
+
+    def test_stop_ends_the_run_at_a_result_capture_treats_as_failure(self):
+        for first in ('({ error: "spec missing" })', 'undefined'):
+            os.unlink(self.log) if os.path.exists(self.log) else None
+            req = {'op': 'eval', 'paths': [self.js('a.js', first), self.js('b.js', '1')], 'stop': True}
+            r = subprocess.run(['node', os.path.join(self.app, 'figma_perch.mjs'), 'call', json.dumps(req)],
+                               capture_output=True, text=True, env=self.helper_env({}))
+            self.assertEqual(len(json.loads(r.stdout)['results']), 1, r.stdout)
+            self.assertEqual(len(self.calls('eval_js')), 1, first)
 
     def test_import_perch_failure_names_the_eval(self):
         r = self.capture('import', self.spec(), PERCH_STUB_ERROR='stale_tab: the tab closed')
