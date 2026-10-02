@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 2, sha: '309f20753104f9cb' };
+const PIN = { v: 3, sha: 'ad0f93d1e71ae557' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -419,9 +419,10 @@ test('audit: counts every structural problem with capped offending ids', async (
   const a = await fx.audit(page.id, { limit: 2 });
   assert.equal(a.root, page.id);
   assert.deepEqual(a.counts, {
-    rawRepeats: 3, instanceRatio: 0.1, autoLayoutShare: 0.8, fixedInFlow: 1, absDefaultConstraints: 3, groups: 1,
+    rawRepeats: 3, fixedInFlow: 1, absDefaultConstraints: 3, groups: 1,
     defaultNames: 2, unboundPaints: 1, textFixedInAutoLayout: 1, textOverflow: 1, componentsWithoutAutoLayout: 1, unlinkedProps: 1,
   });
+  assert.deepEqual(a.shares, { instanceRatio: 0.1, autoLayoutShare: 0.8 });
   assert.deepEqual(a.ids.rawRepeats, [rows[0].id, rows[1].id]);
   assert.deepEqual(a.ids.fixedInFlow, [box.id]);
   assert.deepEqual(a.ids.absDefaultConstraints, [badge.id, group.id]);
@@ -446,11 +447,8 @@ test('audit: a clean component-built screen has no problems', async () => {
   const screen = await fx.frame({ name: 'Screen', dir: 'V', w: 375, fill: '#2563eb' });
   for (const s of ['One', 'Two', 'Three']) await fx.instance(chip.id, { Label: s }, { parent: screen });
   const a = await fx.audit(screen.id);
-  for (const k of Object.keys(a.counts)) {
-    if (k === 'instanceRatio' || k === 'autoLayoutShare') continue;
-    assert.equal(a.counts[k], 0, k + ': ' + JSON.stringify(a.ids[k]));
-  }
-  assert.deepEqual([a.counts.instanceRatio, a.counts.autoLayoutShare], [0.75, 1]);
+  for (const k of Object.keys(a.counts)) assert.equal(a.counts[k], 0, k + ': ' + JSON.stringify(a.ids[k]));
+  assert.deepEqual(a.shares, { instanceRatio: 0.75, autoLayoutShare: 1 });
   assert.deepEqual(a.ids, {});
   assert.ok(tk);
 });

@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 2;
+  var V = 3;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -578,7 +578,8 @@
 
   // ---- audit
 
-  // Structural problems under rootId (default: the current page): counts plus up to o.limit ids each.
+  // Structural problems under rootId (default: the current page): counts (all best at 0) plus up to
+  // o.limit ids each, and shares (higher is better) kept apart so callers can require every count at 0.
   async function audit(rootId, o) {
     o = o || {};
     var lim = o.limit || 5;
@@ -631,9 +632,9 @@
         if (!seen[id] && ids[k].length < lim) { seen[id] = 1; ids[k].push(id); }
       });
     });
-    counts.instanceRatio = share(m.instances.length, m.instances.length + m.rawFrames.length);
-    counts.autoLayoutShare = share(m.auto.length, m.containers.length);
-    return { root: root.id, nodes: nodes.length, counts: counts, ids: ids };
+    var shares = { instanceRatio: share(m.instances.length, m.instances.length + m.rawFrames.length),
+      autoLayoutShare: share(m.auto.length, m.containers.length) };
+    return { root: root.id, nodes: nodes.length, counts: counts, shares: shares, ids: ids };
   }
 
   window.__fx = {
