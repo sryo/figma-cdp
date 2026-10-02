@@ -548,6 +548,61 @@ class SameOutputOnBothBackends(Harness):
                   '-e', 'await 0;\nreturn )', '-e', 'const x = )')
 
 
+FAKE_AGENT_BROWSER = r"""#!/usr/bin/env python3
+# Stand-in for `agent-browser --cdp <port> eval -b <b64>`: runs $FAKE_AB_PRELUDE, then the
+# script, in Node against tests/figma_stub.js, and prints the result as agent-browser does.
+import base64, json, os, subprocess, sys
+src = base64.b64decode(sys.argv[sys.argv.index('-b') + 1]).decode()
+prelude = open(os.environ['FAKE_AB_PRELUDE']).read() if os.environ.get('FAKE_AB_PRELUDE') else 'void 0'
+runner = ('globalThis.figma = require(%s).createFigma();'
+          '(async () => { await (0, eval)(%s); const v = await (0, eval)(%s);'
+          ' process.stdout.write(JSON.stringify(v === undefined ? null : v)); })()'
+          '.catch((e) => { process.stderr.write(String(e)); process.exit(1); });'
+          % (json.dumps(os.environ['FAKE_AB_STUB']), json.dumps(prelude), json.dumps(src)))
+r = subprocess.run(['node', '-e', runner], capture_output=True, text=True)
+if r.returncode:
+    sys.stderr.write('✗ ' + r.stderr)
+    sys.exit(1)
+print(json.dumps(json.loads(r.stdout), indent=2, sort_keys=True, ensure_ascii=False))
+"""
+
+
+class Fidelity(Harness):
+    """figma_fidelity.py reads one eval through figma_run.py, so its report is the same on both backends."""
+
+    SEED = ("(async function () {\n"
+            "  await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });\n"
+            "  var f = figma.createFrame(); f.name = 'Card'; f.layoutMode = 'VERTICAL'; f.itemSpacing = 18;\n"
+            "  f.fills = [{ type: 'SOLID', color: { r: 0x12 / 255, g: 0x34 / 255, b: 0x56 / 255 } }];\n"
+            "  var t = figma.createText(); t.characters = 'Hello there'; f.appendChild(t);\n"
+            "  var u = figma.createText(); u.characters = 'Made up'; f.appendChild(u);\n"
+            "  return f.id;\n})()")
+
+    def test_report_is_the_same_on_cdp_and_perch(self):
+        seed = self.js('seed.js', self.SEED)
+        manifest = self.js('m.json', json.dumps({
+            'copy': [{'text': 'Hello there', 'src': 'a.html:1'}, {'text': 'Gone text', 'src': 'a.html:2'}],
+            'colors': [{'value': '#123456', 'src': 'a.css:1'}], 'spacing': [{'value': 16, 'src': 'a.css:2'}]}))
+        r = self.run_helper('figma_run.py', seed, PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        root = json.loads(r.stdout)
+        perch = self.run_helper('figma_fidelity.py', manifest, root, PERCH_STUB_FIGMA='full')
+        fake = os.path.join(self.tmp.name, 'bin', 'agent-browser')
+        os.makedirs(os.path.dirname(fake))
+        with open(fake, 'w') as f:
+            f.write(FAKE_AGENT_BROWSER)
+        os.chmod(fake, 0o755)
+        cdp = self.run_helper('figma_fidelity.py', manifest, root, FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9222',
+                              FAKE_AB_PRELUDE=seed, FAKE_AB_STUB=os.path.join(ROOT, 'tests', 'figma_stub.js'),
+                              PATH=os.path.dirname(fake) + os.pathsep + os.environ['PATH'])
+        self.assertEqual((perch.returncode, cdp.returncode), (1, 1), perch.stderr + cdp.stderr)
+        self.assertEqual(perch.stdout, cdp.stdout)
+        self.assertIn('missing copy (1): "Gone text" a.html:2', perch.stdout)
+        self.assertIn('invented copy (1): "Made up"', perch.stdout)
+        self.assertIn('off-manifest spacing (1): 18 ×1', perch.stdout)
+        self.assertEqual(len(self.calls('eval_js')), 2, 'the seed and one fidelity eval')
+
+
 class PerchDaemon(Harness):
     """The daemon itself: start, reuse, idle exit, stale socket, concurrency, fallback, the cached tab."""
 

@@ -17,6 +17,8 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma_capture.py      # live-URL → Figma: `walk <url>` (--session capture → /tmp JSON) and `import <spec>` (default session: reset, assets streamed in pieces, node chunks through figma_importer.js)
 ├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
 ├── figma_importer.js     # runs once per node chunk in the default session — chunk → Figma nodes
+├── figma_source.py       # source files → cited manifest (tokens, colors, scales, copy, variants, states) — references/fidelity.md
+├── figma_fidelity.py     # manifest + rootId → gap report from one eval through figma_run.py; exit 1 on gaps
 ├── AGENTS.md             # this file — architecture + invariants
 ├── CLAUDE.md             # pointer to AGENTS.md
 ├── README.md             # human-facing intro + install
@@ -27,6 +29,8 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── figma_lib_test.js     # `node --test tests/figma_lib_test.js`: every figma_lib.js helper against figma_stub.js, plus its version pin
     ├── importer_stub.js      # `node tests/importer_stub.js <spec.json>` — runs the importer against figma_stub.js, no Figma tab needed
     ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: both helpers on the perch backend (daemon and one-shot) against perch_stub/, offline
+    ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
+    ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
     ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)

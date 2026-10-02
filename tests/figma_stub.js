@@ -337,6 +337,7 @@ function createFigma() {
       getLocalVariablesAsync: async (type) => Object.values(variables).filter((v) => !type || v.resolvedType === type),
       getLocalVariableCollectionsAsync: async () => Object.values(collections),
       getVariableByIdAsync: async (id) => variables[id] || null,
+      getVariableCollectionByIdAsync: async (id) => collections[id] || null,
       setBoundVariableForPaint(paint, field, v) {
         const p = clone(paint);
         p.boundVariables = Object.assign({}, p.boundVariables, { [field]: { type: 'VARIABLE_ALIAS', id: v.id } });
