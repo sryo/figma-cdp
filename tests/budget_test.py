@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 5634,
+    'SKILL.md': 5632,
     'figma-worker.md': 5078,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -115,6 +115,8 @@ class Docs(unittest.TestCase):
         self.assertRegex(plan, r'(?i)container[^.;]*still a component[^.;]*header[^.;]*createSlot',
                          'a container whose content varies per use is left as plain frames')
         self.assertRegex(plan, r'(?i)wrapper of repeated items[^.;]*instances')
+        self.assertRegex(plan, r'(?i)repeating 2\+ times, existing screens too',
+                         'a unit shared with a screen already in the file is not counted as repeated')
         self.assertIn('`components` `[{component, uses, nests, src}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):

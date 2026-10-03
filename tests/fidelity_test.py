@@ -105,6 +105,16 @@ class Fidelity(unittest.TestCase):
         self.assertTrue(g['missing components'][0]['src'].startswith('components.css:'))
         self.assertEqual(rep['count'], sum(len(v) for v in g.values()))
 
+    def test_a_component_set_frame_radius_is_not_a_source_radius(self):
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_run.py'), '--file', FILE, '-e',
+                            'const a = figma.createComponent(); a.name = "Variant=Primary";'
+                            ' const b = figma.createComponent(); b.name = "Variant=Secondary";'
+                            ' const s = figma.combineAsVariants([a, b], figma.currentPage); s.name = "Button";'
+                            ' s.cornerRadius = 5; return s.id'], capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rep, _ = self.report(json.loads(r.stdout))
+        self.assertEqual(rep['gaps']['off-manifest radii'], [])
+
     def test_text_report_is_one_line_per_kind(self):
         ids = self.build(True)
         r = self.fidelity(ids['rootId'])

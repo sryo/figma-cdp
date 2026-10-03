@@ -92,9 +92,11 @@ COLLECT = r'''
       if (flow.length > 1 && n.primaryAxisAlignItems !== 'SPACE_BETWEEN' && n.itemSpacing > 0) add(out.nums.spacing, n.itemSpacing, n.id, !!bv.itemSpacing);
       if (n.layoutWrap === 'WRAP' && n.counterAxisSpacing > 0) add(out.nums.spacing, n.counterAxisSpacing, n.id, !!bv.counterAxisSpacing);
     }
-    if (typeof n.cornerRadius === 'number' && n.cornerRadius > 0) {
+    // A component set's own frame is Figma's dashed variant container: its radius is not the source's.
+    var setFrame = n.type === 'COMPONENT_SET';
+    if (!setFrame && typeof n.cornerRadius === 'number' && n.cornerRadius > 0) {
       add(out.nums.radius, n.cornerRadius, n.id, !!(bv.topLeftRadius || bv.cornerRadius), { pill: n.cornerRadius >= Math.min(n.width, n.height) / 2 });
-    } else if (n.cornerRadius === figma.mixed) {
+    } else if (!setFrame && n.cornerRadius === figma.mixed) {
       ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'].forEach(function (k) { if (n[k] > 0) add(out.nums.radius, n[k], n.id, !!bv[k]); });
     }
     var owner = null;
