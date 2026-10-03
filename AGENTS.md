@@ -17,7 +17,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ├── figma_capture.py      # live-URL → Figma: `walk <url>` (own tab → /tmp JSON) and `import <spec>` (Figma tab: reset, assets streamed in pieces, node chunks through figma_importer.js); cdp or perch
 ├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
 ├── figma_importer.js     # runs once per node chunk in the default session — chunk → Figma nodes
-├── figma_source.py       # source files → cited manifest (tokens, colors, scales, copy, variants, states) — references/fidelity.md
+├── figma_source.py       # source files → cited manifest (tokens, colors, scales, copy, variants, states, components) — references/fidelity.md
 ├── figma_fidelity.py     # manifest + rootId → gap report from one eval through figma_run.py; exit 1 on gaps
 ├── AGENTS.md             # this file — architecture + invariants
 ├── CLAUDE.md             # pointer to AGENTS.md

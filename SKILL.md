@@ -10,15 +10,15 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 ## Setup
 
-`<skill-dir>` is this skill's base directory. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Perch is used when present, else CDP. Failure or CDP setup: `references/connection.md`. Pass `--file` (or export `FIGMA_FILE`) on every helper call.
+`<skill-dir>` is this skill's base directory. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`. Pass `--file` (or export `FIGMA_FILE`) on every helper call.
 
 ## Flow
 
 1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and node id (`node-id`, `-` → `:`).
-2. **Source.** Code → Figma means the source exists: find it (`~/Documents/<name>`, a path, a GitHub URL, a live URL) and read the real UI. No UI (CLI, library): ask what to design; never invent from a name. Manifest, once: `python3 <skill-dir>/figma_source.py <files> -o /tmp/figma_source_<slug>.json` (`references/fidelity.md`). A live URL goes through capture instead: `figma_capture.py walk <url>`, then `import <spec> --componentize --components <json>` (`references/capture.md`); workers only fix after.
-3. **Recon, one call:** `python3 <skill-dir>/figma_run.py --lib --file <url> -e 'await figma.saveVersionHistoryAsync("pre <task>"); return [await __fx.recon({nodeId: "<id>"}), (await __fx.inventory()).text]'`: pages, text tree, one line per component set, component, style, variable and repeated pattern (`references/reading.md`).
+2. **Source.** Find it (`~/Documents/<name>`, a path, a GitHub URL, a live URL) and read the real UI. No UI (CLI, library): ask what to design; never invent from a name. Manifest, once: `python3 <skill-dir>/figma_source.py <files> -o /tmp/figma_source_<slug>.json` (`references/fidelity.md`). A live URL goes through capture instead: `figma_capture.py walk <url>`, then `import <spec> --componentize --components <json>` (`references/capture.md`); workers only fix after.
+3. **Recon, one call:** `python3 <skill-dir>/figma_run.py --lib --file <url> -e 'await figma.saveVersionHistoryAsync("pre <task>"); return [await __fx.recon({nodeId: "<id>"}), (await __fx.inventory()).text]'`: pages, text tree, one line per component set, component, style, variable and repeated pattern.
 4. **An edit or "make it match"** on an existing frame: diff (`figma_fidelity.py`), patch the existing nodes in place, never replace or remove one, swap it for an instance or add components unless asked; skip to 8.
-5. **Component plan** (builds). Search the inventory first (`__fx.inventory({match: 'button|card'})`); a match is REUSE `<id>`. A unit with no match becomes NEW when it repeats 2+ times or has prop/state enums, which become VARIANT axes of a component set; text that varies becomes a TEXT property, optional parts BOOLEAN, swappable icons INSTANCE_SWAP. A repeated PATTERN the task touches becomes a component first. Recipe: `references/building.md` → Component variants.
+5. **Component plan** (builds): every manifest `components` entry and unit repeating 2+ times. Search the inventory first (`__fx.inventory({match: 'button|card'})`); a match is REUSE `<id>`, else NEW. Prop/state enums are VARIANT axes of a set, varying text TEXT, optional parts BOOLEAN, swappable icons INSTANCE_SWAP. A container with per-use content (card, panel) is still a component: a header with those props, or a slot (`createSlot`); a wrapper of repeated items (tabs, list) holds exposed item instances. A repeated PATTERN the task touches becomes a component first. Recipe: `references/building.md`.
 6. **Inline or dispatch** (below). Dispatch: pre-create target frames, fill every `figma-worker.md` slot ([Reuse]: only the inventory lines the task needs), pass it to the Agent tool.
 7. **Statuses.** DONE_WITH_CONCERNS: check its concerns yourself. NEEDS_CONTEXT: get it, re-dispatch. BLOCKED: from its failures and `createdNodeIds`, re-split, roll back (`references/execution.md` → Rollback) or ask.
 8. **Final gate:** `figma_run.py --lib --file <url> -e 'return (await __fx.audit("<rootId>")).counts'` all 0 on what you built (an edit reports counts it found) and `figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <url>` exit 0. Fix gaps with targeted edits; report any left on purpose.
@@ -28,7 +28,7 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 Run inline up to one frame or ~20 operations, following `figma-worker.md`'s cheat sheet and Loop. Group small related units into one worker's Sections, never one worker each. Parallel workers only for independent large areas (different frames or pages); never the same nodes or dependent chains. Split a worker past ~40 operations or 25 assertions.
 
-Specs are self-contained: real ids verified to exist (`1:23 (TEXT "Hero Heading")`), exact end state, assertions, no TBDs; the component plan covers every source unit; [Reuse] and [Manifest] filled.
+Specs are self-contained: real ids verified to exist (`1:23 (TEXT "Hero Heading")`), exact end state, assertions, no TBDs; [Reuse] and [Manifest] filled.
 
 ## References (load on demand)
 

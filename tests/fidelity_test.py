@@ -101,6 +101,8 @@ class Fidelity(unittest.TestCase):
         self.assertEqual((unbound[24]['variable'], unbound[24]['token']), ('space/6', '--space-6'))
         self.assertEqual([(e['component'], e['values']) for e in g['missing variants']], [('button', ['secondary'])])
         self.assertEqual([(e['component'], e['state']) for e in g['missing states']], [('button', 'disabled')])
+        self.assertEqual([(e['component'], e['uses']) for e in g['missing components']], [('input', 2)])
+        self.assertTrue(g['missing components'][0]['src'].startswith('components.css:'))
         self.assertEqual(rep['count'], sum(len(v) for v in g.values()))
 
     def test_text_report_is_one_line_per_kind(self):
@@ -108,14 +110,15 @@ class Fidelity(unittest.TestCase):
         r = self.fidelity(ids['rootId'])
         self.assertEqual(r.returncode, 1)
         out = r.stdout
-        self.assertRegex(out.splitlines()[0], r'^fidelity \S+ "Login": 12 gaps')
+        self.assertRegex(out.splitlines()[0], r'^fidelity \S+ "Login": 13 gaps')
         for line in ('missing copy (2): "Welcome back to Lumen" login.html:',
                      'invented copy (1): "Remember me" ' + ids['rootId'].split(':')[0] + ':',
                      'off-manifest colors (1): #2563eb ×1 (' + ids['primaryId'] + ')',
                      'off-manifest spacing (1): 18 ×1 (' + ids['formId'] + ')',
                      'unbound (2): ', '#6b7280 ×1 → color/text-muted (' + ids['subId'] + ')',
                      'missing variants (1): button: secondary (components.css:',
-                     'missing states (1): button: disabled (components.css:'):
+                     'missing states (1): button: disabled (components.css:',
+                     'missing components (1): input ×2 (components.css:'):
             self.assertIn(line, out)
         kinds = [l.split(' (')[0] for l in out.splitlines()[1:]]
         self.assertEqual(len(kinds), len(set(kinds)), out)
@@ -175,6 +178,19 @@ class Diff(unittest.TestCase):
              'texts': [{'id': '1:%d' % (i + 2), 't': t, 'def': False} for i, t in enumerate(texts)]}
         c.update(kw)
         return c
+
+    def test_a_component_used_twice_needs_a_component_whose_name_starts_with_it(self):
+        m = {'components': [{'component': 'card', 'uses': 6, 'nests': ['button'], 'src': 'ui.css:1'},
+                            {'component': 'tabs', 'uses': 3, 'nests': ['tab'], 'src': 'ui.css:2'},
+                            {'component': 'list-item', 'uses': 4, 'nests': [], 'src': 'ui.css:3'},
+                            {'component': 'banner', 'uses': 1, 'nests': [], 'src': 'ui.css:4'}]}
+        def comp(name):
+            return {'id': '2:1', 'name': name, 'words': []}
+        rep = self.diff(m, self.collected(comps=[comp('Stat card'), comp('Tab'), comp('ListItem')]))
+        self.assertEqual([e['component'] for e in rep['gaps']['missing components']], ['card', 'tabs'],
+                         'Stat card is not a card and Tab is not Tabs; a component used once is not checked')
+        rep = self.diff(m, self.collected(comps=[comp('Card header'), comp('Kit/Tabs'), comp('List item')]))
+        self.assertEqual(rep['gaps']['missing components'], [])
 
     def test_a_line_of_a_multiline_text_layer_shows_short_copy(self):
         m = {'copy': [{'text': 'Sign in', 'src': 'a.html:1'}, {'text': 'Go', 'src': 'a.html:2'}]}
