@@ -399,6 +399,12 @@ class Compare(unittest.TestCase):
         c = self.result(reuse=[self.rep(wall=141)])
         self.assertEqual(self.verdicts(b, c)[('reuse', 'wall_s')], 'worse')
 
+    def test_saturated_metrics_are_info_not_regressions(self):
+        b = {'passed': True, 'sizingShare': 0.9}
+        c = {'passed': True, 'sizingShare': 0.7}
+        v = self.verdicts(self.result(componentize=[b]), self.result(componentize=[c]))
+        self.assertEqual(v[('componentize', 'sizingShare')], 'info')
+
     def test_pass_rate_drop_and_missing_task_regress(self):
         b = self.result(reuse=[self.rep(), self.rep()], recon=[self.rep()])
         c = self.result(reuse=[self.rep(), self.rep(passed=False)])
