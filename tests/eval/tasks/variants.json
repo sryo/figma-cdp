@@ -3,5 +3,11 @@
   "covers": "a source component with props becomes a component set with matching variant axes and a text property",
   "prompt": "Add the Button from {FIXTURE}/components.jsx (styles in {FIXTURE}/components.css) to {FILE_URL} as a Figma component, on the page \"{PAGE}\"",
   "seed": "seeds/tokens_only.js",
-  "score": "scorers/variants.js"
+  "score": "scorers/variants.js",
+  "saturated": {
+    "setFound": "any component set counts, button-named or not",
+    "colorMatch": "checked only on the variants that exist, so two of four variants still score 1",
+    "sizingShare": "counts a child as sized when either axis is not FIXED; text layers hug by default",
+    "constrainedAbsShare": "a button has no absolute children, so the share is vacuously 1"
+  }
 }

@@ -1,0 +1,8 @@
+{
+  "id": "app-screens",
+  "covers": "a three-screen app at realistic scale: one component per reused source component (nested: Avatar in ListItem in Card), variants for every source state, fill/hug sizing, copy and token fidelity",
+  "fixture": "harbor",
+  "prompt": "Mock up the app's screens from {FIXTURE} on the page \"{PAGE}\" of {FILE_URL}",
+  "seed": "seeds/tokens_only.js",
+  "score": "scorers/app_screens.js"
+}

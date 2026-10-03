@@ -22,7 +22,7 @@ import argparse, fcntl, json, os, re, statistics, subprocess, sys, tempfile, tim
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import session  # noqa: E402
+import session, source  # noqa: E402
 
 COST = ['wall_s', 'tokens_total', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
         'cost_usd', 'turns', 'tool_calls', 'failed_tool_calls']
@@ -51,11 +51,17 @@ def load_tasks(names):
 
 
 def compose(rel, ctx):
-    """One script for figma_run.py: lib.js and the body inside an async function given EVAL."""
+    """One script for figma_run.py: lib.js and the body inside an async function given EVAL. A
+    body line `// include: <path>` (relative to tests/eval) is replaced by that file."""
     with open(os.path.join(HERE, 'lib.js')) as f:
         lib = f.read()
     with open(os.path.join(HERE, rel)) as f:
         body = f.read()
+
+    def include(m):
+        with open(os.path.join(HERE, m.group(1))) as f:
+            return f.read()
+    body = re.sub(r'^// include: (\S+)$', include, body, flags=re.M)
     return f'(async function (EVAL) {{\n{lib}\n{body}\n}})({json.dumps(ctx)})\n'
 
 
@@ -94,7 +100,7 @@ def file_lock(key):
 def run_session(task, ctx, a, tmp):
     url = a.file.split('?')[0] + '?node-id=' + ctx['pageId'].replace(':', '-')
     prompt = (task['prompt'].replace('{FILE_URL}', url).replace('{PAGE}', ctx['pageName'])
-              .replace('{FIXTURE}', os.path.join(HERE, 'fixtures', 'app')))
+              .replace('{FIXTURE}', os.path.join(HERE, 'fixtures', task.get('fixture', 'app'))))
     plugin = session.make_plugin(a.skill_dir, tmp)
     cwd = os.path.join(tmp, 'cwd')
     os.makedirs(cwd, exist_ok=True)
@@ -130,7 +136,8 @@ def run_session(task, ctx, a, tmp):
     return m, answer
 
 
-def run_rep(task, rep, a, expect):
+def run_rep(task, rep, a):
+    expect = source.expect_for(task)
     prefix = f"eval/{task['id']}/{rep}"
     rec = {'rep': rep}
     with tempfile.TemporaryDirectory() as tmp:
@@ -208,8 +215,6 @@ def main():
         sys.exit(f'--skill-dir {a.skill_dir} has no SKILL.md')
     key = file_key(a.file)
     tasks = load_tasks([t for t in a.tasks.split(',') if t])
-    with open(os.path.join(HERE, 'fixtures', 'expect.json')) as f:
-        expect = json.load(f)
     rev, dirty = git_rev(a.skill_dir)
     out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '',
                     'reps': a.reps, 'date': time.strftime('%Y-%m-%dT%H:%M:%S%z')},
@@ -219,7 +224,7 @@ def main():
         for n in range(1, a.reps + 1):
             lock = file_lock(key)
             try:
-                rec = run_rep(task, n, a, expect)
+                rec = run_rep(task, n, a)
             finally:
                 lock.close()
             reps.append(rec)

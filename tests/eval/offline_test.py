@@ -13,7 +13,7 @@ import json, os, re, shutil, socket, subprocess, sys, tempfile, types, unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import compare, run, session  # noqa: E402
+import compare, run, session, source  # noqa: E402
 
 FILE = 'https://www.figma.com/design/AAA111/Stub'
 RECON_ANSWER = ('Onboarding / Step 1 is 375x812 with 3 text layers, Onboarding / Step 2 is 375x812 with 2, '
@@ -70,7 +70,7 @@ class StubFigma(unittest.TestCase):
         """setup → seed → state → score → cleanup for one task; the scorer's output."""
         with open(os.path.join(HERE, 'tasks', f'{task_id}.json')) as f:
             task = json.load(f)
-        ctx = {'task': task_id, 'rep': rep, 'prefix': f'eval/{task_id}/{rep}', 'expect': self.expect}
+        ctx = {'task': task_id, 'rep': rep, 'prefix': f'eval/{task_id}/{rep}', 'expect': source.expect_for(task)}
         ctx.update(self.figma('ops/setup.js', ctx))
         ctx['seed'] = self.figma(task['seed'], ctx) if task.get('seed') else {}
         if state:
@@ -155,6 +155,87 @@ class Scorers(StubFigma):
     def test_capture(self):
         self.check('capture')
 
+    APP_HIGHER = ('instanceShare', 'reusedComponentized', 'variantCoverage', 'variantMatch', 'nestedShare',
+                  'listItemAvatarNested', 'sizingMatch', 'copy', 'autoLayoutShare')
+    APP_LOWER = ('rawUsages', 'splitComponents', 'inventedCopy', 'hardcodedPaints')
+
+    def test_app_screens(self):
+        g, b = self.check('app-screens')
+        for k in self.APP_HIGHER + ('screensFound', 'boundPaintShare'):
+            self.assertEqual(g[k], 1, k)
+        for k in ('rawUsages', 'missingUsages', 'splitComponents', 'unusedComponents', 'inventedCopy', 'hardcodedPaints'):
+            self.assertEqual(g[k], 0, k)
+        self.assertEqual(g['usages'], 81, 'every component usage in the three screens')
+        self.assertEqual((b['instanceShare'], b['reusedComponentized'], b['variantCoverage'], b['nestedShare']), (0, 0, 0, 0))
+        self.assertGreaterEqual(b['inventedCopy'], 3)
+        self.assertLess(b['copy'], 0.95)
+        self.assertGreater(b['defaultNames'], 20)
+        self.assertLess(b['autoLayoutShare'], 0.5)
+
+    def test_app_screens_grades_a_half_way_build_between(self):
+        g = self.scored('app-screens', 'app_screens_good')['metrics']
+        out = self.scored('app-screens', 'app_screens_mid')
+        m, b = out['metrics'], self.scored('app-screens', 'app_screens_bad')['metrics']
+        self.assertFalse(out['passed'], json.dumps(m))
+        for k in self.APP_HIGHER:
+            if k in ('autoLayoutShare',):
+                continue
+            self.assertLess(m[k], g[k], k)
+            self.assertLessEqual(b[k], m[k], k)
+        for k in self.APP_LOWER:
+            self.assertGreater(m[k], g[k], k)
+        self.assertGreater(m['splitComponents'], 0)
+        self.assertEqual(m['listItemAvatarNested'], 0, 'the Avatar is drawn inside the row, not instanced')
+        self.assertEqual(m['variantCoverage'] < 1 and m['variantCoverage'] > 0, True)
+        self.assertEqual(m['inventedCopy'], 3, 'one made-up line per screen')
+
+    def test_app_screens_ignores_layer_names(self):
+        g = self.scored('app-screens', 'app_screens_good')['metrics']
+        r = self.scored('app-screens', 'app_screens_renamed')['metrics']
+        for k in self.APP_HIGHER + ('rawUsages', 'splitComponents', 'missingUsages', 'inventedCopy', 'unusedComponents'):
+            self.assertEqual(r[k], g[k], k)
+        self.assertGreater(r['defaultNames'], g['defaultNames'])
+
+    def test_pattern_detect(self):
+        g, b = self.check('pattern-detect')
+        keys = ('newRowsInstanced', 'oldRowsLinked', 'rowSplit', 'newRawRows', 'rawRowCopies', 'headerInstanced',
+                'headerLinked', 'oldCopyKept', 'copy', 'inventedCopy')
+        self.assertEqual(tuple(g[k] for k in keys), (1, 1, 0, 0, 0, 1, 1, 1, 1, 0))
+        self.assertEqual(tuple(b[k] for k in keys), (0, 0, 0, 4, 8, 0, 0, 1, 1, 0))
+        out = self.scored('pattern-detect', 'pattern_detect_mid')
+        m = out['metrics']
+        self.assertTrue(out['passed'], 'new components, no raw copy: passes, graded below linking the old screen')
+        self.assertEqual(tuple(m[k] for k in keys), (1, 0, 0, 0, 4, 1, 0, 1, 1, 0))
+        untouched = self.scored('pattern-detect', None)
+        self.assertFalse(untouched['passed'])
+        self.assertEqual((untouched['metrics']['newRowsInstanced'], untouched['metrics']['oldCopyKept']), (0, 1))
+
+    def test_responsive(self):
+        g, b = self.check('responsive')
+        keys = ('found', 'sizingMatch', 'maxWidth', 'wrap', 'paragraphResize', 'spaceBetween', 'spacerFrames', 'fabPinned',
+                'sidebarWidth', 'copy')
+        self.assertEqual(tuple(g[k] for k in keys), (1, 1, 1, 1, 1, 1, 0, 1, 1, 1))
+        self.assertEqual((b['maxWidth'], b['wrap'], b['paragraphResize'], b['spaceBetween'], b['spacerFrames'], b['fabPinned']),
+                         (0, 0, 0, 0, 1, 0))
+        self.assertLess(b['sizingMatch'], 0.5)
+        out = self.scored('responsive', 'responsive_mid')
+        m = out['metrics']
+        self.assertFalse(out['passed'])
+        self.assertEqual((m['maxWidth'], m['wrap'], m['paragraphResize'], m['spaceBetween'], m['spacerFrames'], m['fabPinned']),
+                         (0, 1, 1, 0, 1, 0))
+        self.assertTrue(b['sizingMatch'] < m['sizingMatch'] < g['sizingMatch'], (b['sizingMatch'], m['sizingMatch']))
+
+    def test_saturated_metrics_score_1_on_the_bad_state_too(self):
+        """A task's "saturated" metrics are the ones that do not reward its good state over its bad one."""
+        for t in ('reuse', 'componentize', 'variants'):
+            with open(os.path.join(HERE, 'tasks', f'{t}.json')) as f:
+                names = json.load(f)['saturated']
+            g = self.scored(t, f'{t}_good')['metrics']
+            b = self.scored(t, f'{t}_bad')['metrics']
+            for k in names:
+                self.assertEqual(b[k], 1, (t, k))
+                self.assertLessEqual(g[k], b[k], (t, k))
+
     def test_every_task_has_offline_states(self):
         for f in os.listdir(os.path.join(HERE, 'tasks')):
             with open(os.path.join(HERE, 'tasks', f)) as fh:
@@ -164,6 +245,8 @@ class Scorers(StubFigma):
                 self.assertIn(k, t)
             for ph in ('{FILE_URL}', '{PAGE}'):
                 self.assertIn(ph, t['prompt'], t['id'])
+            if t.get('fixture'):
+                self.assertTrue(os.path.isdir(os.path.join(HERE, 'fixtures', t['fixture'])), t['id'])
             for rel in (t['score'], t.get('seed')):
                 if rel:
                     self.assertTrue(os.path.isfile(os.path.join(HERE, rel)), rel)
@@ -204,6 +287,75 @@ class Fixture(unittest.TestCase):
         with open(os.path.join(app, 'settings.html')) as fh:
             rows = re.findall(r'settings-row__label">([^<]+)<.*?aria-checked="(true|false)"', fh.read(), re.S)
         self.assertEqual([(r['label'], r['on']) for r in e['settings']['rows']], [(l, v == 'true') for l, v in rows])
+
+
+class HarborFixture(unittest.TestCase):
+    """source.py's reading of the Harbor fixtures, which the app-screens, pattern-detect and
+    responsive scorers rely on."""
+
+    def walk(self, usages):
+        for u in usages:
+            yield u
+            yield from self.walk(u['kids'])
+
+    def screens(self):
+        for name in ('harbor', 'harbor-pages'):
+            e = source.load(name)
+            for stem, s in e['screens'].items():
+                with open(os.path.join(HERE, 'fixtures', name, s['file'])) as f:
+                    yield e, stem, s, f.read()
+
+    def test_usages_match_the_class_names_in_the_html(self):
+        marks = dict(source.COMPONENTS, **source.ROLE_CLASSES)
+        for e, stem, s, html in self.screens():
+            self.assertTrue(s['title'], stem)
+            found = {}
+            for u in self.walk(s['usages']):
+                found[u['c']] = found.get(u['c'], 0) + 1
+            for cls, c in marks.items():
+                n = len(re.findall(r'class="(?:[^"]*\s)?%s(?:\s[^"]*)?"' % re.escape(cls), html))
+                self.assertEqual(found.get(c, 0), n, (stem, cls))
+
+    def test_every_modifier_is_a_known_variant_value(self):
+        for e, stem, s, html in self.screens():
+            for cls in re.findall(r'class="([^"]+)"', html):
+                for tok in cls.split():
+                    if '--' not in tok:
+                        continue
+                    block, mod = tok.split('--', 1)
+                    if block not in source.COMPONENTS:
+                        continue
+                    axes = source.AXES.get(source.COMPONENTS[block], {})
+                    self.assertTrue(any(mod in a['values'] or (a.get('boolean') and mod == name) for name, a in axes.items()),
+                                    (stem, tok))
+
+    def test_sibling_usages_are_told_apart_by_their_strings(self):
+        for e, stem, s, html in self.screens():
+            def check(us):
+                keyed = [u for u in us if u['c'] != 'Icon']
+                for u in keyed:
+                    self.assertTrue(u['key'], (stem, u['c']))
+                sets = [(u['c'], tuple(sorted(u['texts']))) for u in keyed]
+                self.assertEqual(len(sets), len(set(sets)), (stem, sets))
+                for u in us:
+                    check(u['kids'])
+            check(s['usages'])
+
+    def test_colors_come_from_the_tokens(self):
+        e = source.load('harbor')
+        self.assertEqual(e['colors'], source.load('harbor-pages')['colors'])
+        css = ''
+        for d, f in (('harbor', 'components.css'), ('harbor-pages', 'notes.html')):
+            with open(os.path.join(HERE, 'fixtures', d, f)) as fh:
+                css += fh.read()
+        for k in set(re.findall(r'var\(--color-([a-z0-9-]+)\)', css)):
+            self.assertIn(k, e['colors'])
+
+    def test_paragraphs_and_roles(self):
+        notes = source.load('harbor-pages')['screens']['notes']
+        self.assertEqual(len(notes['paragraphs']), 3)
+        roles = {u['c'] for u in self.walk(notes['usages'])} & set(source.ROLES)
+        self.assertEqual(roles, set(source.ROLES) - {'paragraph'})
 
 
 class Compare(unittest.TestCase):
@@ -340,6 +492,16 @@ class RunEndToEnd(StubFigma):
         self.assertIn('newTopLevel', fid['lower'])
         self.assertEqual(len(fid['reps']), 2)
         self.assertIn('recon 2/2', log)
+        self.assertEqual(self.pages(), ['Page 1'])
+
+    def test_fixture_tasks_score_an_untouched_page(self):
+        out, _ = self.run_py('--tasks', 'app-screens,pattern-detect,responsive', '--reps', '1')
+        for t in ('app-screens', 'pattern-detect', 'responsive'):
+            rep = out['tasks'][t]['reps'][0]
+            self.assertNotIn('error', rep, t)
+            self.assertFalse(rep['passed'], t)
+        self.assertEqual(out['tasks']['pattern-detect']['median']['oldCopyKept'], 1)
+        self.assertEqual(out['tasks']['app-screens']['median']['screensFound'], 0)
         self.assertEqual(self.pages(), ['Page 1'])
 
     def test_keep_leaves_the_pages(self):

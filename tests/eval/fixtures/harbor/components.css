@@ -1,0 +1,109 @@
+@import "tokens.css";
+
+/* Harbor UI components. Each block class is one component; a --modifier is one of its
+   variants. components.html shows every component in every variant. */
+
+body { margin: 0; font-family: var(--font-family); font-size: var(--text-sm); background: var(--color-background); color: var(--color-text); }
+h1 { margin: 0; font-size: var(--text-xl); font-weight: var(--weight-bold); }
+h2 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-medium); }
+h3 { margin: 0; font-size: var(--text-md); font-weight: var(--weight-medium); }
+
+/* Icon: 20×20 line icon from icons.svg; name = bell | plus | search */
+.icon { width: 20px; height: 20px; flex: none; color: currentColor; }
+
+/* Avatar: initials in a circle; size = sm (default, 32px) | lg (56px) */
+.avatar {
+  width: 32px; height: 32px; flex: none; border-radius: var(--radius-pill);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--color-avatar-bg); color: var(--color-avatar-text);
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+}
+.avatar--lg { width: 56px; height: 56px; font-size: var(--text-lg); }
+
+/* Badge: short status label; tone = neutral (default) | success | warning | danger */
+.badge {
+  display: inline-flex; align-items: center; padding: 2px var(--space-2); border-radius: var(--radius-pill);
+  font-size: var(--text-xs); font-weight: var(--weight-medium); white-space: nowrap;
+  background: var(--color-neutral-bg); color: var(--color-neutral-text);
+}
+.badge--success { background: var(--color-success-bg); color: var(--color-success-text); }
+.badge--warning { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.badge--danger { background: var(--color-danger-bg); color: var(--color-danger-text); }
+
+/* Button: variant = primary | secondary; an optional leading icon */
+.button {
+  display: inline-flex; align-items: center; gap: var(--space-2); flex: none;
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); border: 1px solid transparent;
+  font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: none;
+}
+.button--primary { background: var(--color-primary); color: var(--color-on-primary); }
+.button--secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border); }
+
+/* Input: label, field and an optional message below it;
+   state = default | focus | error | disabled. A field may lead with an icon. */
+.input { display: flex; flex-direction: column; gap: var(--space-1); }
+.input__label { font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-text-muted); }
+.input__field {
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+.input__field input { flex: 1; border: 0; padding: 0; font: inherit; color: var(--color-text); background: transparent; }
+.input__message { font-size: var(--text-xs); color: var(--color-text-muted); }
+.input--focus .input__field { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-focus-ring); }
+.input--error .input__field { border-color: var(--color-error); }
+.input--error .input__message { color: var(--color-error); }
+.input--disabled .input__field { background: var(--color-disabled-bg); }
+.input--disabled .input__field input { color: var(--color-disabled-text); }
+
+/* Tabs: a row of tabs over a bottom border; a tab is selected or not */
+.tabs { display: flex; gap: var(--space-6); border-bottom: 1px solid var(--color-border); }
+.tab { padding: var(--space-2) 0; color: var(--color-text-muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.tab--selected { color: var(--color-primary); font-weight: var(--weight-medium); border-bottom-color: var(--color-primary); }
+
+/* List item: avatar, two lines of text, a badge at the end; selected or not */
+.list-item {
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.list-item--selected { background: var(--color-selected-bg); }
+.list-item__text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.list-item__title { font-weight: var(--weight-medium); }
+.list-item__subtitle { font-size: var(--text-xs); color: var(--color-text-muted); }
+
+/* Card: a surface with a title row (title, optional action) and any content below */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+}
+.card__header { display: flex; align-items: center; justify-content: space-between; }
+
+/* Stat card: label, big value, a badge with the trend */
+.stat-card {
+  flex: 1; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+}
+.stat-card__label { color: var(--color-text-muted); }
+.stat-card__value { font-size: var(--text-xl); font-weight: var(--weight-bold); }
+.stat-card .badge { align-self: flex-start; }
+
+/* App header: brand on the left; notifications and the signed-in user's avatar on the right */
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-3) var(--space-6); background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+}
+.app-header__brand { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--color-primary); }
+.app-header__actions { display: flex; align-items: center; gap: var(--space-4); color: var(--color-text-muted); }
+
+/* Screen scaffolding shared by every page (not components) */
+.screen { width: 1280px; min-height: 800px; display: flex; flex-direction: column; }
+.page { display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-8); }
+.page__head { display: flex; align-items: center; justify-content: space-between; }
+.row { display: flex; gap: var(--space-6); align-items: flex-start; }
+.grow { flex: 1; min-width: 0; }
+.list { display: flex; flex-direction: column; }
+.fields { display: flex; flex-direction: column; gap: var(--space-4); }
+.pairs { display: flex; flex-direction: column; gap: var(--space-2); }
+.pair { display: flex; justify-content: space-between; }
+.pair__label { color: var(--color-text-muted); }
+.actions { display: flex; gap: var(--space-3); justify-content: flex-end; }

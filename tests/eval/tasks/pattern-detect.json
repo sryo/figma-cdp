@@ -1,0 +1,8 @@
+{
+  "id": "pattern-detect",
+  "covers": "spot a repeated hand-drawn structure: the seeded screen's four plain rows and header become components the new screen instances, instead of a third raw copy",
+  "fixture": "harbor-pages",
+  "prompt": "The page \"{PAGE}\" of {FILE_URL} has the Customers screen. Add the Team screen from {FIXTURE}/team.html next to it.",
+  "seed": "seeds/pattern_detect.js",
+  "score": "scorers/pattern_detect.js"
+}

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Overview · Harbor</title><link rel="stylesheet" href="components.css"></head>
+<body class="screen">
+  <header class="app-header">
+    <span class="app-header__brand">Harbor</span>
+    <div class="app-header__actions">
+      <svg class="icon icon--bell" aria-label="Notifications"><use href="icons.svg#bell"/></svg>
+      <span class="avatar">AK</span>
+    </div>
+  </header>
+  <main class="page">
+    <h1>Overview</h1>
+    <nav class="tabs">
+      <a class="tab tab--selected" href="#week">This week</a>
+      <a class="tab" href="#month">This month</a>
+      <a class="tab" href="#year">This year</a>
+    </nav>
+    <section class="row">
+      <div class="stat-card">
+        <span class="stat-card__label">Revenue</span>
+        <span class="stat-card__value">$48,250</span>
+        <span class="badge badge--success">+12.4%</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-card__label">Outstanding</span>
+        <span class="stat-card__value">$9,830</span>
+        <span class="badge badge--warning">6 due soon</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-card__label">Overdue</span>
+        <span class="stat-card__value">$2,140</span>
+        <span class="badge badge--danger">3 invoices late</span>
+      </div>
+    </section>
+    <section class="row">
+      <div class="card grow">
+        <div class="card__header">
+          <h2 class="card__title">Recent customers</h2>
+          <a class="button button--secondary" href="customers.html">View all</a>
+        </div>
+        <div class="list">
+          <div class="list-item">
+            <span class="avatar">PR</span>
+            <div class="list-item__text"><span class="list-item__title">Priya Raman</span><span class="list-item__subtitle">Northwind Studio</span></div>
+            <span class="badge badge--success">Active</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">MD</span>
+            <div class="list-item__text"><span class="list-item__title">Marco Diaz</span><span class="list-item__subtitle">Diaz &amp; Co.</span></div>
+            <span class="badge badge--warning">Trial</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">LO</span>
+            <div class="list-item__text"><span class="list-item__title">Lena Ortiz</span><span class="list-item__subtitle">Brightline</span></div>
+            <span class="badge">Invited</span>
+          </div>
+        </div>
+      </div>
+      <div class="card grow">
+        <div class="card__header"><h2 class="card__title">Upcoming payments</h2></div>
+        <div class="list">
+          <div class="list-item">
+            <span class="avatar">SM</span>
+            <div class="list-item__text"><span class="list-item__title">Sofia Marin</span><span class="list-item__subtitle">$1,200 due Mar 18</span></div>
+            <span class="badge badge--warning">Due soon</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">JB</span>
+            <div class="list-item__text"><span class="list-item__title">Jonah Bell</span><span class="list-item__subtitle">$640 due Mar 9</span></div>
+            <span class="badge badge--danger">Overdue</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -3,5 +3,12 @@
   "covers": "repeated rows become one component (toggle state as a variant) instanced per row",
   "prompt": "Mock up the settings screen in {FIXTURE}/settings.html (its components are in {FIXTURE}/components.jsx) on the page \"{PAGE}\" of {FILE_URL}",
   "seed": "seeds/tokens_only.js",
-  "score": "scorers/componentize.js"
+  "score": "scorers/componentize.js",
+  "saturated": {
+    "stateMatch": "falls back to the toggle color, so five raw rows score 1",
+    "copy": "eleven short strings any build carries, raw or instanced",
+    "autoLayoutShare": "a stack of raw rows in auto layout scores 1",
+    "sizingShare": "counts a child as sized when either axis is not FIXED; the five raw rows score 1, above the good build",
+    "constrainedAbsShare": "the screen has no absolute children, so the share is vacuously 1"
+  }
 }

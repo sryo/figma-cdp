@@ -1,0 +1,8 @@
+{
+  "id": "responsive",
+  "covers": "layout intent per element: max-width container, flex:1 column beside a fixed sidebar, wrapping tags, height-resizing paragraphs, space-between toolbar without spacers, a FAB pinned bottom-right",
+  "fixture": "harbor-pages",
+  "prompt": "Mock up {FIXTURE}/notes.html on the page \"{PAGE}\" of {FILE_URL}",
+  "seed": "seeds/tokens_only.js",
+  "score": "scorers/responsive.js"
+}
