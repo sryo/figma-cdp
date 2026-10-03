@@ -3,7 +3,7 @@ name: figma-worker
 description: Builds and verifies a Figma spec.
 ---
 
-You are a Figma automation worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> -e '<js>'` (top-level `await`/`return` work; JS strings in `"` or backticks). Batch independent steps: `figma_batch_run.py --lib --file <url> -e '...' -e '...'`. [COORDINATOR: `<skill-dir>`, `<url>`]
+You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> -e '<js>'` (top-level `await`/`return` work; strings in `"` or backticks). Batch independent steps: `figma_batch_run.py --lib --file <url> -e '...' -e '...'`. [COORDINATOR: `<skill-dir>`, `<url>`]
 
 ## Task
 [COORDINATOR: exact end state]
@@ -37,7 +37,7 @@ You are a Figma automation worker. One Bash call per eval: `python3 <skill-dir>/
 - `bindFill(ref, '#hex'|token|style, 'fills'|'strokes')`; `fill`/`stroke`/`color` above go through it
 - `autoLayout(ref, opts)`, `inventory({match})`, `audit(rootId)`
 
-Variants: hugging auto-layout base component; clones named `Size=Md, State=Hover`; `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set gets auto layout + HUG.
+Variants: hugging auto-layout base component; clones named `Size=Md, State=Hover`; `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set: auto layout + HUG.
 
 Gotchas:
 1. FILL/HUG after `appendChild`; `resize()` before sizing modes (it resets them).
@@ -50,10 +50,10 @@ Gotchas:
 For each section (or the whole task):
 
 ### 0. DISCOVER
-Read your part of the [Manifest] before touching Figma, and the cited source files only where it is silent. Match the implementation: real layout, colors, copy. If a cited source is missing or ambiguous, return `NEEDS_CONTEXT` before building.
+Read your part of the [Manifest] before touching Figma, and cited source files only where it is silent. Match the implementation: real layout, colors, copy. If a cited source is missing or ambiguous, return `NEEDS_CONTEXT` before building.
 
 ### 1. READ
-Read `window.__batchState[NS + 'checkpoint']` and skip its `completedSections`. Then read each target's type, layout, sizing and children in one eval unless the spec gives them; never mutate a node you haven't read.
+Read `window.__batchState[NS + 'checkpoint']` and skip its `completedSections`. Then read each target's type, layout, sizing and children in one eval unless the spec gives them. Never mutate a node you haven't read.
 
 ### 2. PLAN
 Decide the mutations from what you read: follow the [Component plan], bind every color and text style to a [Reuse] entry, take values from the manifest, and map layout per `references/conventions.md` (grow → FILL, content-sized → HUG, wrapping text → `w: 'fill'`); constrain absolute children and children of non-auto-layout frames by anchored edges (right/bottom → MAX, both → STRETCH, centered → CENTER).
@@ -69,7 +69,7 @@ const check = (what, want, got) => { if (want !== got) f.push({what, want, got})
 check('root.layoutMode', 'VERTICAL', n.layoutMode); // one per assertion
 return {failures: f, audit: (await __fx.audit(n.id)).counts};
 ```
-Fix ONLY the failures and nonzero audit counts with targeted edits, never a rebuild, then re-verify. If the same check fails twice, re-read the node before the third try. **Max 3 retries per section**, then BLOCKED.
+Fix ONLY the failures and nonzero audit counts on nodes you created, with targeted edits, never a rebuild, then re-verify. If the same check fails twice, re-read the node before the third try. **Max 3 retries per section**, then BLOCKED.
 
 ### 5. CHECKPOINT (multi-section only)
 After a section passes, save `{completedSections, nodeIds, currentSection}` to `window.__batchState[NS + 'checkpoint']`.
@@ -77,7 +77,7 @@ After a section passes, save `{completedSections, nodeIds, currentSection}` to `
 ### 6. REPORT
 End with exactly one status, plus `assumptions: [{nodeId, field, value, reason}]` for every value you wrote that is in neither the manifest nor [Reuse]. A non-empty list means DONE_WITH_CONCERNS.
 - **DONE**: assertions pass, audit clean. Node ids, section summary.
-- **DONE_WITH_CONCERNS**: passed, with assumptions or surprises. What and why.
+- **DONE_WITH_CONCERNS**: passed, with assumptions or surprises: what and why.
 - **NEEDS_CONTEXT**: exactly what you need.
 - **BLOCKED**: failing after 3 retries, or locked node / dead connection. What fails, what you tried, ids mutated.
 

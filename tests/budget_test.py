@@ -100,6 +100,22 @@ class Docs(unittest.TestCase):
         for rel, text in docs().items():
             self.assertNotRegex(text, r'(?i)properties\W+BEFORE\W+`?combineAsVariants', rel)
 
+    def test_an_edit_patches_in_place_before_any_component_plan(self):
+        text = docs()['SKILL.md']
+        flow = text[text.index('## Flow'):text.index('## Work decomposition')]
+        edit = re.search(r'(?i)\bedit\b[^\n]*"make it match"[^\n]*', flow)
+        self.assertIsNotNone(edit, 'Flow has no rule for an edit or "make it match" task')
+        self.assertLess(edit.start(), flow.index('**Component plan'), 'the edit rule must come before the component plan')
+        self.assertRegex(edit.group(0), r'(?i)in place')
+        self.assertRegex(edit.group(0), r'(?i)never[^.]*(replace|remove)[^.]*instance')
+
+    def test_audit_gates_only_what_the_session_built(self):
+        gate = next(l for l in docs()['SKILL.md'].splitlines() if 'Final gate' in l)
+        self.assertRegex(gate, r'(?i)all 0[^.]*(you|it) (built|created|added)', 'gate demands all-0 counts on an edit too')
+        worker = docs()['figma-worker.md']
+        fix = next(l for l in worker.splitlines() if l.startswith('Fix ONLY'))
+        self.assertRegex(fix, r'(?i)audit counts on nodes you (built|created)', 'worker chases counts it did not cause')
+
     def test_worker_template_has_the_planning_slots_and_assumptions(self):
         text = docs()['figma-worker.md']
         for slot in ('## Component plan', '## Reuse', '## Manifest', 'assumptions: [{nodeId, field, value, reason}]',
