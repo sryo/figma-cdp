@@ -12,8 +12,8 @@ sets behind it. The report lists, per kind, what differs from the manifest:
   missing variants / missing states for components the subtree uses (sets reached through instances too)
   missing components                a source component used 2+ times with no component in the subtree, or
                                     behind its instances, whose name (or a /-segment of it) starts with its words
-A kind the manifest has no entries for is not checked. Exit 0 with no gaps, 1 with gaps,
-2 when the check could not run.
+A kind the manifest has no entries for is not checked. The first line counts the gaps; exit 0
+when the check ran, gaps or not, 2 when it could not run.
 """
 import argparse, json, os, re, subprocess, sys, tempfile
 
@@ -380,7 +380,8 @@ def main():
         fail(f'cannot read manifest {a.manifest}: {e}')
     rep = diff(m, collect(a.root, a))
     print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else render(rep))
-    sys.exit(1 if rep['count'] else 0)
+    # Gaps are the report: exit 0 whenever the check ran, so a shell doesn't read them as a failed call.
+    sys.exit(0)
 
 
 if __name__ == '__main__':

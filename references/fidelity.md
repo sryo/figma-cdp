@@ -42,4 +42,4 @@ not checked (no component in the subtree): toggle
 - **missing variants / states**: checked only for components the subtree uses, matched by name. The others are listed as not checked.
 - **missing components**: a manifest component used 2+ times with no component in the subtree (defined there or behind an instance) whose name, or a `/` segment of it, starts with its words: `Card header` and `Kit/Card` count for `card`, `Stat card` does not.
 
-A kind the manifest has no entries for is skipped. Exit 0 means no gaps, 1 means gaps, 2 means the check could not run. `--json` prints the full report, with every node id. Fix each gap with a targeted edit, or report it as a deliberate deviation, then run the check again.
+A kind the manifest has no entries for is skipped. The first line counts the gaps (`0 gaps` is clean). Exit 0 means the check ran, 2 that it could not. `--json` prints the full report, with every node id. Fix each gap with a targeted edit, or report it as a deliberate deviation, then run the check again.

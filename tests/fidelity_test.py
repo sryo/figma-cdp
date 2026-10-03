@@ -67,7 +67,7 @@ class Fidelity(unittest.TestCase):
 
     def report(self, root):
         r = self.fidelity(root, '--json')
-        self.assertIn(r.returncode, (0, 1), r.stderr)
+        self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout), r.returncode
 
     def test_good_build_has_no_gaps(self):
@@ -82,7 +82,7 @@ class Fidelity(unittest.TestCase):
     def test_bad_build_names_every_gap(self):
         ids = self.build(True)
         rep, code = self.report(ids['rootId'])
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 0)
         g = rep['gaps']
         self.assertEqual(sorted(e['text'] for e in g['missing copy']), ['Forgot your passphrase?', 'Welcome back to Lumen'])
         self.assertTrue(all(e['src'].startswith('login.html:') for e in g['missing copy']))
@@ -118,7 +118,7 @@ class Fidelity(unittest.TestCase):
     def test_text_report_is_one_line_per_kind(self):
         ids = self.build(True)
         r = self.fidelity(ids['rootId'])
-        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.returncode, 0, 'gaps are the report, not a failure: a nonzero exit reads as a failed call')
         out = r.stdout
         self.assertRegex(out.splitlines()[0], r'^fidelity \S+ "Login": 13 gaps')
         for line in ('missing copy (2): "Welcome back to Lumen" login.html:',
@@ -272,7 +272,7 @@ class Collect(unittest.TestCase):
         with open(m, 'w') as f:
             json.dump({'colors': [{'value': '#6b7280', 'token': '--color-text-muted', 'src': 't.css:3'}]}, f)
         r = self.fidelity(root, manifest=m)
-        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('unbound (1): #6b7280 ×7 → color/text-muted (', r.stdout)
         self.assertIn(', +4)', r.stdout)
 

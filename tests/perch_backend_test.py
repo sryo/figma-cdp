@@ -609,7 +609,7 @@ class Fidelity(Harness):
         cdp = self.run_helper('figma_fidelity.py', manifest, root, FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9222',
                               FAKE_AB_PRELUDE=seed, FAKE_AB_STUB=os.path.join(ROOT, 'tests', 'figma_stub.js'),
                               PATH=os.path.dirname(fake) + os.pathsep + os.environ['PATH'])
-        self.assertEqual((perch.returncode, cdp.returncode), (1, 1), perch.stderr + cdp.stderr)
+        self.assertEqual((perch.returncode, cdp.returncode), (0, 0), perch.stderr + cdp.stderr)
         self.assertEqual(perch.stdout, cdp.stdout)
         self.assertIn('missing copy (1): "Gone text" a.html:2', perch.stdout)
         self.assertIn('invented copy (1): "Made up"', perch.stdout)
