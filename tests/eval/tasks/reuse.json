@@ -3,5 +3,9 @@
   "covers": "search before creating: reuse the seeded Button set and Input instead of drawing new ones; copy and token fidelity",
   "prompt": "Build the login screen from {FIXTURE}/login.html as a mockup on the page \"{PAGE}\" of {FILE_URL}",
   "seed": "seeds/reuse.js",
-  "score": "scorers/reuse.js"
+  "score": "scorers/reuse.js",
+  "saturated": {
+    "constrainedAbsShare": "the login has no absolute children, so the share is vacuously 1",
+    "sizingShare": "counts a child as sized when either axis is not FIXED; text layers hug by default"
+  }
 }

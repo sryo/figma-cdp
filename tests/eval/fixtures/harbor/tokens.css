@@ -1,0 +1,52 @@
+/* Design tokens for the Harbor fixture app (invoicing workspace). Every color, space and type
+   size the screens use comes from here; the eval harness reads the colors straight from this
+   file (tests/eval/source.py), so the two cannot drift. */
+:root {
+  /* color */
+  --color-primary: #2563eb;
+  --color-on-primary: #ffffff;
+  --color-surface: #ffffff;
+  --color-background: #f8fafc;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-focus-ring: #93c5fd;
+  --color-error: #dc2626;
+  --color-disabled-bg: #f1f5f9;
+  --color-disabled-text: #94a3b8;
+  --color-selected-bg: #eff6ff;
+  --color-avatar-bg: #e0e7ff;
+  --color-avatar-text: #3730a3;
+  --color-neutral-bg: #eef2f6;
+  --color-neutral-text: #475569;
+  --color-success-bg: #dcfce7;
+  --color-success-text: #166534;
+  --color-warning-bg: #fef3c7;
+  --color-warning-text: #92400e;
+  --color-danger-bg: #fee2e2;
+  --color-danger-text: #991b1b;
+
+  /* spacing scale (px) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* type scale */
+  --font-family: "Inter", system-ui, sans-serif;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
+
+  /* radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
+}

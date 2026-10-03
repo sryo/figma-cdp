@@ -10,8 +10,9 @@ Per task, per metric, on the rep medians:
       lower is better, and a move counts only past a noise tolerance of
       max(floor x baseline median, half the larger min-max spread of either run's reps);
       floor defaults to 10%, so with one rep a cost metric may grow 10% before it counts
-A task or metric the baseline has and the candidate lacks is a regression too. The default
-baseline is tests/eval/baseline.json.
+A task or metric the baseline has and the candidate lacks is a regression too. A metric a
+task lists as "saturated" (it scores the same on good and bad output) is shown as `info`
+and never counts. The default baseline is tests/eval/baseline.json.
 """
 import argparse, json, os, sys
 
@@ -33,8 +34,16 @@ def fmt(v):
     return f'{v:.4g}' if isinstance(v, float) else str(v)
 
 
+def saturated(task):
+    try:
+        with open(os.path.join(HERE, 'tasks', task + '.json')) as f:
+            return set(json.load(f).get('saturated') or [])
+    except (OSError, ValueError):
+        return set()
+
+
 def compare(base, cand, floor=0.10):
-    """Rows of (task, metric, base, cand, tol, verdict); verdict in ok|better|worse|missing|new."""
+    """Rows of (task, metric, base, cand, tol, verdict); verdict in ok|better|worse|missing|new|info."""
     cost = set(base.get('cost_metrics') or []) | set(cand.get('cost_metrics') or [])
     rows = []
     for task, b in base['tasks'].items():
@@ -43,6 +52,7 @@ def compare(base, cand, floor=0.10):
             rows.append((task, '*', None, None, None, 'missing'))
             continue
         lower = set(b.get('lower') or []) | set(c.get('lower') or [])
+        sat = saturated(task)
         bm = dict(b['median'], pass_rate=b['pass_rate'])
         cm = dict(c['median'], pass_rate=c['pass_rate'])
         for k in sorted(set(bm) | set(cm)):
@@ -53,6 +63,9 @@ def compare(base, cand, floor=0.10):
                 rows.append((task, k, None, cm[k], None, 'new'))
                 continue
             bv, cv = bm[k], cm[k]
+            if k in sat:
+                rows.append((task, k, bv, cv, None, 'info' if bv != cv else 'ok'))
+                continue
             if k in cost:
                 spread = max((b['max'].get(k, bv) - b['min'].get(k, bv)) / 2, (c['max'].get(k, cv) - c['min'].get(k, cv)) / 2)
                 tol = max(floor * abs(bv), spread)

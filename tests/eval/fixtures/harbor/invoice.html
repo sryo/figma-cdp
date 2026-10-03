@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>New invoice · Harbor</title><link rel="stylesheet" href="components.css"></head>
+<body class="screen">
+  <header class="app-header">
+    <span class="app-header__brand">Harbor</span>
+    <div class="app-header__actions">
+      <svg class="icon icon--bell" aria-label="Notifications"><use href="icons.svg#bell"/></svg>
+      <span class="avatar">AK</span>
+    </div>
+  </header>
+  <main class="page">
+    <h1>New invoice</h1>
+    <nav class="tabs">
+      <a class="tab tab--selected" href="#details">Details</a>
+      <a class="tab" href="#items">Line items</a>
+      <a class="tab" href="#preview">Preview</a>
+    </nav>
+    <!-- The form as it looks mid-edit: one field focused, one failing validation, one locked. -->
+    <section class="row">
+      <form class="card grow">
+        <div class="card__header"><h2 class="card__title">Billing details</h2></div>
+        <div class="fields">
+          <label class="input">
+            <span class="input__label">Customer</span>
+            <span class="input__field"><input value="Priya Raman"></span>
+          </label>
+          <label class="input input--disabled">
+            <span class="input__label">Invoice number</span>
+            <span class="input__field"><input value="INV-0042" disabled></span>
+            <span class="input__message">Assigned automatically</span>
+          </label>
+          <label class="input input--error">
+            <span class="input__label">Billing email</span>
+            <span class="input__field"><input type="email" value="priya@northwind" aria-invalid="true"></span>
+            <span class="input__message">Enter a full address, like name@company.com</span>
+          </label>
+          <label class="input input--focus">
+            <span class="input__label">Due date</span>
+            <span class="input__field"><input value="Mar 28, 2026"></span>
+          </label>
+          <label class="input">
+            <span class="input__label">PO number</span>
+            <span class="input__field"><input placeholder="Optional"></span>
+          </label>
+        </div>
+      </form>
+      <aside class="card" style="width: 320px; flex: none;">
+        <div class="card__header">
+          <h2 class="card__title">Summary</h2>
+          <span class="badge">Draft</span>
+        </div>
+        <div class="pairs">
+          <div class="pair"><span class="pair__label">Subtotal</span><span>$3,200.00</span></div>
+          <div class="pair"><span class="pair__label">Tax (8%)</span><span>$256.00</span></div>
+          <div class="pair"><strong>Total due</strong><strong>$3,456.00</strong></div>
+        </div>
+        <div class="actions">
+          <button class="button button--secondary" type="button">Save draft</button>
+          <button class="button button--primary" type="submit">Send invoice</button>
+        </div>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

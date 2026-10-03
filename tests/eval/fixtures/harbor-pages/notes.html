@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><title>Payment reminders · Harbor</title><link rel="stylesheet" href="../harbor/components.css">
+  <style>
+    /* Designed at a 1440×900 viewport; the content column stops growing at 1120px. */
+    .viewport { width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden; }
+    .layout { width: 100%; max-width: 1120px; margin: 0 auto; box-sizing: border-box; padding: var(--space-8) var(--space-6);
+      display: flex; flex-direction: column; gap: var(--space-6); }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; }
+    .toolbar__title { display: flex; flex-direction: column; gap: var(--space-1); }
+    .toolbar__meta { color: var(--color-text-muted); }
+    .toolbar__actions { display: flex; gap: var(--space-3); }
+    .columns { display: flex; gap: var(--space-8); align-items: flex-start; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+    .main p { margin: 0; font-size: var(--text-md); line-height: 1.6; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .tag { padding: var(--space-1) var(--space-3); border-radius: var(--radius-pill); border: 1px solid var(--color-border);
+      background: var(--color-surface); font-size: var(--text-xs); }
+    .sidebar { width: 280px; flex: none; display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4);
+      background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+    .sidebar a { color: var(--color-primary); text-decoration: none; }
+    .sidebar__meta { font-size: var(--text-xs); color: var(--color-text-muted); }
+    .fab { position: fixed; right: 24px; bottom: 24px; display: inline-flex; align-items: center; gap: var(--space-2);
+      padding: var(--space-3) var(--space-4); border: 0; border-radius: var(--radius-pill);
+      background: var(--color-primary); color: var(--color-on-primary); font-weight: var(--weight-medium);
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2); }
+  </style>
+</head>
+<body class="viewport">
+  <header class="app-header">
+    <span class="app-header__brand">Harbor</span>
+    <div class="app-header__actions">
+      <svg class="icon icon--bell" aria-label="Notifications"><use href="../harbor/icons.svg#bell"/></svg>
+      <span class="avatar">AK</span>
+    </div>
+  </header>
+  <div class="layout">
+    <div class="toolbar">
+      <div class="toolbar__title">
+        <h1>Payment reminders</h1>
+        <span class="toolbar__meta">Help center article</span>
+      </div>
+      <div class="toolbar__actions">
+        <button class="button button--secondary">Export</button>
+        <button class="button button--primary">Share</button>
+      </div>
+    </div>
+    <div class="columns">
+      <article class="main">
+        <h2>How reminders work</h2>
+        <div class="tag-list">
+          <span class="tag">Automation</span>
+          <span class="tag">Email</span>
+          <span class="tag">Late fees</span>
+          <span class="tag">Templates</span>
+          <span class="tag">Net 30</span>
+          <span class="tag">Recurring invoices</span>
+          <span class="tag">Multi-currency</span>
+          <span class="tag">Partial payments</span>
+        </div>
+        <p>Harbor sends a friendly reminder three days before an invoice is due, another on the due date, and a firmer one each week after that until the balance is paid or you mark the invoice as settled by hand.</p>
+        <p>Every reminder uses the template of the customer's language and includes a link to pay online, the invoice as a PDF, and the outstanding amount after any partial payments have been taken off.</p>
+        <p>You can pause reminders for a single customer from their profile, or switch them off for the whole workspace while you review your payment terms with your accountant.</p>
+      </article>
+      <aside class="sidebar">
+        <h3>On this page</h3>
+        <a href="#schedule">Schedule</a>
+        <a href="#tone">Tone and wording</a>
+        <a href="#escalation">Escalation</a>
+        <span class="sidebar__meta">Last edited by Ana Kim on Mar 3</span>
+      </aside>
+    </div>
+  </div>
+  <button class="fab">
+    <svg class="icon icon--plus" aria-hidden="true"><use href="../harbor/icons.svg#plus"/></svg>
+    <span>New note</span>
+  </button>
+</body>
+</html>

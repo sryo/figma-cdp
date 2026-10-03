@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Customers · Harbor</title><link rel="stylesheet" href="components.css"></head>
+<body class="screen">
+  <header class="app-header">
+    <span class="app-header__brand">Harbor</span>
+    <div class="app-header__actions">
+      <svg class="icon icon--bell" aria-label="Notifications"><use href="icons.svg#bell"/></svg>
+      <span class="avatar">AK</span>
+    </div>
+  </header>
+  <main class="page">
+    <div class="page__head">
+      <h1>Customers</h1>
+      <a class="button button--primary" href="#new">
+        <svg class="icon icon--plus" aria-hidden="true"><use href="icons.svg#plus"/></svg>
+        <span>Add customer</span>
+      </a>
+    </div>
+    <nav class="tabs">
+      <a class="tab tab--selected" href="#all">All</a>
+      <a class="tab" href="#active">Active</a>
+      <a class="tab" href="#trial">Trial</a>
+      <a class="tab" href="#archived">Archived</a>
+    </nav>
+    <section class="row">
+      <!-- The list on the left; the selected customer's details on the right. -->
+      <div class="card" style="width: 400px; flex: none;">
+        <div class="card__header"><h2 class="card__title">142 customers</h2></div>
+        <label class="input">
+          <span class="input__field">
+            <svg class="icon icon--search" aria-hidden="true"><use href="icons.svg#search"/></svg>
+            <input type="search" placeholder="Search customers">
+          </span>
+        </label>
+        <div class="list">
+          <div class="list-item list-item--selected">
+            <span class="avatar">PR</span>
+            <div class="list-item__text"><span class="list-item__title">Priya Raman</span><span class="list-item__subtitle">Northwind Studio</span></div>
+            <span class="badge badge--success">Active</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">MD</span>
+            <div class="list-item__text"><span class="list-item__title">Marco Diaz</span><span class="list-item__subtitle">Diaz &amp; Co.</span></div>
+            <span class="badge badge--warning">Trial</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">LO</span>
+            <div class="list-item__text"><span class="list-item__title">Lena Ortiz</span><span class="list-item__subtitle">Brightline</span></div>
+            <span class="badge">Invited</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">JB</span>
+            <div class="list-item__text"><span class="list-item__title">Jonah Bell</span><span class="list-item__subtitle">Bell Hardware</span></div>
+            <span class="badge badge--danger">Past due</span>
+          </div>
+          <div class="list-item">
+            <span class="avatar">SM</span>
+            <div class="list-item__text"><span class="list-item__title">Sofia Marin</span><span class="list-item__subtitle">Marin Bakery</span></div>
+            <span class="badge badge--success">Active</span>
+          </div>
+        </div>
+      </div>
+      <div class="card grow">
+        <div class="card__header"><h2 class="card__title">Customer details</h2></div>
+        <span class="avatar avatar--lg">PR</span>
+        <h3>Priya Raman</h3>
+        <span>priya@northwind.studio</span>
+        <span class="badge badge--success">Active</span>
+        <div class="pairs">
+          <div class="pair"><span class="pair__label">Plan</span><span>Studio annual</span></div>
+          <div class="pair"><span class="pair__label">Customer since</span><span>June 2023</span></div>
+          <div class="pair"><span class="pair__label">Lifetime value</span><span>$18,400</span></div>
+        </div>
+        <div class="actions">
+          <a class="button button--secondary" href="#edit">Edit</a>
+          <a class="button button--primary" href="invoice.html">Send invoice</a>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

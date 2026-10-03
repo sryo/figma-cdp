@@ -22,7 +22,7 @@ import argparse, fcntl, json, os, re, statistics, subprocess, sys, tempfile, tim
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import session  # noqa: E402
+import session, source  # noqa: E402
 
 COST = ['wall_s', 'tokens_total', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
         'cost_usd', 'turns', 'tool_calls', 'failed_tool_calls']
@@ -51,17 +51,18 @@ def load_tasks(names):
 
 
 def compose(rel, ctx):
-    """One script for figma_run.py: lib.js and the body inside an async function given EVAL, with
-    this repo's figma_lib.js as a private FX. Never the tab's window.__fx, which the skill under
-    test may have replaced with its own copy."""
-    with open(os.path.join(ROOT, 'figma_lib.js')) as f:
-        fx = f.read()
+    """One script for figma_run.py: lib.js and the body inside an async function given EVAL. A
+    body line `// include: <path>` (relative to tests/eval) is replaced by that file."""
     with open(os.path.join(HERE, 'lib.js')) as f:
         lib = f.read()
     with open(os.path.join(HERE, rel)) as f:
         body = f.read()
-    return (f'(async function (EVAL) {{\nvar FX = (function (window) {{\n{fx}\nreturn window.__fx;\n}})({{}});\n'
-            f'{lib}\n{body}\n}})({json.dumps(ctx)})\n')
+
+    def include(m):
+        with open(os.path.join(HERE, m.group(1))) as f:
+            return f.read()
+    body = re.sub(r'^// include: (\S+)$', include, body, flags=re.M)
+    return f'(async function (EVAL) {{\n{lib}\n{body}\n}})({json.dumps(ctx)})\n'
 
 
 class FigmaError(Exception):
@@ -88,27 +89,69 @@ def figma(rel, ctx, a, tmp):
     return out
 
 
+def lock_path(key):
+    # A fixed directory, not TMPDIR: callers in different sessions get different TMPDIRs, and
+    # every one of them must queue on the same lock, since setup resets the whole file.
+    return os.path.join('/tmp', f'figma-eval-{os.getuid()}', f'{key}.lock')
+
+
 def file_lock(key):
-    d = os.path.join(tempfile.gettempdir(), f'figma-eval-{os.getuid()}')
-    os.makedirs(d, mode=0o700, exist_ok=True)
-    f = open(os.path.join(d, f'{key}.lock'), 'a')
+    path = lock_path(key)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    f = open(path, 'a')
     fcntl.flock(f, fcntl.LOCK_EX)
     return f
+
+
+def tab_problem(tabs, tab):
+    """Why the run can't start with these tabs on the file, or None."""
+    if not tabs:
+        return 'no tab shows the file; open it in the browser'
+    if tab:
+        return None if any(t['tabId'] == tab for t in tabs) else f'--tab {tab} is not open on the file'
+    if len(tabs) > 1:
+        return ('several tabs show the file (' + ', '.join(t['tabId'] for t in tabs) +
+                '); close the extras or pass --tab, since setup and the session could land on different tabs')
+    return None
+
+
+def file_tabs(key):
+    """The perch tabs showing the file, via perch's own list_tabs."""
+    perch = os.environ.get('PERCH_DIR', os.path.expanduser('~/Documents/perch'))
+    # The path goes inside the script: as argv[1], server.js would take itself for the entry point
+    # and start an MCP server.
+    js = (f"import({json.dumps(os.path.join(perch, 'server.js'))}).then(async m => {{"
+          f" const r = await m.handleCall('list_tabs', {{urlContains: {json.dumps(key)}}});"
+          " process.stdout.write(r.content[0].text); process.exit(0); })")
+    r = subprocess.run(['node', '-e', js], capture_output=True, text=True, timeout=60)
+    try:
+        return json.loads(r.stdout).get('tabs', [])
+    except ValueError:
+        sys.exit(f'list_tabs failed: {(r.stderr or r.stdout).strip()[:300]}')
+
+
+def session_env(a):
+    """The session's env: perch only, so a failing perch call is an error rather than a fallback
+    to CDP, which can reach another browser's stale copy of the file or the user's other files."""
+    env = session.clean_env()
+    env.pop('FIGMA_CDP_PORT', None)
+    env['FIGMA_BACKEND'] = 'perch'
+    if a.tab:
+        env['FIGMA_PERCH_TAB'] = a.tab
+    return env
 
 
 def run_session(task, ctx, a, tmp):
     url = a.file.split('?')[0] + '?node-id=' + ctx['pageId'].replace(':', '-')
     prompt = (task['prompt'].replace('{FILE_URL}', url).replace('{PAGE}', ctx['pageName'])
-              .replace('{FIXTURE}', os.path.join(HERE, 'fixtures', 'app')))
+              .replace('{FIXTURE}', os.path.join(HERE, 'fixtures', task.get('fixture', 'app'))))
     plugin = session.make_plugin(a.skill_dir, tmp)
     cwd = os.path.join(tmp, 'cwd')
     os.makedirs(cwd, exist_ok=True)
     dirs = [os.path.join(HERE, 'fixtures'), a.skill_dir, '/tmp', tempfile.gettempdir()]
     cmd = session.command(a.claude, plugin, prompt, model=a.model, add_dirs=dirs,
                           budget=a.max_budget)
-    env = session.clean_env()
-    if a.tab:
-        env['FIGMA_PERCH_TAB'] = a.tab
+    env = session_env(a)
     lines = []
     t0 = time.monotonic()
     p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -135,7 +178,8 @@ def run_session(task, ctx, a, tmp):
     return m, answer
 
 
-def run_rep(task, rep, a, expect):
+def run_rep(task, rep, a):
+    expect = source.expect_for(task)
     prefix = f"eval/{task['id']}/{rep}"
     rec = {'rep': rep}
     with tempfile.TemporaryDirectory() as tmp:
@@ -212,9 +256,11 @@ def main():
     if not os.path.isfile(os.path.join(a.skill_dir, 'SKILL.md')):
         sys.exit(f'--skill-dir {a.skill_dir} has no SKILL.md')
     key = file_key(a.file)
+    if os.environ.get('FIGMA_BACKEND', 'perch') == 'perch':
+        problem = tab_problem(file_tabs(key), a.tab)
+        if problem:
+            sys.exit(f'run.py: {problem}')
     tasks = load_tasks([t for t in a.tasks.split(',') if t])
-    with open(os.path.join(HERE, 'fixtures', 'expect.json')) as f:
-        expect = json.load(f)
     rev, dirty = git_rev(a.skill_dir)
     out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '',
                     'reps': a.reps, 'date': time.strftime('%Y-%m-%dT%H:%M:%S%z')},
@@ -224,7 +270,7 @@ def main():
         for n in range(1, a.reps + 1):
             lock = file_lock(key)
             try:
-                rec = run_rep(task, n, a, expect)
+                rec = run_rep(task, n, a)
             finally:
                 lock.close()
             reps.append(rec)
