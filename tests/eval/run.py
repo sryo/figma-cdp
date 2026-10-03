@@ -118,9 +118,12 @@ def tab_problem(tabs, tab):
 def file_tabs(key):
     """The perch tabs showing the file, via perch's own list_tabs."""
     perch = os.environ.get('PERCH_DIR', os.path.expanduser('~/Documents/perch'))
-    js = ("import(process.argv[1]).then(async m => { const r = await m.handleCall('list_tabs', {urlContains: process.argv[2]});"
+    # The path goes inside the script: as argv[1], server.js would take itself for the entry point
+    # and start an MCP server.
+    js = (f"import({json.dumps(os.path.join(perch, 'server.js'))}).then(async m => {{"
+          f" const r = await m.handleCall('list_tabs', {{urlContains: {json.dumps(key)}}});"
           " process.stdout.write(r.content[0].text); process.exit(0); })")
-    r = subprocess.run(['node', '-e', js, os.path.join(perch, 'server.js'), key], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(['node', '-e', js], capture_output=True, text=True, timeout=60)
     try:
         return json.loads(r.stdout).get('tabs', [])
     except ValueError:
