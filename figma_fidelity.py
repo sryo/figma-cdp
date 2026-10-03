@@ -10,6 +10,8 @@ sets behind it. The report lists, per kind, what differs from the manifest:
   off-manifest colors, spacing, radii, font sizes, weights, fonts
   unbound                           a raw value equal to a source token while a local variable scoped for the field holds it
   missing variants / missing states for components the subtree uses (sets reached through instances too)
+  missing components                a source component used 2+ times with no component in the subtree, or
+                                    behind its instances, whose name (or a /-segment of it) starts with its words
 A kind the manifest has no entries for is not checked. Exit 0 with no gaps, 1 with gaps,
 2 when the check could not run.
 """
@@ -127,7 +129,7 @@ COLLECT = r'''
 
 KINDS = ['missing copy', 'invented copy', 'off-manifest colors', 'off-manifest spacing', 'off-manifest radii',
          'off-manifest font sizes', 'off-manifest weights', 'off-manifest fonts', 'unbound', 'missing variants',
-         'missing states']
+         'missing states', 'missing components']
 NUM_KINDS = [('spacing', 'spacing', 'off-manifest spacing'), ('radius', 'radii', 'off-manifest radii'),
              ('fontSize', 'fontSizes', 'off-manifest font sizes'), ('fontWeight', 'fontWeights', 'off-manifest weights')]
 
@@ -166,6 +168,10 @@ SCOPES = {'color': {'ALL_SCOPES', 'ALL_FILLS', 'FRAME_FILL', 'SHAPE_FILL', 'TEXT
 
 def variable(candidates, kind):
     return next((v['name'] for v in candidates if SCOPES[kind] & set(v['scopes'])), None)
+
+
+def name_words(name):
+    return re.findall(r'[a-z0-9]+', re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', str(name)).lower())
 
 
 def pattern(source):
@@ -293,6 +299,10 @@ def diff(m, c):
         stem = flat(s['state'])[:5]
         if not any(w.startswith(stem) for w in vocab(comps)):
             gaps['missing states'].append({'component': s['component'], 'state': s['state'], 'src': s['src']})
+    for e in m.get('components', []):
+        want = name_words(e['component'])
+        if e['uses'] >= 2 and want and not any(name_words(seg)[:len(want)] == want for k in c['comps'] for seg in k['name'].split('/')):
+            gaps['missing components'].append({'component': e['component'], 'uses': e['uses'], 'src': e['src']})
     return {'root': c['root'], 'count': sum(len(v) for v in gaps.values()), 'gaps': gaps,
             'unchecked': list(dict.fromkeys(unchecked))}
 
@@ -311,6 +321,8 @@ def item(kind, e):
         return f"{e['value']} ×{e['n']} → {e['variable']} {ids(e)}"
     if kind == 'missing variants':
         return f"{e['component']}: {', '.join(e['values'])} ({e['src']})"
+    if kind == 'missing components':
+        return f"{e['component']} ×{e['uses']} ({e['src']})"
     if kind == 'missing states':
         return f"{e['component']}: {e['state']} ({e['src']})"
     return f"{e['value']} ×{e['n']} {ids(e)}"

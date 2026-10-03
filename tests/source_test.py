@@ -207,6 +207,40 @@ class Generic(unittest.TestCase):
         self.assertEqual([t['name'] for t in m['tokens']], ['--keep'])
         self.assertEqual(m['tokens'][0]['src'], 'src/a.css:1')
 
+    def test_components_are_styled_blocks_and_code_components_with_uses_and_nesting(self):
+        self.write('ui.css', '.tabs { display: flex; border-bottom: 1px solid #ddd; }\n.tab { padding: 8px 0; color: #666; }\n'
+                   '.tab--selected { color: #00f; }\n.card { padding: 16px; background: #fff; }\n.card__header { display: flex; }\n'
+                   '.row { display: flex; gap: 24px; }\n.page { display: flex; }\n.page__head { display: flex; }\n'
+                   '.list-item { display: flex; }\n.list-item__title { font-weight: 500; }\n'
+                   '.avatar { width: 32px; background: #eee; }\n')
+        item = '<div class="list-item"><span class="avatar">AB</span><span class="list-item__title">Ann</span></div>'
+        tabs = '<nav class="tabs"><a class="tab tab--selected">One</a><a class="tab">Two</a></nav>'
+        self.write('a.html', '<main class="page"><div class="page__head"><h1>A</h1></div>' + tabs +
+                   '<section class="row"><div class="card"><div class="card__header"><h2>Recent</h2></div>' + item + item +
+                   '</div><div class="card"><div class="card__header"><h2>Due</h2></div>' + item + '</div></section></main>')
+        self.write('b.html', '<main class="page"><img src="x.png">' + tabs + '<div class="card"><br>' + item + '</div></main>')
+        self.write('Bar.jsx', 'export function Toolbar({ children }) {\n  return <div>{children}</div>;\n}\n'
+                   'export const Screen = () => (\n  <Toolbar>\n    <IconButton icon="a" />\n    <IconButton icon="b" />\n  </Toolbar>\n);\n')
+        m = manifest(self.tmp.name)
+        by = {c['component']: c for c in m['components']}
+        self.assertEqual(set(by), {'tabs', 'tab', 'card', 'list-item', 'avatar', 'Toolbar', 'IconButton'},
+                         'a block with only layout rules (row, page) is scaffolding, not a component')
+        self.assertEqual({k: c['uses'] for k, c in by.items()},
+                         {'tabs': 2, 'tab': 4, 'card': 3, 'list-item': 4, 'avatar': 4, 'Toolbar': 1, 'IconButton': 2})
+        self.assertEqual(by['tabs']['nests'], ['tab'])
+        self.assertEqual(by['card']['nests'], ['list-item'])
+        self.assertEqual(by['list-item']['nests'], ['avatar'])
+        self.assertEqual(by['Toolbar']['nests'], ['IconButton'])
+        self.assertEqual(by['tab']['nests'], [])
+        self.assertEqual(by['tabs']['src'], 'ui.css:1')
+        self.assertEqual(by['IconButton']['src'], 'Bar.jsx:6')
+        self.assertEqual([c['component'] for c in m['components']][:3], ['tab', 'list-item', 'avatar'], 'most used first')
+        out = os.path.join(self.tmp.name, 'm.json')
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), self.tmp.name, '-o', out],
+                           capture_output=True, text=True)
+        self.assertIn('\ncomponents: tab ×4 · list-item ×4 (avatar) · avatar ×4 · card ×3 (list-item) · IconButton ×2 · '
+                      'tabs ×2 (tab) · Toolbar ×1 (IconButton)\n', r.stdout)
+
     def test_missing_path_is_an_error(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '/nope/nothing'],
                            capture_output=True, text=True)

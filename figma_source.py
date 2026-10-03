@@ -12,6 +12,9 @@ Reads style sheets, markup, UI code and JSON token or string files, and writes J
                                              prose string literals, string tables
   variants      [{component, prop, values, src}]  prop unions, enums, boolean props, class modifiers
   states        [{component, state, src}]    pseudo-classes, state-named props and modifiers
+  components    [{component, uses, nests, src}]  style blocks with a paint or type rule and capitalized
+                                             code tags, with how often the markup uses each and the
+                                             components used directly inside it, most used first
 src is `file:line` relative to the inputs' common directory. Without -o the JSON goes to
 stdout; with -o a one-line summary does. figma_fidelity.py diffs a Figma subtree against it.
 """
@@ -64,6 +67,13 @@ TAG = re.compile(r'<[A-Za-z][^<>]*>')
 COPY_ATTR = re.compile(r'(?<![\w-])(placeholder|label|text|value|caption|heading|subtitle|description|hint|message|cta)'
                        r'\s*=\s*\{?\s*(["\'])([^"\'\n{}]+)\2')
 LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'|`([^`$\n]*)`')
+# Properties that make a style block look like something: it is a component, not layout scaffolding.
+VISUAL = re.compile(r'(?<![\w-])(?:background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-color|-width|-style)?|'
+                    r'color|box-shadow|font(?:-size|-weight|-family)?|outline|fill|stroke|text-decoration)\s*:', re.I)
+RULE = re.compile(r'([^{}]+)\{([^{}]*)\}')
+TAG_OR_CLOSE = re.compile(r'<(/?)([A-Za-z][\w.:-]*)((?:\{(?:[^{}]|\{[^{}]*\})*\}|"[^"]*"|\'[^\']*\'|[^<>{}"\'])*)>')
+CLASS_ATTR = re.compile(r'(?<![\w-])class(?:Name)?\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|\{((?:[^{}]|\{[^{}]*\})*)\})')
+VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
 BLANK_BLOCKS = re.compile(r'<script\b[\s\S]*?</script>|<style\b[\s\S]*?</style>|<title\b[\s\S]*?</title>|<!--[\s\S]*?-->|'
                           r'\{/\*[\s\S]*?\*/\}', re.I)
 
@@ -196,6 +206,8 @@ class Source:
         self.nums = {'spacing': {}, 'radius': {}, 'fontSize': {}, 'fontWeight': {}}
         self.fams = {}
         self.variants = []
+        self.blocks = {}  # style block -> [src, visual]
+        self.comps = {}   # component -> {component, uses, nests, src}
 
     # ---- reading
 
@@ -368,9 +380,13 @@ class Source:
             self.declarations(f)
             if ext in STYLE_EXT:
                 self.style_variants(f)
+                self.style_blocks(f)
             else:
                 self.code_variants(f)
                 self.copy_from(f)
+        for f in self.files:
+            if f[1] not in STYLE_EXT and f[1] != '.json':
+                self.component_uses(f)
 
     def declarations(self, f):
         rel, ext, text, _ = f
@@ -425,6 +441,56 @@ class Source:
             self.add_variant(block, None, vals, src)
         for m in PSEUDO.finditer(text):
             self.add_state(m.group(1), m.group(2), self.src(f, m.start()))
+
+    def style_blocks(self, f):
+        text = re.sub(r'/\*[\s\S]*?\*/', lambda m: re.sub(r'[^\n]', ' ', m.group(0)), f[2])
+        for m in RULE.finditer(text):
+            visual = bool(VISUAL.search(m.group(2)))
+            for c in re.finditer(r'\.(-?[A-Za-z_][\w-]*)', m.group(1)):
+                block = re.split(r'__|--', c.group(1))[0]
+                b = self.blocks.setdefault(block, [self.src(f, m.start(1) + len(m.group(1)) - len(m.group(1).lstrip())), False])
+                b[1] = b[1] or visual
+
+    def component_uses(self, f):
+        rel, ext, text, _ = f
+        work = BLANK_BLOCKS.sub(lambda m: re.sub(r'[^\n]', ' ', m.group(0)), text)
+        markup = ext in ('.html', '.htm', '.xml', '.xhtml')
+        stack = []  # [(tag, components)]
+        for m in TAG_OR_CLOSE.finditer(work):
+            closing, tag, attrs = m.groups()
+            if not markup and not closing and m.start() and re.match(r'[\w$.]', work[m.start() - 1]):
+                continue  # a type argument such as List<Item>
+            if closing:
+                for i in range(len(stack) - 1, -1, -1):
+                    if stack[i][0] == tag.lower():
+                        del stack[i:]
+                        break
+                continue
+            found = []
+            for a in CLASS_ATTR.finditer(attrs):
+                raw = a.group(1) if a.group(1) is not None else a.group(2) if a.group(2) is not None else \
+                    ' '.join(next(g for g in q.groups() if g is not None) for q in LITERAL.finditer(a.group(3)))
+                for cls in re.sub(r'\$\{[^{}]*\}', ' ', raw).split():
+                    if '__' in cls:
+                        continue
+                    block = cls.split('--')[0]
+                    if self.blocks.get(block, [None, False])[1] and block not in found:
+                        found.append(block)
+            if not markup and tag[0].isupper() and '.' not in tag and tag != 'Fragment':
+                found.append(tag)
+            parent = next((s for t, s in reversed(stack) if s), [])
+            found = list({norm_component(n): n for n in reversed(found)}.values())[::-1]
+            for name in found:
+                key = norm_component(name)
+                e = self.comps.setdefault(key, {'component': name, 'uses': 0, 'nests': [],
+                                                'src': self.blocks[name][0] if name in self.blocks else self.src(f, m.start())})
+                e['uses'] += 1
+                for p in parent:
+                    nest = self.comps[norm_component(p)]['nests']
+                    if norm_component(p) != key and key not in map(norm_component, nest):
+                        nest.append(e['component'])
+            if not attrs.rstrip().endswith('/') and tag.lower() not in VOID:
+                stack.append((tag.lower(), found))
 
     def enclosing(self, text, offset):
         last = None
@@ -546,6 +612,7 @@ class Source:
             'copy': list(self.copy.values()),
             'variants': self.merged_variants(),
             'states': list(self.states.values()),
+            'components': sorted(self.comps.values(), key=lambda e: -e['uses']),
         }
 
 
@@ -594,6 +661,9 @@ def main():
         with open(a.out, 'w') as f:
             json.dump(m, f, indent=1, ensure_ascii=False)
         print(f'manifest: {summary(m)} → {a.out}')
+        if m['components']:
+            print('components: ' + ' · '.join(f"{c['component']} ×{c['uses']}" + (f" ({', '.join(c['nests'])})" if c['nests'] else '')
+                                              for c in m['components']))
     else:
         print(json.dumps(m, indent=1, ensure_ascii=False))
 

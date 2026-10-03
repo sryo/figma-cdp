@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 5648,
+    'SKILL.md': 5634,
     'figma-worker.md': 5078,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -108,6 +108,14 @@ class Docs(unittest.TestCase):
         self.assertLess(edit.start(), flow.index('**Component plan'), 'the edit rule must come before the component plan')
         self.assertRegex(edit.group(0), r'(?i)in place')
         self.assertRegex(edit.group(0), r'(?i)never[^.]*(replace|remove)[^.]*instance')
+
+    def test_component_plan_covers_the_manifest_components_and_containers(self):
+        plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
+        self.assertRegex(plan, r'manifest `components` entry', 'the plan does not start from the manifest components')
+        self.assertRegex(plan, r'(?i)container[^.;]*still a component[^.;]*header[^.;]*createSlot',
+                         'a container whose content varies per use is left as plain frames')
+        self.assertRegex(plan, r'(?i)wrapper of repeated items[^.;]*instances')
+        self.assertIn('`components` `[{component, uses, nests, src}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):
         gate = next(l for l in docs()['SKILL.md'].splitlines() if 'Final gate' in l)
