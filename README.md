@@ -1,8 +1,10 @@
 # figma-cdp
 
-Build Figma mockups from code or plain English. The reverse of Figma MCP (which turns Figma into code). Paste HTML, describe a screen, or hand Claude a SwiftUI view, and it builds it in your Figma file.
+Build Figma mockups from code or plain English. The reverse of Figma MCP (which turns Figma into code). Point Claude at your app's code, paste HTML, or describe a screen, and it builds it in your Figma file.
 
-No Figma MCP required. It works directly in the Figma file you have open in Chrome.
+It reads your real code first, so the mockup uses your actual copy, colors and spacing. It reuses the components already in your file, turns repeated pieces into components with variants, and checks the result against your code before it says it's done.
+
+No Figma MCP required. It works directly in the Figma file you have open in your browser.
 
 ## Install
 
@@ -12,7 +14,7 @@ git clone https://github.com/sryo/figma-cdp ~/.claude/skills/figma-cdp
 
 Claude Code picks up the skill automatically when you mention a Figma URL or ask for a mockup. If it doesn't, restart Claude Code.
 
-On a Mac, also install [perch](https://github.com/sryo/perch). figma-cdp uses it automatically: it's faster, and Chrome won't ask you to allow remote debugging.
+On a Mac, also install [perch](https://github.com/sryo/perch). figma-cdp uses it automatically: it's faster, it works in Chrome, Arc or Safari, and your browser won't ask you to allow remote debugging. In Arc, keep the Figma tab showing in its window while Claude works.
 
 Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or comments. Generate a token at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
 
@@ -20,9 +22,10 @@ Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or co
 
 Talk to Claude Code:
 
-- *"Build a login screen in this Figma file: https://www.figma.com/design/…"*
+- *"Mock up the settings screen from ~/Code/myapp in this Figma file: https://www.figma.com/design/…"*
 - *"Convert this HTML mockup into Figma components."*
 - *"Port this SwiftUI view to Figma."*
+- *"Make the login frame match the current implementation."*
 - *"Extract all the copy from the Screens page."*
 - *"Add a drop shadow to the hero frame."*
 
@@ -36,4 +39,4 @@ If a long job in Figma stops with a timeout (a big export, a large file loading)
 
 If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
 
-Run the offline tests with `python3 tests/perch_backend_test.py`, `python3 tests/budget_test.py`, `python3 tests/eval/offline_test.py`, `python3 tests/importer_test.py`, `python3 tests/source_test.py`, `python3 tests/fidelity_test.py` and `node --test tests/figma_lib_test.js`. `tests/eval/run.py --file <scratch-figma-url>` runs the live evals; AGENTS.md → Evals has the details.
+Working on the skill itself? AGENTS.md has the architecture, the tests and the live evals.
