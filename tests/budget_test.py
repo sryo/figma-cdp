@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 5634,
+    'SKILL.md': 5632,
     'figma-worker.md': 5078,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -115,6 +115,11 @@ class Docs(unittest.TestCase):
         self.assertRegex(plan, r'(?i)container[^.;]*still a component[^.;]*header[^.;]*createSlot',
                          'a container whose content varies per use is left as plain frames')
         self.assertRegex(plan, r'(?i)wrapper of repeated items[^.;]*instances')
+        reuse = re.search(r'REUSE `<id>` as is[^.]*', plan)
+        self.assertIsNotNone(reuse, 'a reused inventory component is not instantiated as is')
+        self.assertRegex(reuse.group(0), r'(?i)per-use[^.;]*instance overrides', 'per-use differences are not overrides')
+        self.assertRegex(reuse.group(0), r'(?i)never[^.;]*renam[^.;]*variant[^.;]*set[^.;]*unless',
+                         'nothing stops a reused component from being renamed, given variants or made a set')
         self.assertIn('`components` `[{component, uses, nests, src}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):

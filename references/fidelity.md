@@ -39,7 +39,7 @@ not checked (no component in the subtree): toggle
 - **missing copy**: a manifest string no text layer shows. **invented copy**: a text layer outside component definitions that no manifest string contains.
 - **off-manifest** colors (±3 per channel), spacing, radii (a pill radius passes when the source has one ≥ 999), font sizes, weights, fonts.
 - **unbound**: a raw value equal to a source token while a local variable scoped for that field holds that value. Bind it to the variable named.
-- **missing variants / states**: checked only for components the subtree uses, matched by name. The others are listed as not checked.
-- **missing components**: a manifest component used 2+ times with no component in the subtree (defined there or behind an instance) whose name, or a `/` segment of it, starts with its words: `Card header` and `Kit/Card` count for `card`, `Stat card` does not.
+- **missing variants / states**: checked only for components the subtree uses, matched by name. The others are listed as not checked. A state or boolean set per use through instance overrides (a nested instance's variant, a hidden layer) counts.
+- **missing components**: a manifest component used 2+ times with no component in the subtree (defined there or behind an instance) whose name, or a `/` segment of it, holds all its words: `Card header`, `Kit/Card` and `Product card` count for `card`; `Stat card` does not when the source has a `StatCard` too.
 
 A kind the manifest has no entries for is skipped. Exit 0 means no gaps, 1 means gaps, 2 means the check could not run. `--json` prints the full report, with every node id. Fix each gap with a targeted edit, or report it as a deliberate deviation, then run the check again.

@@ -179,18 +179,37 @@ class Diff(unittest.TestCase):
         c.update(kw)
         return c
 
-    def test_a_component_used_twice_needs_a_component_whose_name_starts_with_it(self):
+    def test_a_component_used_twice_needs_a_component_whose_name_holds_its_words(self):
         m = {'components': [{'component': 'card', 'uses': 6, 'nests': ['button'], 'src': 'ui.css:1'},
                             {'component': 'tabs', 'uses': 3, 'nests': ['tab'], 'src': 'ui.css:2'},
                             {'component': 'list-item', 'uses': 4, 'nests': [], 'src': 'ui.css:3'},
-                            {'component': 'banner', 'uses': 1, 'nests': [], 'src': 'ui.css:4'}]}
+                            {'component': 'banner', 'uses': 1, 'nests': [], 'src': 'ui.css:4'},
+                            {'component': 'StatCard', 'uses': 3, 'nests': [], 'src': 'ui.jsx:5'}]}
         def comp(name):
             return {'id': '2:1', 'name': name, 'words': []}
-        rep = self.diff(m, self.collected(comps=[comp('Stat card'), comp('Tab'), comp('ListItem')]))
+        rep = self.diff(m, self.collected(comps=[comp('Stat card'), comp('Tab'), comp('Cardholder'), comp('ListItem')]))
         self.assertEqual([e['component'] for e in rep['gaps']['missing components']], ['card', 'tabs'],
-                         'Stat card is not a card and Tab is not Tabs; a component used once is not checked')
-        rep = self.diff(m, self.collected(comps=[comp('Card header'), comp('Kit/Tabs'), comp('List item')]))
+                         'Stat card belongs to the StatCard entry, Tab is not Tabs, Cardholder is not a card; '
+                         'a component used once is not checked')
+        rep = self.diff(m, self.collected(comps=[comp('Card header'), comp('Kit/Tabs'), comp('List item'), comp('Stat card')]))
         self.assertEqual(rep['gaps']['missing components'], [])
+
+    def test_a_product_card_is_the_source_card(self):
+        for source in ('card', 'product-card', 'ProductCard'):
+            m = {'components': [{'component': source, 'uses': 5, 'nests': ['button'], 'src': 'ui.css:1'}]}
+            rep = self.diff(m, self.collected(comps=[{'id': '2:1', 'name': 'Product card', 'words': []}]))
+            self.assertEqual(rep['gaps']['missing components'], [], source)
+
+    def test_a_variant_realized_by_instance_overrides_is_present(self):
+        m = {'variants': [{'component': 'productcard', 'prop': 'soldOut', 'values': ['true', 'false'], 'src': 'c.jsx:42'}],
+             'states': [{'component': 'productcard', 'state': 'disabled', 'src': 'c.jsx:48'}]}
+        plain = {'id': '2:1', 'name': 'Product card', 'words': ['Title', 'Price']}
+        g = self.diff(m, self.collected(comps=[plain]))['gaps']
+        self.assertEqual([e['component'] for e in g['missing variants'] + g['missing states']], ['productcard', 'productcard'])
+        over = dict(plain, overrides=['Primary', 'Disabled'])
+        g = self.diff(m, self.collected(comps=[over]))['gaps']
+        self.assertEqual((g['missing variants'], g['missing states']), ([], []),
+                         'a sold-out card is an instance whose nested button is Disabled')
 
     def test_a_line_of_a_multiline_text_layer_shows_short_copy(self):
         m = {'copy': [{'text': 'Sign in', 'src': 'a.html:1'}, {'text': 'Go', 'src': 'a.html:2'}]}
@@ -265,6 +284,38 @@ class Collect(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn('unbound (1): #6b7280 ×7 → color/text-muted (', r.stdout)
         self.assertIn(', +4)', r.stdout)
+
+    def test_nested_instance_overrides_are_collected_per_component(self):
+        root = self.seed(
+            "var lib = figma.createFrame(); lib.name = 'Lib';\n"
+            "var on = figma.createComponent(); on.name = 'State=Default';\n"
+            "var off = figma.createComponent(); off.name = 'State=Disabled';\n"
+            "var set = figma.combineAsVariants([on, off], lib); set.name = 'Button';\n"
+            "var card = figma.createComponent(); card.name = 'Product card'; lib.appendChild(card);\n"
+            "card.appendChild(on.createInstance());\n"
+            "var screen = figma.createFrame(); screen.name = 'Store';\n"
+            "var a = card.createInstance(); screen.appendChild(a);\n"
+            "var b = card.createInstance(); screen.appendChild(b);\n"
+            "b.children[0].setProperties({ State: 'Disabled' });\n"
+            "return screen.id;")
+        m = os.path.join(self.tmp.name, 'm.json')
+        with open(m, 'w') as f:
+            json.dump({'variants': [{'component': 'productcard', 'prop': 'soldOut', 'values': ['true', 'false'], 'src': 'c.jsx:42'}],
+                       'components': [{'component': 'card', 'uses': 2, 'nests': ['button'], 'src': 'c.css:1'}]}, f)
+        rep = json.loads(self.fidelity(root, '--json', manifest=m).stdout)
+        self.assertEqual(rep['count'], 0, rep['gaps'])
+
+    def test_a_card_with_no_override_still_misses_the_variant(self):
+        root = self.seed(
+            "var card = figma.createComponent(); card.name = 'Product card';\n"
+            "var screen = figma.createFrame(); screen.name = 'Store';\n"
+            "screen.appendChild(card.createInstance()); screen.appendChild(card.createInstance());\n"
+            "return screen.id;")
+        m = os.path.join(self.tmp.name, 'm.json')
+        with open(m, 'w') as f:
+            json.dump({'variants': [{'component': 'productcard', 'prop': 'soldOut', 'values': ['true', 'false'], 'src': 'c.jsx:42'}]}, f)
+        rep = json.loads(self.fidelity(root, '--json', manifest=m).stdout)
+        self.assertEqual([e['component'] for e in rep['gaps']['missing variants']], ['productcard'])
 
     fidelity = Fidelity.fidelity
 
