@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 5632,
+    'SKILL.md': 5630,
     'figma-worker.md': 5078,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
