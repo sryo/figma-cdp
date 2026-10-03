@@ -7,7 +7,6 @@
   "saturated": {
     "setFound": "any component set counts, button-named or not",
     "colorMatch": "checked only on the variants that exist, so two of four variants still score 1",
-    "sizingShare": "counts a child as sized when either axis is not FIXED; text layers hug by default",
     "constrainedAbsShare": "a button has no absolute children, so the share is vacuously 1"
   }
 }

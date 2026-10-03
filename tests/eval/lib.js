@@ -86,7 +86,9 @@ async function quality(pages) {
         if (c.constraints && (c.constraints.horizontal !== 'MIN' || c.constraints.vertical !== 'MIN')) constrained++;
         return;
       }
-      if (c.type === 'RECTANGLE' || c.type === 'ELLIPSE' || c.type === 'VECTOR' || c.type === 'LINE') return;
+      // Only raw frames: an instance's or component's size is its design (a 32x32 avatar is
+      // FIXED on purpose), and a text layer hugs by default, so neither says anything here.
+      if (c.type !== 'FRAME') return;
       flowKids.push(c);
       if (c.layoutSizingHorizontal !== 'FIXED' || c.layoutSizingVertical !== 'FIXED') sized++;
     });

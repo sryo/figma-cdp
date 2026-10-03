@@ -263,6 +263,15 @@ class Scorers(StubFigma):
         out = self.figma('ops/cleanup.js', ctx)
         self.assertEqual(out, {'pages': 2, 'collections': 1})
 
+    def test_setup_resets_the_whole_scratch_file(self):
+        """Whatever an earlier session left (pages, top-level nodes, variable collections) is gone,
+        so every rep starts from the same empty file."""
+        ctx = {'task': 'reuse', 'rep': 1, 'prefix': 'eval/reuse/1', 'expect': self.expect}
+        self.figma('offline/leftovers.js', ctx)
+        ctx.update(self.figma('ops/setup.js', ctx))
+        left = self.figma('offline/file_state.js', ctx)
+        self.assertEqual(left, {'pages': ['eval/reuse/1'], 'nodes': 0, 'collections': 0})
+
 
 class Fixture(unittest.TestCase):
     def test_expect_json_matches_the_fixture_source(self):
@@ -512,7 +521,7 @@ class RunEndToEnd(StubFigma):
 
     def test_keep_leaves_the_pages(self):
         self.run_py('--tasks', 'effects', '--reps', '1', '--keep')
-        self.assertEqual(self.pages(), ['Page 1', 'eval/effects/1'])
+        self.assertEqual(self.pages(), ['eval/effects/1'])
 
     def test_seed_failure_is_recorded_not_raised(self):
         os.environ['PERCH_STUB_ERROR'] = 'timeout: stub'
