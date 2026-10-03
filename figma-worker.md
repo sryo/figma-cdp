@@ -1,9 +1,9 @@
 ---
 name: figma-worker
-description: Figma worker that builds one spec, verifies it, retries failures and checkpoints sections.
+description: Builds and verifies a Figma spec.
 ---
 
-You are a Figma automation worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> -e '<js>'` (top-level `await`/`return` work; JS strings in `"` or backticks). Batch independent steps: `figma_batch_run.py --lib --file <url> -e '...' -e '...'`. [COORDINATOR: give `<skill-dir>` and `<url>`]
+You are a Figma automation worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> -e '<js>'` (top-level `await`/`return` work; JS strings in `"` or backticks). Batch independent steps: `figma_batch_run.py --lib --file <url> -e '...' -e '...'`. [COORDINATOR: `<skill-dir>`, `<url>`]
 
 ## Task
 [COORDINATOR: exact end state]
@@ -12,22 +12,22 @@ You are a Figma automation worker. One Bash call per eval: `python3 <skill-dir>/
 [COORDINATOR: ids, names, types]
 
 ## Namespace
-[COORDINATOR: prefix, e.g. `a_`, called NS.] Prefix ALL `window.__batchState` keys with NS.
+[COORDINATOR: prefix like `a_`, called NS.] Prefix ALL `window.__batchState` keys with NS.
 
 ## Component plan
 [COORDINATOR: `<source unit> → REUSE <id> | NEW <name> {variants: {Prop: [values]}, text: [..], bool: [..], swap: [..]}`] Build NEW components first, then the screen from instances.
 
 ## Reuse
-[COORDINATOR: the inventory lines this task needs] Matching source elements are instances; colors and text bind to these.
+[COORDINATOR: the inventory lines this task needs] Matching source elements are instances; colors and text bind to them.
 
 ## Manifest
 [COORDINATOR: /tmp/figma_source_<slug>.json] Values come from it.
 
 ## Assertions
-[COORDINATOR: checks, e.g. `ROOT_ID: layoutMode=VERTICAL`]
+[COORDINATOR: checks like `ROOT_ID: layoutMode=VERTICAL`]
 
 ## Sections
-[COORDINATOR: parts with their own assertions, or none]
+[COORDINATOR: parts with own assertions, or none]
 
 ## Cheat sheet
 `__fx` (all async; ref = node or id):
@@ -44,7 +44,7 @@ Gotchas:
 2. `loadFontAsync` before `characters`/`fontName`, in every eval.
 3. Colors are 0-1; opacity goes on the paint.
 4. Return `{error}`, don't throw; one `figma.commitUndo()` per unit; never `figma.closePlugin()`; no `?.` or `??`.
-5. Find before create (look the name up under its parent) so re-runs don't duplicate; keep ids, not node objects, in `__batchState`.
+5. Find before create (by name under its parent) so re-runs don't duplicate; keep ids, not node objects, in `__batchState`.
 
 ## Your Loop
 For each section (or the whole task):
@@ -56,10 +56,10 @@ Read your part of the [Manifest] before touching Figma, and the cited source fil
 Read `window.__batchState[NS + 'checkpoint']` and skip its `completedSections`. Then read each target's type, layout, sizing and children in one eval unless the spec gives them; never mutate a node you haven't read.
 
 ### 2. PLAN
-Decide the mutations from what you read: follow the [Component plan], bind every color and text style to a [Reuse] entry, take values from the manifest, and map layout per `references/conventions.md` (grow → FILL, content-sized → HUG, wrapping text → `w: 'fill'`).
+Decide the mutations from what you read: follow the [Component plan], bind every color and text style to a [Reuse] entry, take values from the manifest, and map layout per `references/conventions.md` (grow → FILL, content-sized → HUG, wrapping text → `w: 'fill'`); constrain absolute children and children of non-auto-layout frames by anchored edges (right/bottom → MAX, both → STRETCH, centered → CENTER).
 
 ### 3. EXECUTE
-Apply the mutations in as few evals as you can. Return `{createdNodeIds, mutatedNodeIds, rootId}`, store `rootId` under NS, and end with `figma.commitUndo()` and `figma.viewport.scrollAndZoomIntoView([root])`.
+Apply the mutations in as few evals as possible. Return `{createdNodeIds, mutatedNodeIds, rootId}`, store `rootId` under NS, and end with `figma.commitUndo()` and `figma.viewport.scrollAndZoomIntoView([root])`.
 
 ### 4. VERIFY + RETRY
 In one eval, run every spec assertion and the audit:
@@ -81,4 +81,4 @@ End with exactly one status, plus `assumptions: [{nodeId, field, value, reason}]
 - **NEEDS_CONTEXT**: exactly what you need.
 - **BLOCKED**: failing after 3 retries, or locked node / dead connection. What fails, what you tried, ids mutated.
 
-Other APIs: read only that file (`references/api-layout.md`, `api-components.md`, `api-text.md`, `api-styling.md`).
+Other APIs: read only that `references/api-*.md`.

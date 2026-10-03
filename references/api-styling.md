@@ -1,10 +1,8 @@
 # API: Styling (paints, effects, images, prototype)
 
-Load for any task touching colors, shadows, blurs, images, or prototype reactions. See `references/building.md` → Effects / Gradient fills / Image fills for end-to-end patterns.
+Load for any task touching colors, shadows, blurs, images, or prototype reactions.
 
-Cross-refs: `references/api-reference.md` for base mixins, GeometryMixin (fills/strokes), and `figma.util` color helpers; `references/api-layout.md` for shape nodes that use these mixins; `references/api-components.md` for PaintStyle / EffectStyle objects.
-
-GeometryMixin (fills, strokes): see `references/api-reference.md` → GeometryMixin (fills, strokes).
+Cross-refs: `references/api-reference.md` for base mixins, GeometryMixin (fills/strokes), SolidPaint and the `figma.util.solidPaint` hex helper; `references/api-layout.md` for shape nodes that use these mixins; `references/api-components.md` for PaintStyle / EffectStyle objects.
 
 ## BlendMixin (effects, opacity, blend mode, masks)
 
@@ -13,7 +11,7 @@ opacity: number                                  // 0-1
 blendMode: BlendMode
 isMask: boolean
 maskType: 'ALPHA'|'VECTOR'|'LUMINANCE'
-effects: Effect[]                                // READONLY array — clone before mutating
+effects: Effect[]                                // READONLY: node.effects = node.effects.concat([e])
 effectStyleId: string
 setEffectStyleIdAsync(id): P<void>
 ```
@@ -40,12 +38,11 @@ overlayBackgroundInteraction: 'NONE'|'CLOSE_ON_CLICK_OUTSIDE' [ro]
 ```
 GradientPaint: {type:'GRADIENT_LINEAR'|'GRADIENT_RADIAL'|'GRADIENT_ANGULAR'|'GRADIENT_DIAMOND',
                 gradientStops:[{position:0-1, color:{r,g,b,a}}], gradientTransform}
+  // gradientTransform [[1,0,0],[0,1,0]] = linear top → bottom
 ImagePaint: {type:'IMAGE', scaleMode:'FILL'|'FIT'|'CROP'|'TILE', imageHash,
              imageTransform?, filters?}
 VideoPaint: {type:'VIDEO', scaleMode, videoHash}
 ```
-
-SolidPaint + the `figma.util.solidPaint` hex helper: see `references/api-reference.md` → GeometryMixin (fills, strokes).
 
 ## Effect types
 
@@ -75,6 +72,7 @@ figma.base64Decode(data: string): Uint8Array
 // Image: {hash [ro], getBytesAsync(): P<Uint8Array>, getSizeAsync(): P<{width, height}>}
 // Video: {hash [ro]}
 // Image format limits: PNG/JPG/GIF, max 4096×4096
+// Apply: node.fills = [{type:'IMAGE', imageHash: image.hash, scaleMode:'FILL'}]
 ```
 
 ## Prototype types
