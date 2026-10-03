@@ -455,19 +455,25 @@ class Stream(unittest.TestCase):
         self.assertEqual((m['cost_usd'], m['session_error'], m['skill_listed']), (0.5, False, True))
         self.assertEqual(text, 'Done.')
 
-    def test_turns_add_up_over_every_result_event(self):
-        """A session that waits on background agents emits a result event per segment: num_turns
-        is that segment's, while cost and usage are cumulative."""
-        res = lambda turns: json.dumps({'type': 'result', 'num_turns': turns, 'total_cost_usd': 1.0,
-                                        'modelUsage': {'m': {'outputTokens': 10}}})
+    def test_turns_count_every_model_response_workers_included(self):
+        """One turn per assistant response, a worker's too, as tool_calls already counts; a message
+        streamed in several events (one per content block) is one turn."""
+        a = lambda mid, parent=None: json.dumps({'type': 'assistant', 'parent_tool_use_id': parent,
+                                                 'message': {'id': mid, 'content': []}})
+        res = json.dumps({'type': 'result', 'num_turns': 1, 'total_cost_usd': 1.0})
+        m, _ = session.parse_stream([a('m1'), a('m1'), a('m2'), a('w1', 'toolu_1'), a('w2', 'toolu_1'), res])
+        self.assertEqual(m['turns'], 4)
+
+    def test_turns_fall_back_to_num_turns_without_message_ids(self):
+        res = lambda turns: json.dumps({'type': 'result', 'num_turns': turns, 'total_cost_usd': 1.0})
         m, _ = session.parse_stream([res(10), res(1), res(3)])
-        self.assertEqual((m['turns'], m['cost_usd'], m['output_tokens']), (14, 1.0, 10))
+        self.assertEqual(m['turns'], 14)
 
     def test_reparse_refreshes_session_metrics_and_keeps_scores(self):
         import reparse
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, 'layout-1.jsonl'), 'w') as f:
-                f.write('\n'.join(json.dumps({'type': 'result', 'num_turns': n, 'total_cost_usd': 2.0}) for n in (10, 4)))
+                f.write('\n'.join(json.dumps({'type': 'result', 'num_turns': n, 'total_cost_usd': 2.0}) for n in (10, 4)))  # no ids: num_turns
             res = {'tasks': {'layout': run.summarize([{'rep': 1, 'turns': 4, 'copy': 1, 'wall_s': 9, 'passed': True}])}}
             m = reparse.reparse(res, d)['tasks']['layout']['median']
             self.assertEqual((m['turns'], m['copy'], m['wall_s'], m['cost_usd']), (14, 1, 9, 2.0))
