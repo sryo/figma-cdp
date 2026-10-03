@@ -455,6 +455,23 @@ class Stream(unittest.TestCase):
         self.assertEqual((m['cost_usd'], m['session_error'], m['skill_listed']), (0.5, False, True))
         self.assertEqual(text, 'Done.')
 
+    def test_turns_add_up_over_every_result_event(self):
+        """A session that waits on background agents emits a result event per segment: num_turns
+        is that segment's, while cost and usage are cumulative."""
+        res = lambda turns: json.dumps({'type': 'result', 'num_turns': turns, 'total_cost_usd': 1.0,
+                                        'modelUsage': {'m': {'outputTokens': 10}}})
+        m, _ = session.parse_stream([res(10), res(1), res(3)])
+        self.assertEqual((m['turns'], m['cost_usd'], m['output_tokens']), (14, 1.0, 10))
+
+    def test_reparse_refreshes_session_metrics_and_keeps_scores(self):
+        import reparse
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, 'layout-1.jsonl'), 'w') as f:
+                f.write('\n'.join(json.dumps({'type': 'result', 'num_turns': n, 'total_cost_usd': 2.0}) for n in (10, 4)))
+            res = {'tasks': {'layout': run.summarize([{'rep': 1, 'turns': 4, 'copy': 1, 'wall_s': 9, 'passed': True}])}}
+            m = reparse.reparse(res, d)['tasks']['layout']['median']
+            self.assertEqual((m['turns'], m['copy'], m['wall_s'], m['cost_usd']), (14, 1, 9, 2.0))
+
     def test_no_result_event_is_a_session_error(self):
         m, _ = session.parse_stream(['{"type":"system","subtype":"init","skills":[]}', 'not json'])
         self.assertTrue(m['session_error'])

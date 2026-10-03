@@ -72,7 +72,7 @@ def command(claude, plugin, prompt, model=None, add_dirs=(), budget=None, slash=
 def parse_stream(lines):
     """Metrics from a stream-json transcript: the result event's totals (subagents included,
     via modelUsage) plus tool calls counted on every assistant message, subagents' too."""
-    init, result, calls, failed, skill_seen, text = None, None, 0, 0, False, ''
+    init, result, calls, failed, skill_seen, text, turns = None, None, 0, 0, False, '', 0
     for line in lines:
         try:
             ev = json.loads(line)
@@ -94,6 +94,7 @@ def parse_stream(lines):
                     skill_seen = True
         elif t == 'result':
             result = ev
+            turns += int(ev.get('num_turns') or 0)
     m = {'tool_calls': calls, 'failed_tool_calls': failed}
     if init:
         m['skill_listed'] = SKILL in (init.get('skills') or [])
@@ -110,7 +111,9 @@ def parse_stream(lines):
                      cache_write_tokens=u.get('cache_creation_input_tokens', 0))
         m['tokens_total'] = m['input_tokens'] + m['output_tokens'] + m['cache_read_tokens'] + m['cache_write_tokens']
         m['cost_usd'] = float(result.get('total_cost_usd') or 0)
-        m['turns'] = int(result.get('num_turns') or 0)
+        # num_turns is per result event (one per segment when background agents report back);
+        # usage and cost are cumulative, so the last event has them.
+        m['turns'] = turns
         m['session_error'] = bool(result.get('is_error'))
         text = result.get('result') or ''
     else:
