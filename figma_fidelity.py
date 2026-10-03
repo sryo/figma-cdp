@@ -11,7 +11,10 @@ sets behind it. The report lists, per kind, what differs from the manifest:
   unbound                           a raw value equal to a source token while a local variable scoped for the field holds it
   missing variants / missing states for components the subtree uses (sets reached through instances too)
   missing components                a source component used 2+ times with no component in the subtree, or
-                                    behind its instances, whose name (or a /-segment of it) starts with its words
+                                    behind its instances, whose name (or a /-segment of it) holds all its words
+                                    and no longer source component's
+A boolean variant or a state counts as present on a component whose instances override it per use
+(a nested instance's variant or a hidden layer that differs from the main component).
 A kind the manifest has no entries for is not checked. The first line counts the gaps; exit 0
 when the check ran, gaps or not, 2 when it could not run.
 """
@@ -60,6 +63,14 @@ COLLECT = r'''
       add(out.colors, h, n.id, bound);
     }
   }
+  function overrideSig(n) {
+    var sig = [];
+    (n.findAll ? n.findAll() : []).forEach(function (d) {
+      if (d.visible === false) sig.push('hidden ' + d.name);
+      else if (d.type === 'INSTANCE') { var vp = d.variantProperties || {}; Object.keys(vp).forEach(function (k) { sig.push(vp[k]); }); }
+    });
+    return sig;
+  }
   var nodes = [root].concat(root.findAll ? root.findAll() : []);
   var mains = {};
   for (var i = 0; i < nodes.length; i++) {
@@ -99,21 +110,29 @@ COLLECT = r'''
     } else if (!setFrame && n.cornerRadius === figma.mixed) {
       ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'].forEach(function (k) { if (n[k] > 0) add(out.nums.radius, n[k], n.id, !!bv[k]); });
     }
-    var owner = null;
+    var owner = null, main = null;
     if (n.type === 'COMPONENT_SET') owner = n;
     else if (n.type === 'COMPONENT') owner = n.parent && n.parent.type === 'COMPONENT_SET' ? n.parent : n;
     else if (n.type === 'INSTANCE') {
-      var main = await n.getMainComponentAsync();
+      main = await n.getMainComponentAsync();
       if (main) owner = main.parent && main.parent.type === 'COMPONENT_SET' ? main.parent : main;
     }
     if (owner && !mains[owner.id]) {
-      mains[owner.id] = 1;
       var words = [];
       var defs = {};
       try { defs = owner.componentPropertyDefinitions || {}; } catch (e) { /* a set with errors throws; its child names still count */ }
       Object.keys(defs).forEach(function (k) { words.push(k.split('#')[0]); (defs[k].variantOptions || []).forEach(function (o) { words.push(o); }); });
       if (owner.type === 'COMPONENT_SET') owner.children.forEach(function (c) { words.push(c.name); });
-      out.comps.push({ id: owner.id, name: owner.name, words: words });
+      mains[owner.id] = { id: owner.id, name: owner.name, words: words };
+      out.comps.push(mains[owner.id]);
+    }
+    // A per-use state set through overrides: the instance's nested variants or hidden layers differ from its main's.
+    if (main && !inDef(n)) {
+      var mine = overrideSig(n), theirs = overrideSig(main);
+      if (mine.join('|') !== theirs.join('|')) {
+        var seen = mains[owner.id].overrides || (mains[owner.id].overrides = []);
+        mine.forEach(function (w) { if (seen.indexOf(w) === -1) seen.push(w); });
+      }
     }
   }
   var vs = await figma.variables.getLocalVariablesAsync();
@@ -270,7 +289,7 @@ def diff(m, c):
     def vocab(comps):
         words = set()
         for k in comps:
-            for w in k['words'] + [k['name']]:
+            for w in k['words'] + k.get('overrides', []) + [k['name']]:
                 words.update(re.findall(r'[a-z0-9]+', str(w).lower()))
                 words.add(flat(w))
         return words
@@ -283,7 +302,7 @@ def diff(m, c):
             continue
         words = vocab(comps)
         if sorted(g['values']) == ['false', 'true']:
-            missing = [] if flat(g['prop']) in words else [g['prop']]
+            missing = [] if flat(g['prop']) in words or any(k.get('overrides') for k in comps) else [g['prop']]
         else:
             missing = [v for v in g['values'] if flat(v) not in words]
         if missing:
@@ -301,9 +320,17 @@ def diff(m, c):
         stem = flat(s['state'])[:5]
         if not any(w.startswith(stem) for w in vocab(comps)):
             gaps['missing states'].append({'component': s['component'], 'state': s['state'], 'src': s['src']})
-    for e in m.get('components', []):
-        want = name_words(e['component'])
-        if e['uses'] >= 2 and want and not any(name_words(seg)[:len(want)] == want for k in c['comps'] for seg in k['name'].split('/')):
+    entries = [set(name_words(e['component'])) for e in m.get('components', [])]
+
+    def covers(seg, want):
+        # Every source word is in the name ("Product card" is a card), unless a longer source
+        # name in it claims it ("Stat card" is a StatCard when the source has one).
+        have = set(seg)
+        return want <= have and not any(want < w <= have for w in entries)
+
+    segs = [name_words(seg) for k in c['comps'] for seg in k['name'].split('/')]
+    for e, want in zip(m.get('components', []), entries):
+        if e['uses'] >= 2 and want and not any(covers(seg, want) for seg in segs):
             gaps['missing components'].append({'component': e['component'], 'uses': e['uses'], 'src': e['src']})
     return {'root': c['root'], 'count': sum(len(v) for v in gaps.values()), 'gaps': gaps,
             'unchecked': list(dict.fromkeys(unchecked))}

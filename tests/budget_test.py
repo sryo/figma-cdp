@@ -117,6 +117,11 @@ class Docs(unittest.TestCase):
         self.assertRegex(plan, r'(?i)wrapper of repeated items[^.;]*instances')
         self.assertRegex(plan, r'(?i)repeating 2\+ times, existing screens too',
                          'a unit shared with a screen already in the file is not counted as repeated')
+        reuse = re.search(r'REUSE `<id>` as is[^.]*', plan)
+        self.assertIsNotNone(reuse, 'a reused inventory component is not instantiated as is')
+        self.assertRegex(reuse.group(0), r'(?i)per-use[^.;]*instance overrides', 'per-use differences are not overrides')
+        self.assertRegex(reuse.group(0), r'(?i)never[^.;]*renam[^.;]*variant[^.;]*set[^.;]*unless',
+                         'nothing stops a reused component from being renamed, given variants or made a set')
         self.assertIn('`components` `[{component, uses, nests, src}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):

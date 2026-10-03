@@ -1,6 +1,6 @@
 ---
 name: figma-cdp
-description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API through perch (AppleScript) or the agent-browser CLI (Chrome DevTools Protocol). Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
+description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API through perch (AppleScript) or agent-browser (CDP). Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks."
 allowed-tools: Bash(agent-browser:*), Bash(python3 *figma_*.py *)
 ---
 
@@ -14,21 +14,21 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 ## Flow
 
-1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and node id (`node-id`, `-` → `:`).
-2. **Source.** Find it (`~/Documents/<name>`, a path, a GitHub URL, a live URL) and read the real UI. No UI (CLI, library): ask what to design; never invent from a name. Manifest, once: `python3 <skill-dir>/figma_source.py <files> -o /tmp/figma_source_<slug>.json` (`references/fidelity.md`). A live URL goes through capture instead: `figma_capture.py walk <url>`, then `import <spec> --componentize --components <json>` (`references/capture.md`); workers only fix after.
+1. Parse the file key (after `/design/`, `/file/`, `/proto/`) and `node-id` (`-` → `:`).
+2. **Source.** Find it (`~/Documents/<name>`, a path, a GitHub or live URL) and read the real UI. No UI (CLI, library): ask what to design; never invent from a name. Manifest, once: `python3 <skill-dir>/figma_source.py <files> -o /tmp/figma_source_<slug>.json` (`references/fidelity.md`). A live URL goes through capture instead: `figma_capture.py walk <url>`, then `import <spec> --componentize --components <json>` (`references/capture.md`); workers only fix after.
 3. **Recon, one call:** `python3 <skill-dir>/figma_run.py --lib --file <url> -e 'await figma.saveVersionHistoryAsync("pre <task>"); return [await __fx.recon({nodeId: "<id>"}), (await __fx.inventory()).text]'`: pages, text tree, one line per component set, component, style, variable and repeated pattern.
 4. **An edit or "make it match"** on an existing frame: diff (`figma_fidelity.py`), patch the existing nodes in place, never replace or remove one, swap it for an instance or add components unless asked; skip to 8.
-5. **Component plan** (builds): every manifest `components` entry and unit repeating 2+ times, existing screens too (a shared header). Search the inventory first (`__fx.inventory({match: 'card'})`); a match is REUSE `<id>`, else NEW. Prop/state enums are VARIANT axes of a set, varying text TEXT, optional parts BOOLEAN, swappable icons INSTANCE_SWAP. A container with per-use content (card, panel) is still a component: a header with those props, or a slot (`createSlot`); a wrapper of repeated items (tabs, list) holds exposed item instances. A repeated PATTERN the task touches becomes a component first. Recipe: `references/building.md`.
-6. **Inline or dispatch** (below). Dispatch: pre-create target frames, fill every `figma-worker.md` slot ([Reuse]: only the inventory lines the task needs), pass it to the Agent tool.
-7. **Statuses.** DONE_WITH_CONCERNS: check its concerns yourself. NEEDS_CONTEXT: get it, re-dispatch. BLOCKED: from its failures and `createdNodeIds`, re-split, roll back (`references/execution.md` → Rollback) or ask.
+5. **Component plan** (builds): every manifest `components` entry and unit repeating 2+ times, existing screens too (a shared header). Inventory first (`__fx.inventory({match: 'card'})`); a match is REUSE `<id>` as is, per-use differences (state, text) as instance overrides, never renamed, given variants or made a set unless asked; else NEW. Prop/state enums: VARIANT axes; varying text: TEXT; optional parts: BOOLEAN; swappable icons: INSTANCE_SWAP. A container with per-use content (card, panel) is still a component: a header with those props, or a slot (`createSlot`); a wrapper of repeated items (tabs, list) holds exposed item instances. A repeated PATTERN the task touches becomes a component first. Recipe: `references/building.md`.
+6. **Inline or dispatch** (below). Dispatch: pre-create target frames, fill every `figma-worker.md` slot ([Reuse]: only the lines the task needs), pass it to the Agent tool.
+7. **Statuses.** DONE_WITH_CONCERNS: verify its concerns. NEEDS_CONTEXT: get it, re-dispatch. BLOCKED: from failures and `createdNodeIds`, re-split, roll back (`references/execution.md` → Rollback) or ask.
 8. **Final gate:** `figma_run.py --lib --file <url> -e 'return (await __fx.audit("<rootId>")).counts'` all 0 on what you built (an edit reports counts it found) and `figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <url>` 0 gaps. Fix gaps with targeted edits; report any left on purpose.
 9. **Summarize:** changes, node ids, retries, every worker assumption verbatim, gaps left, next steps.
 
 ## Work decomposition
 
-Run inline up to one frame or ~20 operations, following `figma-worker.md`'s cheat sheet and Loop. Group small related units into one worker's Sections, never one worker each. Parallel workers only for independent large areas (different frames or pages); never the same nodes or dependent chains. Split a worker past ~40 operations or 25 assertions.
+Run inline up to one frame or ~20 operations, following `figma-worker.md`'s cheat sheet and Loop. Group small related units into one worker's Sections, never one worker each. Parallel workers only for independent areas (other frames or pages); never shared nodes or dependent chains. Split a worker past ~40 operations or 25 assertions.
 
-Specs are self-contained: real ids verified to exist, exact end state, assertions, no TBDs; [Reuse] and [Manifest] filled.
+Specs are self-contained: verified ids, exact end state, assertions, no TBDs; [Reuse] and [Manifest] filled.
 
 ## References (load on demand)
 
@@ -58,6 +58,6 @@ Per-task reference combos (a worker reads these only for calls its cheat sheet l
 
 ## Rules
 
-- Say in plain English what you'll do.
+- Say plainly what you will do.
 - Never use Chrome MCP tools; always the helpers.
-- Read state before writing; make targeted edits; don't rebuild; preserve behavior unless asked.
+- Read before writing; make targeted edits; don't rebuild; preserve behavior unless asked.
