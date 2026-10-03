@@ -56,7 +56,10 @@ def clean_env(extra=None):
 def command(claude, plugin, prompt, model=None, add_dirs=(), budget=None, slash=True):
     cmd = [claude, '-p', f'/{SKILL} {prompt}' if slash else prompt, '--output-format', 'stream-json', '--verbose',
            '--no-session-persistence', '--setting-sources', 'project', '--strict-mcp-config', '--no-chrome',
-           '--plugin-dir', plugin, '--permission-mode', 'dontAsk', '--allowedTools', TOOLS]
+           '--plugin-dir', plugin, '--permission-mode', 'dontAsk', '--allowedTools', TOOLS,
+           # agent-browser talks CDP to whichever Chrome has a debugging port, which holds the
+           # user's own Figma files; sessions reach the scratch file through perch only.
+           '--disallowedTools', 'Bash(agent-browser:*)']
     for d in add_dirs:
         cmd += ['--add-dir', d]
     if model:

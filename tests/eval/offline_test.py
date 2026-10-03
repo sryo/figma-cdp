@@ -460,6 +460,39 @@ class Stream(unittest.TestCase):
         self.assertTrue(m['session_error'])
         self.assertFalse(m['skill_listed'])
 
+    def test_the_file_lock_ignores_tmpdir(self):
+        """Callers in different sessions have different TMPDIRs and must still queue on one lock."""
+        saved = os.environ.get('TMPDIR')
+        try:
+            os.environ['TMPDIR'] = tempfile.mkdtemp()
+            tempfile.tempdir = None
+            a = run.lock_path('K')
+            os.environ['TMPDIR'] = tempfile.mkdtemp()
+            tempfile.tempdir = None
+            self.assertEqual(a, run.lock_path('K'))
+        finally:
+            if saved is None:
+                os.environ.pop('TMPDIR', None)
+            else:
+                os.environ['TMPDIR'] = saved
+            tempfile.tempdir = None
+
+    def test_sessions_reach_figma_only_through_perch(self):
+        """No CDP fallback: it can reach another browser's copy of the file, or the user's other files."""
+        saved = dict(os.environ)
+        try:
+            os.environ.update(FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9222')
+            e = run.session_env(types.SimpleNamespace(tab=None))
+            self.assertEqual(e['FIGMA_BACKEND'], 'perch')
+            self.assertNotIn('FIGMA_CDP_PORT', e)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_sessions_cannot_call_agent_browser(self):
+        cmd = session.command('claude', '/p', 'x')
+        self.assertEqual(cmd[cmd.index('--disallowedTools') + 1], 'Bash(agent-browser:*)')
+
     def test_clean_env_drops_host_session_vars(self):
         saved = dict(os.environ)
         try:
