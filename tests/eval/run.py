@@ -103,6 +103,30 @@ def file_lock(key):
     return f
 
 
+def tab_problem(tabs, tab):
+    """Why the run can't start with these tabs on the file, or None."""
+    if not tabs:
+        return 'no tab shows the file; open it in the browser'
+    if tab:
+        return None if any(t['tabId'] == tab for t in tabs) else f'--tab {tab} is not open on the file'
+    if len(tabs) > 1:
+        return ('several tabs show the file (' + ', '.join(t['tabId'] for t in tabs) +
+                '); close the extras or pass --tab, since setup and the session could land on different tabs')
+    return None
+
+
+def file_tabs(key):
+    """The perch tabs showing the file, via perch's own list_tabs."""
+    perch = os.environ.get('PERCH_DIR', os.path.expanduser('~/Documents/perch'))
+    js = ("import(process.argv[1]).then(async m => { const r = await m.handleCall('list_tabs', {urlContains: process.argv[2]});"
+          " process.stdout.write(r.content[0].text); process.exit(0); })")
+    r = subprocess.run(['node', '-e', js, os.path.join(perch, 'server.js'), key], capture_output=True, text=True, timeout=60)
+    try:
+        return json.loads(r.stdout).get('tabs', [])
+    except ValueError:
+        sys.exit(f'list_tabs failed: {(r.stderr or r.stdout).strip()[:300]}')
+
+
 def session_env(a):
     """The session's env: perch only, so a failing perch call is an error rather than a fallback
     to CDP, which can reach another browser's stale copy of the file or the user's other files."""
@@ -229,6 +253,10 @@ def main():
     if not os.path.isfile(os.path.join(a.skill_dir, 'SKILL.md')):
         sys.exit(f'--skill-dir {a.skill_dir} has no SKILL.md')
     key = file_key(a.file)
+    if os.environ.get('FIGMA_BACKEND', 'perch') == 'perch':
+        problem = tab_problem(file_tabs(key), a.tab)
+        if problem:
+            sys.exit(f'run.py: {problem}')
     tasks = load_tasks([t for t in a.tasks.split(',') if t])
     rev, dirty = git_rev(a.skill_dir)
     out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '',

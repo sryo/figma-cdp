@@ -493,6 +493,15 @@ class Stream(unittest.TestCase):
         cmd = session.command('claude', '/p', 'x')
         self.assertEqual(cmd[cmd.index('--disallowedTools') + 1], 'Bash(agent-browser:*)')
 
+    def test_two_tabs_on_the_file_need_an_explicit_tab(self):
+        """Setup and the session could each land on a different tab, one of them out of date."""
+        two = [{'tabId': 'arc:1'}, {'tabId': 'canary:2'}]
+        self.assertIn('--tab', run.tab_problem(two, None))
+        self.assertIsNone(run.tab_problem(two, 'arc:1'))
+        self.assertIn('not open', run.tab_problem(two, 'arc:9'))
+        self.assertIsNone(run.tab_problem([{'tabId': 'arc:1'}], None))
+        self.assertIn('no tab', run.tab_problem([], None))
+
     def test_clean_env_drops_host_session_vars(self):
         saved = dict(os.environ)
         try:
