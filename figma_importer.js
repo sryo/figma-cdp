@@ -36,6 +36,7 @@
   var assets = bs.captureAssets = bs.captureAssets || {};
   var fontCache = bs.captureFonts = bs.captureFonts || {};
   var propKeys = bs.captureProps = bs.captureProps || {};
+  var edgeMap = bs.captureEdge = bs.captureEdge || {};
   var report = bs.captureReport = bs.captureReport ||
     { created: 0, flagged: [], fontsFallenBack: [], instantiated: [], components: [], warnings: [] };
   var components = spec.components || {};
@@ -69,17 +70,28 @@
   function familyFor(f) {
     var fam = (f || '').trim();
     var lower = fam.toLowerCase();
-    if (!fam || GENERIC_FAMILY[lower] || lower.indexOf('ui-') === 0) return 'Inter';
+    if (/^(-apple-system|system-ui|blinkmacsystemfont|ui-sans-serif|sans-serif|sf pro( text| display)?|\.sfnstext|helvetica neue|helvetica|arial)$/.test(lower) || !fam) return 'Inter';
+    if (/^(ui-rounded|sf pro rounded)$/.test(lower)) return 'Inter';
+    if (/^(ui-monospace|monospace|sf mono|sfmono-regular|menlo|monaco|consolas|courier new|courier)$/.test(lower)) return 'IBM Plex Mono';
+    if (/^(ui-serif|serif|new york|georgia|times|times new roman|charter|iowan old style)$/.test(lower)) return 'Source Serif 4';
+    if (GENERIC_FAMILY[lower] || lower.indexOf('ui-') === 0) return 'Inter';
     return fam;
+  }
+  function sfStyle(fam, style) {
+    if (fam !== 'SF Pro' && fam !== 'SF Pro Rounded') return style;
+    return style.replace('Semi Bold', 'Semibold').replace('Extra Bold', 'Heavy').replace('Extra Light', 'Ultralight')
+      .replace(/^Italic$/, 'Regular Italic');
   }
   // Ladder: exact → same family Regular → Inter same style → Inter Regular. The first
   // rung that loads is cached per requested (family, style); any rung past the first
   // is a substitution, reported once.
   async function resolveFont(family, weight, italic) {
-    var fam = familyFor(family), style = styleFor(weight, italic);
+    var fam = familyFor(family), style = sfStyle(familyFor(family), styleFor(weight, italic));
     var key = fam + '|' + style;
     if (Object.prototype.hasOwnProperty.call(fontCache, key)) return fontCache[key];
-    var ladder = [{ family: fam, style: style }, { family: fam, style: 'Regular' },
+    var spaced = style.replace(/^(Semi|Extra)(Bold|Light)/, '$1 $2');
+    var ladder = [{ family: fam, style: style }, { family: fam, style: spaced }, { family: fam, style: style.replace(/^(Semi|Extra) ?/, function (m, a) { return a === 'Semi' ? 'Semi' : 'Extra'; }) },
+      { family: 'Inter', style: spaced }, { family: fam, style: 'Regular' },
       { family: 'Inter', style: style }, { family: 'Inter', style: 'Regular' }];
     var tried = {};
     for (var i = 0; i < ladder.length; i++) {
@@ -220,8 +232,34 @@
     return node;
   }
 
+  function gradPaints(gs) {
+    var out = [];
+    (gs || []).slice().reverse().forEach(function (g) {
+      var stops = g.stops.map(function (s, i, arr) {
+        var c = s.c;
+        if (!c.a) { var nb = arr[i + 1] && arr[i + 1].c.a ? arr[i + 1].c : (arr[i - 1] && arr[i - 1].c.a ? arr[i - 1].c : c); c = { r: nb.r, g: nb.g, b: nb.b, a: 0 }; }
+        return { position: s.p, color: { r: c.r, g: c.g, b: c.b, a: c.a } };
+      });
+      var G;
+      if (g.type === 'linear') {
+        var a = g.ang * Math.PI / 180, W = g.w || 1, H = g.h || 1;
+        var dx = Math.sin(a), dy = -Math.cos(a), L = Math.abs(W * dx) + Math.abs(H * dy);
+        var p0 = [0.5 - dx * L / 2 / W, 0.5 - dy * L / 2 / H], p1 = [0.5 + dx * L / 2 / W, 0.5 + dy * L / 2 / H];
+        var ux = p1[0] - p0[0], uy = p1[1] - p0[1], vx = -uy * H / W, vy = ux * W / H;
+        G = [[ux, vx, p0[0] - 0.5 * vx], [uy, vy, p0[1] - 0.5 * vy]];
+      } else {
+        G = [[2 * g.rx, 0, g.cx - g.rx], [0, 2 * g.ry, g.cy - g.ry]];
+      }
+      var det = G[0][0] * G[1][1] - G[0][1] * G[1][0]; if (Math.abs(det) < 1e-9) return;
+      var i00 = G[1][1] / det, i01 = -G[0][1] / det, i10 = -G[1][0] / det, i11 = G[0][0] / det;
+      var M = [[i00, i01, -(i00 * G[0][2] + i01 * G[1][2])], [i10, i11, -(i10 * G[0][2] + i11 * G[1][2])]];
+      out.push({ type: g.type === 'linear' ? 'GRADIENT_LINEAR' : 'GRADIENT_RADIAL', gradientTransform: M, gradientStops: stops });
+    });
+    return out;
+  }
   function fillsFor(n, st, skipImage) {
-    var fills = paint(st.bg), error = null;
+    var gs = (st.grads || []).map(function (g) { return Object.assign({ w: n.rect.w, h: n.rect.h }, g); });
+    var fills = paint(st.bg).concat(gradPaints(gs)), error = null;
     if (n.image && !skipImage) {
       var img = imageFill(n);
       if (img.paint) fills.push(img.paint); else error = img.error;
@@ -229,13 +267,14 @@
     return { fills: fills, error: error };
   }
   function hasBoxPaint(n, st) {
-    return !!(st.bg || st.border || n.image || st.radius || st.radii || (st.shadow && st.shadow.length) ||
+    return !!(st.bg || st.grads || st.border || n.image || st.radius || st.radii || (st.shadow && st.shadow.length) ||
       (st.padding && st.padding.some(function (v) { return v > 0; })));
   }
 
   function effectsFor(st) {
     var fx = [];
     (st.shadow || []).forEach(function (s) {
+      if (isRing(s)) return;
       fx.push({ type: s.inset ? 'INNER_SHADOW' : 'DROP_SHADOW', color: rgba(s.color),
         offset: { x: s.x, y: s.y }, radius: s.blur || 0, spread: s.spread || 0, visible: true, blendMode: 'NORMAL' });
     });
@@ -244,6 +283,7 @@
     return fx;
   }
 
+  function isRing(s) { return !s.x && !s.y && !s.blur && s.spread > 0; }
   function applyBox(node, n, st) {
     if (st.radii) {
       node.topLeftRadius = st.radii[0]; node.topRightRadius = st.radii[1];
@@ -260,6 +300,13 @@
         node.strokeTopWeight = w[0]; node.strokeRightWeight = w[1];
         node.strokeBottomWeight = w[2]; node.strokeLeftWeight = w[3];
       }
+    }
+    var ring = (st.shadow || []).filter(isRing)[0];
+    if (ring && !st.border) {
+      try { node.strokes = paint(ring.color); node.strokeAlign = ring.inset ? 'INSIDE' : 'OUTSIDE'; node.strokeWeight = ring.spread; } catch (e) { warn(n, 'ring', e); }
+    } else if (ring && st.border) {
+      var r2x = (st.shadow || []).filter(isRing);
+      st.shadow = (st.shadow || []).filter(function (s) { return !isRing(s); }).concat(r2x.map(function (s) { return Object.assign({}, s, { blur: 0.01 }); }));
     }
     applyBlend(node, n, st);
   }
@@ -510,8 +557,11 @@
         kind = 'textbox';
         layout = { mode: 'HORIZONTAL' };
         primaryGap = applyLayout(node, st, 'HORIZONTAL', size(n.rect.w), size(n.rect.h));
-        node.primaryAxisAlignItems = st.textAlign === 'center' ? 'CENTER' : 'MIN';
-        node.counterAxisAlignItems = 'CENTER';
+        var flexBox = /flex/.test(st.display || '');
+        node.primaryAxisAlignItems = st.textAlign === 'center' ? 'CENTER' : st.textAlign === 'right' || st.textAlign === 'end' ? 'MAX'
+          : flexBox ? primaryAlign(st.justifyContent) : 'MIN';
+        node.counterAxisAlignItems = n.tag === 'button' || (n.lines || 1) === 1 && !flexBox && n.rect.h <= (st.lineHeight || (st.fontSize || 16) * 1.3) + (st.padding ? st.padding[0] + st.padding[2] : 0) + 6
+          ? 'CENTER' : flexBox ? counterAlign(st.alignItems, 'HORIZONTAL') : 'MIN';
         var svgBg = null;
         try { svgBg = svgNodeFor(n, size(n.rect.w), size(n.rect.h)); }
         catch (e) { warn(n, 'createNodeFromSvg', e); imageReason = 'image'; imageDetail = 'decode'; }
@@ -588,10 +638,33 @@
     idMap[n.i] = node.id;
     rectMap[n.i] = n.rect;
     var nodeLayout = layoutMap[n.i] = layout.mode !== 'NONE'
-      ? { mode: layout.mode, alignItems: kind === 'textbox' ? 'center' : (st.alignItems || 'normal'), primaryGap: primaryGap }
+      ? { mode: layout.mode, alignItems: kind === 'textbox' ? 'center' : (st.alignItems || 'normal'), primaryGap: primaryGap,
+          justify: st.justifyContent || 'normal' }
       : { mode: 'NONE' };
+    var pad0 = st.padding || [0, 0, 0, 0];
+    var bw0 = st.border ? (typeof st.border.w === 'number' ? st.border.w : st.border.w[0]) : 0;
+    edgeMap[n.i] = { y: n.rect.y + pad0[0] + bw0, x: n.rect.x + pad0[3] + bw0, started: false };
     report.created++;
 
+    if (canAppend && inFlow && pl.mode === 'VERTICAL' && /^(normal|flex-start|start)$/.test(pl.justify || 'normal') && edgeMap[n.parent]) {
+      var e0 = edgeMap[n.parent];
+      var gapY = n.rect.y - e0.y - (e0.started ? 2 : 1) * (pl.primaryGap || 0);
+      if (gapY > 0.5) {
+        var spacer = figma.createFrame();
+        spacer.name = 'spacer'; spacer.fills = []; spacer.resize(1, gapY);
+        p.appendChild(spacer);
+      }
+      e0.y = Math.max(e0.y, n.rect.y + n.rect.h); e0.started = true;
+    } else if (canAppend && inFlow && pl.mode === 'HORIZONTAL' && /^(normal|flex-start|start)$/.test(pl.justify || 'normal') && edgeMap[n.parent] && !n.xf) {
+      var e1 = edgeMap[n.parent];
+      var gapX = n.rect.x - e1.x - (e1.started ? 2 : 1) * (pl.primaryGap || 0);
+      if (gapX > 0.5 && gapX < 400) {
+        var hsp = figma.createFrame();
+        hsp.name = 'spacer'; hsp.fills = []; hsp.resize(gapX, 1);
+        p.appendChild(hsp);
+      }
+      e1.x = Math.max(e1.x, n.rect.x + n.rect.w); e1.started = true;
+    }
     if (canAppend) {
       p.appendChild(node);
       if (!node.parent || node.parent.id !== p.id) warn(n, 'appendChild', 'reparent failed');
@@ -622,6 +695,11 @@
         if (repeatMain) { hug[ax] = !fill[ax] && repeatMain[SIZING[ax]] === 'HUG'; continue; }
         if (fill[ax] || sz[ax] !== 'auto' || (ax === 0 && node.layoutWrap === 'WRAP')) continue;
         if (!(frameHugs || (kind === 'textbox' && (ax === 1 || (n.lines || 1) === 1)))) continue;
+        if (kind === 'textbox' && text) {
+          var pd = st.padding || [0, 0, 0, 0], bwx = st.border ? (typeof st.border.w === 'number' ? st.border.w : 0) * 2 : 0;
+          var natural = ax === 1 ? text.height + pd[0] + pd[2] + bwx : text.width + pd[1] + pd[3] + bwx;
+          if ((ax === 1 ? n.rect.h : n.rect.w) > natural + 3) continue;
+        }
         hug[ax] = positioned ? pin[ax].length === 1 : (ax === 1 || inFlow || inlineLevel);
       }
     }

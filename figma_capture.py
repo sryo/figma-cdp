@@ -32,7 +32,7 @@ import argparse, base64, fcntl, hashlib, json, os, re, socket, stat, subprocess,
 
 PIECE_BYTES = 150_000   # asset piece and node chunk budget, measured on the JSON text
 EVAL_B64_MAX = 300_000  # per-eval base64 ceiling on cdp (ARG_MAX headroom)
-BATCH_KEYS = ['captureIds', 'captureRects', 'captureLayout',
+BATCH_KEYS = ['captureIds', 'captureEdge', 'captureRects', 'captureLayout',
               'captureReport', 'captureFonts', 'captureAssets', 'captureProps']
 
 def cdp_port():
@@ -283,9 +283,12 @@ def walk(a):
         except ValueError:
             sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
         walker = read_sibling('figma_walker.js').decode()
-        out = perch_call({'op': 'page', 'url': a.url, 'sources': [walker], 'settle': settle,
+        srcs = [walker]
+        if os.environ.get('FIGMA_CAPTURE_PREP'):
+            srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
+        out = perch_call({'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
                           'timeout': round(timeout * 1000)}, wait=settle / 1000 + timeout + 130)
-        result, err = perch_results(out)[0]
+        result, err = perch_results(out)[-1]
     else:
         walker_b64 = base64.b64encode(read_sibling('figma_walker.js')).decode()
         cap = lambda *args: agent_browser(list(args), session='capture')

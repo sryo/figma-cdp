@@ -21,14 +21,101 @@
   function r2(n) { return Math.round(n * 100) / 100; }
 
   // rgb()/rgba() → {r,g,b,a} in 0..1, null for transparent/none.
+  var __cc = null, __ccache = {};
+  function resolveColor(s) {
+    if (s in __ccache) return __ccache[s];
+    try {
+      if (!__cc) { var cv = document.createElement('canvas'); cv.width = cv.height = 1; __cc = cv.getContext('2d', { willReadFrequently: true }); }
+      __cc.clearRect(0, 0, 1, 1); __cc.fillStyle = 'rgba(0,0,0,0)'; __cc.fillStyle = s; __cc.fillRect(0, 0, 1, 1);
+      var d = __cc.getImageData(0, 0, 1, 1).data;
+      __ccache[s] = d[3] ? { r: d[0] / 255, g: d[1] / 255, b: d[2] / 255, a: Math.round(d[3] / 255 * 1000) / 1000 } : null;
+    } catch (e) { __ccache[s] = null; }
+    return __ccache[s];
+  }
   function parseColor(s) {
     if (!s) return null;
-    var m = s.match(/rgba?\(([^)]+)\)/);
-    if (!m) return null;
+    var m = s.match(/^\s*rgba?\(([^)]+)\)\s*$/);
+    if (!m) return /^(transparent|none)$/.test(s.trim()) ? null : resolveColor(s.trim());
     var p = m[1].split(/[\s,\/]+/).map(function (x) { return parseFloat(x); });
     var a = p.length > 3 ? p[3] : 1;
     if (!(a > 0)) return null;
     return { r: p[0] / 255, g: p[1] / 255, b: p[2] / 255, a: a };
+  }
+
+  // CSS linear/radial gradients → [{type, stops:[{c,p}], ang | cx,cy,rx,ry}] in layer order (first = top).
+  function parseGradients(v, w, h) {
+    var out = [];
+    splitTopLevel(v).forEach(function (layer) {
+      var m = layer.match(/^(repeating-)?(linear|radial)-gradient\(([\s\S]*)\)$/);
+      if (!m || m[1]) return;
+      var parts = splitTopLevel(m[3]), type = m[2], g = { type: type, stops: [] };
+      var first = parts[0], isStop = function (t) { return !!stopColor(t); };
+      if (type === 'linear') {
+        g.ang = 180;
+        if (!isStop(first)) {
+          parts.shift();
+          var a = first.match(/(-?[\d.]+)(deg|turn|rad|grad)/);
+          if (a) { var n = parseFloat(a[1]); g.ang = a[2] === 'turn' ? n * 360 : a[2] === 'rad' ? n * 180 / Math.PI : a[2] === 'grad' ? n * 0.9 : n; }
+          else if (/^to /.test(first)) {
+            var t = first.slice(3), dx = /right/.test(t) ? 1 : /left/.test(t) ? -1 : 0, dy = /bottom/.test(t) ? 1 : /top/.test(t) ? -1 : 0;
+            if (dx && dy) g.ang = Math.atan2(dx * h, -dy * w) * 180 / Math.PI;
+            else g.ang = Math.atan2(dx, -dy) * 180 / Math.PI;
+          }
+        }
+      } else {
+        g.cx = 0.5; g.cy = 0.5;
+        if (!isStop(first)) {
+          parts.shift();
+          var at = first.match(/at\s+([-\d.]+)(%|px)?\s+([-\d.]+)(%|px)?/);
+          if (at) { g.cx = at[2] === 'px' ? parseFloat(at[1]) / w : parseFloat(at[1]) / 100; g.cy = at[4] === 'px' ? parseFloat(at[3]) / h : parseFloat(at[3]) / 100; }
+          var sz = first.replace(/at\s.*$/, '').match(/([\d.]+)(px|%)\s+([\d.]+)(px|%)|([\d.]+)px/);
+          if (sz && sz[5]) { g.rx = parseFloat(sz[5]) / w; g.ry = parseFloat(sz[5]) / h; }
+          else if (sz) { g.rx = sz[2] === '%' ? parseFloat(sz[1]) / 100 : parseFloat(sz[1]) / w; g.ry = sz[4] === '%' ? parseFloat(sz[3]) / 100 : parseFloat(sz[3]) / h; }
+          var circle = /circle/.test(first);
+          if (g.rx === undefined) {
+            var fx = Math.max(g.cx, 1 - g.cx) * w, fy = Math.max(g.cy, 1 - g.cy) * h;
+            if (/closest-side/.test(first)) { fx = Math.min(g.cx, 1 - g.cx) * w; fy = Math.min(g.cy, 1 - g.cy) * h; if (circle) fx = fy = Math.min(fx, fy); }
+            else if (/farthest-side/.test(first)) { if (circle) fx = fy = Math.max(fx, fy); }
+            else if (circle) { fx = fy = Math.sqrt(fx * fx + fy * fy); }
+            else { fx *= Math.SQRT2; fy *= Math.SQRT2; }
+            g.rx = fx / w; g.ry = fy / h;
+          }
+        } else {
+          g.rx = Math.max(g.cx, 1 - g.cx) * Math.SQRT2; g.ry = Math.max(g.cy, 1 - g.cy) * Math.SQRT2;
+        }
+      }
+      var len = type === 'linear' ? Math.abs(w * Math.sin(g.ang * Math.PI / 180)) + Math.abs(h * Math.cos(g.ang * Math.PI / 180)) : g.rx * w;
+      parts.forEach(function (t) {
+        var c = stopColor(t); if (!c) return;
+        var rest = t.slice(c.len).trim().split(/\s+/).filter(Boolean);
+        var pos = rest.map(function (r) { return /%$/.test(r) ? parseFloat(r) / 100 : /px$/.test(r) ? parseFloat(r) / (len || 1) : NaN; });
+        if (!pos.length) pos = [NaN];
+        pos.forEach(function (pp) { g.stops.push({ c: c.color, p: pp }); });
+      });
+      var st0 = g.stops; if (st0.length < 2) return;
+      if (isNaN(st0[0].p)) st0[0].p = 0;
+      if (isNaN(st0[st0.length - 1].p)) st0[st0.length - 1].p = 1;
+      for (var i = 1; i < st0.length - 1; i++) if (isNaN(st0[i].p)) {
+        var j = i; while (isNaN(st0[j].p)) j++;
+        for (var k = i; k < j; k++) st0[k].p = st0[i - 1].p + (st0[j].p - st0[i - 1].p) * (k - i + 1) / (j - i + 1);
+      }
+      for (var q = 1; q < st0.length; q++) if (st0[q].p < st0[q - 1].p) st0[q].p = st0[q - 1].p;
+      st0.forEach(function (x) { x.p = Math.max(0, Math.min(1, x.p)); });
+      out.push(g);
+    });
+    return out;
+  }
+  function stopColor(t) {
+    var m = t.match(/^((?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\([^)]*\)|#[0-9a-fA-F]{3,8}|[a-zA-Z]+)/);
+    if (!m) return null;
+    if (/^(to|at|circle|ellipse|closest|farthest|from|in)$/.test(m[1]) || /^(closest|farthest)-/.test(t)) return null;
+    var c = /^transparent$/i.test(m[1]) ? { r: 0, g: 0, b: 0, a: 0 } : (/^rgba?\(/.test(m[1]) ? parseColorAny(m[1]) : resolveColor(m[1]));
+    if (!c) return null;
+    return { color: c, len: m[1].length };
+  }
+  function parseColorAny(s) {
+    var m = s.match(/rgba?\(([^)]+)\)/); var p = m[1].split(/[\s,\/]+/).map(function (x) { return parseFloat(x); });
+    return { r: p[0] / 255, g: p[1] / 255, b: p[2] / 255, a: p.length > 3 ? p[3] : 1 };
   }
 
   // "a, b(c, d), e" → ["a", "b(c, d)", "e"]
@@ -345,6 +432,7 @@
     sizing(st, el);
 
     var bg = parseColor(cs.backgroundColor); if (bg) st.bg = bg;
+    if (cs.backgroundImage && cs.backgroundImage.indexOf('gradient(') >= 0) { var gr = parseGradients(cs.backgroundImage, w, h); if (gr.length) st.grads = gr; }
     var rad = [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius]
       .map(function (v) { return r2(radiusPx(v, w)); });
     if (rad[0] === rad[1] && rad[1] === rad[2] && rad[2] === rad[3]) { if (rad[0]) st.radius = rad[0]; }
@@ -426,6 +514,7 @@
           var ccs;
           try { ccs = getComputedStyle(c); } catch (e) { ccs = cs; }
           if (ccs.display === 'none') continue;
+          if (c.tagName === 'BR') { runs.push(Object.assign({ text: '\uE000' }, runStyle(cs, dec))); continue; }
           var cdec = decorationOf(ccs);
           walk(c, ccs, cdec !== 'none' ? cdec : dec);
         }
@@ -453,7 +542,10 @@
       if (end.text !== '') break;
       out.pop();
     }
-    var text = out.map(function (m) { return m.text; }).join('');
+    out.forEach(function (m) { m.text = m.text.replace(/ ?\uE000 ?/g, '\n'); });
+    out = out.filter(function (m) { return m.text !== ''; });
+    var text = out.map(function (m) { return m.text; }).join('').replace(/^\n+|\n+$/g, '');
+    if (out.length) { out[0].text = out[0].text.replace(/^\n+/, ''); out[out.length - 1].text = out[out.length - 1].text.replace(/\n+$/, ''); }
     return { text: text, runs: out.length > 1 ? out : null };
   }
 
