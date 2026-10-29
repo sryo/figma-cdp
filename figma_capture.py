@@ -286,9 +286,16 @@ def walk(a):
         srcs = [walker]
         if os.environ.get('FIGMA_CAPTURE_PREP'):
             srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
-        out = perch_call({'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
-                          'timeout': round(timeout * 1000)}, wait=settle / 1000 + timeout + 130)
+        req = {'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
+               'timeout': round(timeout * 1000), 'show': a.show}
+        if a.app:
+            req['app'] = a.app
+        out = perch_call(req, wait=settle / 1000 + timeout + 130)
+        for w in out.get('warnings') or []:
+            print(f'figma_capture.py: {w}', file=sys.stderr)
         result, err = perch_results(out)[-1]
+        if err and out.get('app'):
+            err = f"in {out['app']}: {err}"
     else:
         walker_b64 = base64.b64encode(read_sibling('figma_walker.js')).decode()
         cap = lambda *args: agent_browser(list(args), session='capture')
@@ -532,6 +539,10 @@ def main():
     w = sub.add_parser('walk', help='walk a live URL into /tmp/figma_capture_<slug>.json')
     w.add_argument('url')
     w.add_argument('wait_ms', nargs='?', default='2000')
+    w.add_argument('--app', default=os.environ.get('FIGMA_CAPTURE_APP'),
+                   help='browser to open the page tab in (perch backend; default FIGMA_CAPTURE_APP, else the frontmost one)')
+    w.add_argument('--show', action='store_true',
+                   help='Arc only: show the page tab, taking focus; other browsers run it in the background')
     i = sub.add_parser('import', help='replay a spec into the Figma tab')
     i.add_argument('spec')
     i.add_argument('--components', metavar='JSON_OR_PATH', help='{category: componentId} map')

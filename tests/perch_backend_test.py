@@ -76,7 +76,7 @@ class Harness(unittest.TestCase):
              'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'AGENT_BROWSER_STUB_LOG', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
-                  'PERCH_STUB_OLD'):
+                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
             e.pop(k, None)
         e.update(env)
         return e
@@ -909,7 +909,7 @@ class CapturePerch(Harness):
     def test_walker_throw_is_reported_and_the_tab_closed(self):
         _, out, r = self.walk('boom', '0')
         self.assertEqual(r.returncode, 1)
-        self.assertIn('figma_capture.py: walker failed — Error: boom', r.stderr)
+        self.assertIn('figma_capture.py: walker failed — in Google Chrome: Error: boom', r.stderr)
         self.assertNotIn('open and close any Figma plugin', r.stderr)
         self.assertEqual(len(self.calls('close_tab')), 1)
         self.assertFalse(os.path.exists(out))
@@ -922,7 +922,7 @@ class CapturePerch(Harness):
     def test_walk_perch_failure_is_reported_and_the_tab_closed(self):
         _, _, r = self.walk('page', '0', PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 120000ms')
         self.assertEqual(r.returncode, 1)
-        self.assertIn('figma_capture.py: walker failed — timeout: eval_js', r.stderr)
+        self.assertIn('figma_capture.py: walker failed — in Google Chrome: timeout: eval_js', r.stderr)
         self.assertEqual(len(self.calls('close_tab')), 1)
 
     def test_walk_url_perch_refuses_runs_nothing(self):
@@ -930,6 +930,49 @@ class CapturePerch(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertIn('bad_url', r.stderr)
         self.assertEqual(self.calls('eval_js'), [])
+
+    def test_walk_opens_the_named_browser_and_never_takes_focus(self):
+        url, _, r = self.walk('page', '0', '--app', 'Google Chrome Canary')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome Canary'})
+        self.assertEqual(self.calls('activate_tab'), [])
+
+    def test_walk_app_comes_from_the_callers_env(self):
+        url, _, r = self.walk('page', '0', FIGMA_CAPTURE_APP='Safari')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Safari'})
+
+    def test_walk_ignores_a_show_env_var(self):
+        # Showing is a per-call flag: an env var would stay on in a daemon started with it.
+        _, _, r = self.walk('page', '0', FIGMA_CAPTURE_SHOW='1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('activate_tab'), [])
+
+    def test_walk_show_is_ignored_outside_arc(self):
+        _, _, r = self.walk('page', '0', '--show')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('activate_tab'), [])
+        self.assertIn('show ignored: Google Chrome runs page JS in a background tab', r.stderr)
+
+    def test_walk_refuses_a_background_arc_tab_and_names_the_way_out(self):
+        _, out, r = self.walk('page', '0', PERCH_STUB_FRONT='Arc')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('in Arc: tab_not_visible: the page tab opened in Arc', r.stderr)
+        self.assertIn('--app', r.stderr)
+        self.assertEqual((self.calls('eval_js'), self.calls('activate_tab')), ([], []))
+        self.assertEqual(len(self.calls('close_tab')), 1)
+        self.assertFalse(os.path.exists(out))
+
+    def test_walk_show_in_arc_activates_the_tab_once(self):
+        _, _, r = self.walk('page', '0', '--show', '--app', 'Arc')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.calls('activate_tab')), 1)
+        self.assertIn('show: brought Arc to the front', r.stderr)
+
+    def test_walk_names_the_browser_when_the_walker_fails(self):
+        _, _, r = self.walk('boom', '0', '--app', 'Google Chrome Canary')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('walker failed — in Google Chrome Canary: Error: boom', r.stderr)
 
     def test_real_walker_parses_as_the_page_script(self):
         prog = ('import { wrapExpr } from %s; import { readFileSync } from "node:fs";\n'

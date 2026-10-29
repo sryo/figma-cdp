@@ -8,7 +8,7 @@
 //
 // A request is {op:"eval", file, sources:[<js>...], tab, timeout, stop},
 // {op:"screenshot", file, path:<out.png>, tab} or {op:"page", url, sources, settle,
-// timeout}; file is a Figma URL, a file key or "". The reply is one JSON object:
+// timeout, app, show}; file is a Figma URL, a file key or "". The reply is one JSON object:
 //   {tab:{tabId,url,title}, origin, results:[{ok:true,value,href} | {ok:false,error,figma,href}]}
 //   {tab, origin, path}                 (screenshot)
 //   {fatal:"<code>: <message>"}          (no perch, no tab, perch call failed)
@@ -18,7 +18,12 @@
 //   op "page"      opens url in a new background tab, waits for it to load and
 //                  `settle` ms more, runs each source there, closes the tab. Each source
 //                  is one expression (awaited); it runs inline, not through eval, so a
-//                  page whose CSP bans eval still runs it.
+//                  page whose CSP bans eval still runs it. `app` names the browser (else
+//                  perch's frontmost one); the reply adds {app, warnings}. Arc runs page JS
+//                  only in the tab its window shows, so an Arc tab is refused unless
+//                  `show` (activate_tab, which takes focus); other browsers never need it,
+//                  and `show` is ignored there. Both come from the request, never this
+//                  process's environment: a daemon outlives the call that started it.
 //
 // serve keeps perch loaded (its osascript daemons warm, the file's tab
 // remembered) and answers the same requests over a unix socket, so a call costs
@@ -164,16 +169,32 @@ async function runEval(handleCall, tab, src, ms, page = false) {
 
 const perchFatal = (e, ms) => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms)}` : e.message;
 
-// The page op: a tab of its own, never shown, closed whatever the scripts do.
-async function page(handleCall, { url, sources: srcs, settle }, ms) {
-  let tabId;
+// The page op: a tab of its own, shown only when Arc needs it and the caller asked, closed whatever the scripts do.
+const ARC = /^arc$/i;
+async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
+  let tabId, opened;
+  const warnings = [];
   try {
-    const { text } = await call(handleCall, "new_tab", { url });
-    tabId = JSON.parse(text.split("\n")[0]).tabId;
+    const { text } = await call(handleCall, "new_tab", app ? { url, app } : { url });
+    opened = JSON.parse(text.split("\n")[0]);
+    tabId = opened.tabId;
+    if (opened.warning) warnings.push(opened.warning);
   } catch (e) {
     return { fatal: e.message };
   }
-  if (!tabId) return { fatal: `no_tab: perch opened ${url} in a tab it can't address; retry, or use another browser` };
+  const where = opened.app || app || "the browser";
+  if (tabId && ARC.test(where) && !show) {
+    try { await call(handleCall, "close_tab", { tabId }); } catch {}
+    return { app: where, warnings, fatal: "tab_not_visible: the page tab opened in Arc, which runs page JS only in the tab its window shows; "
+      + "name a Chrome-family browser or Safari (--app or FIGMA_CAPTURE_APP), which run it in the background, or pass --show (takes focus)" };
+  }
+  if (tabId && show) {
+    if (!ARC.test(where)) warnings.push(`show ignored: ${where} runs page JS in a background tab`);
+    else {
+      try { await call(handleCall, "activate_tab", { target: { tabId } }); warnings.push("show: brought Arc to the front"); } catch {}
+    }
+  }
+  if (!tabId) return { app: where, warnings, fatal: `no_tab: perch opened ${url} in ${where}, in a tab it can't address; retry, or use another browser` };
   const tab = { tabId, url, title: "", key: null };
   const results = [];
   try {
@@ -188,10 +209,10 @@ async function page(handleCall, { url, sources: srcs, settle }, ms) {
       try {
         results.push(await runEval(handleCall, tab, src, ms, true));
       } catch (e) {
-        return { ...headOf(tab), results, fatal: perchFatal(e, ms) };
+        return { ...headOf(tab), app: where, warnings, results, fatal: perchFatal(e, ms) };
       }
     }
-    return { ...headOf(tab), results };
+    return { ...headOf(tab), app: where, warnings, results };
   } finally {
     try { await call(handleCall, "close_tab", { tabId }); } catch {}
   }

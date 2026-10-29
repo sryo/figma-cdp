@@ -11,6 +11,7 @@
 //                     (tabs that navigate or close); eval_js on a tab not in it is stale_tab
 //   PERCH_STUB_DELAY  ms each eval_js waits before running (concurrency tests)
 //   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
+//   PERCH_STUB_FRONT  the browser new_tab opens in when the call names none (default Google Chrome)
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
 // new_tab adds a tab (http(s), file or about:blank, as perch takes) that wait, eval_js and
 // close_tab address until it closes; it lives as long as this process. Like a browser's,
@@ -77,9 +78,15 @@ export async function handleCall(name, args = {}) {
   if (name === "new_tab") {
     const url = args.url == null ? "about:blank" : String(args.url);
     if (!/^(https?:|file:|about:blank$)/i.test(url)) return fail(`bad_url: new_tab takes http(s), file or about:blank URLs; got ${url}`);
-    const tab = { app: "Google Chrome", tabId: `chrome:${++openSeq}`, url: "about:blank", title: "", loads: url };
+    const app = args.app || process.env.PERCH_STUB_FRONT || "Google Chrome";
+    const tab = { app, tabId: `${app.split(" ").pop().toLowerCase()}:${++openSeq}`, url: "about:blank", title: "", loads: url };
     opened.push(tab);
     return text(JSON.stringify({ app: tab.app, tabId: tab.tabId }));
+  }
+  if (name === "activate_tab") {
+    const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
+    if (!tab) return fail(`stale_tab: tab ${(args.target || {}).tabId} is gone; re-run list_tabs`);
+    return text(JSON.stringify({ ok: true }));
   }
   if (name === "wait") {
     const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
