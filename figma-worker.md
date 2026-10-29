@@ -35,6 +35,7 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 - `text(chars, {parent, family, weight, size, lineHeight, textStyle, color, w: 'fill'|n})`: loads the font; `w` wraps it
 - `instance(id|key|name, {Axis: 'Value', Label: 'x'}, {parent, w, h})`
 - `bindFill(ref, '#hex'|token|style, 'fills'|'strokes')`; `fill`/`stroke`/`color` above go through it
+- `react(ref, [{on: 'click'|'hover'|{key: 27}, do: 'back'|'close'|{to, nav}}], {append})`, `overlayFrame({base, name, items})`, `flow(page, frame, name)`: `references/prototyping.md`. An instance's own reactions drop its main's hover
 - `autoLayout(ref, opts)`, `inventory({match})`, `audit(rootId)`
 
 Variants: hugging auto-layout base component; clones named `Size=Md, State=Hover`; `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set: auto layout + HUG.

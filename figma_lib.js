@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 3;
+  var V = 4;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -576,6 +576,131 @@
     return inst;
   }
 
+  // ---- prototyping
+
+  // What a script can set is narrower than the UI (references/prototyping.md): overlay position,
+  // background and click-outside are read-only, and SET_VARIABLE / CONDITIONAL need a paid plan.
+  function trigger(on) {
+    if (on === 'click') return { type: 'ON_CLICK' };
+    if (on === 'hover') return { type: 'ON_HOVER' };
+    if (on === 'press') return { type: 'ON_PRESS' };
+    if (on && on.key != null) return { type: 'ON_KEY_DOWN', device: 'KEYBOARD', keyCodes: [].concat(on.key) };
+    if (on && on.after != null) return { type: 'AFTER_TIMEOUT', timeout: on.after };
+    throw new Error('react: unknown trigger ' + JSON.stringify(on) + " (click, hover, press, {key}, {after: ms})");
+  }
+  function triggerKey(t) { return t.type + (t.keyCodes ? ':' + t.keyCodes.join(',') : '') + (t.timeout != null ? ':' + t.timeout : ''); }
+  var NAV = { navigate: 'NAVIGATE', overlay: 'OVERLAY', swap: 'SWAP', change: 'CHANGE_TO', scroll: 'SCROLL_TO' };
+  // anim: smart (default for navigate), dissolve (default for overlay / swap / scroll), instant
+  // (default for change), push-left|right|up|down; ms the duration.
+  function transition(anim, ms) {
+    var smooth = { type: 'EASE_IN_AND_OUT' };
+    if (anim === 'instant') return null;
+    if (anim === 'smart') return { type: 'SMART_ANIMATE', easing: smooth, duration: (ms || 300) / 1000 };
+    if (/^push/.test(anim)) {
+      return { type: 'PUSH', direction: (anim.split('-')[1] || 'left').toUpperCase(), matchLayers: false, easing: smooth, duration: (ms || 300) / 1000 };
+    }
+    if (anim !== 'dissolve') throw new Error('react: unknown anim ' + anim + ' (smart, dissolve, instant, push-<dir>)');
+    return { type: 'DISSOLVE', easing: { type: 'EASE_OUT' }, duration: (ms || 200) / 1000 };
+  }
+  async function action(d) {
+    if (d === 'back') return { type: 'BACK' };
+    if (d === 'close') return { type: 'CLOSE' };
+    var nav = NAV[d.nav || 'navigate'];
+    if (!nav) throw new Error('react: unknown nav ' + d.nav + ' (navigate, overlay, swap, change, scroll)');
+    var dest = await node(d.to);
+    if (nav === 'CHANGE_TO' && !isVariant(dest)) throw new Error('react: CHANGE_TO needs a variant, got ' + dest.type + ' ' + dest.name);
+    var a = { type: 'NODE', destinationId: dest.id, navigation: nav, preserveScrollPosition: false,
+      transition: transition(d.anim || (nav === 'NAVIGATE' ? 'smart' : nav === 'CHANGE_TO' ? 'instant' : 'dissolve'), d.ms) };
+    if (nav === 'OVERLAY' || nav === 'SWAP') a.resetScrollPosition = true;
+    return a;
+  }
+  // Sets n's reactions from [{on, do}]; append keeps the reactions whose trigger the list doesn't name.
+  async function react(n, list, o) {
+    n = await node(n);
+    var rs = [];
+    for (var i = 0; i < list.length; i++) rs.push({ trigger: trigger(list[i].on), actions: [await action(list[i].do)] });
+    var named = {};
+    rs.forEach(function (r) { named[triggerKey(r.trigger)] = 1; });
+    var keep = o && o.append ? (n.reactions || []).filter(function (r) { return !named[triggerKey(r.trigger)]; })
+      .map(function (r) { return { trigger: r.trigger, actions: r.actions || [r.action] }; }) : [];
+    await n.setReactionsAsync(keep.concat(rs));
+    return n;
+  }
+  // An overlay that opens in place: the size of base, see-through, items at their x / y in base's
+  // coordinates over a Scrim that closes on click, Esc closing it. Replaces a same-named frame on the page.
+  async function overlayFrame(o) {
+    var base = await node(o.base), pg = o.page ? await node(o.page) : base.parent;
+    pg.children.filter(function (c) { return c.name === o.name; }).forEach(function (c) { c.remove(); });
+    var f = figma.createFrame();
+    f.name = o.name;
+    pg.appendChild(f);
+    f.resize(base.width, base.height);
+    f.fills = [];
+    f.clipsContent = false;
+    f.x = base.x;
+    f.y = base.y + base.height + 200;
+    if (o.scrim !== false) {
+      var s = figma.createFrame();
+      s.name = 'Scrim';
+      f.appendChild(s);
+      s.resize(base.width, base.height);
+      s.fills = [];
+      s.constraints = { horizontal: 'STRETCH', vertical: 'STRETCH' };
+      await react(s, [{ on: 'click', do: 'close' }]);
+    }
+    var items = o.items || [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i], n = await node(it.node || it), x = it.node && it.x != null ? it.x : n.x, y = it.node && it.y != null ? it.y : n.y;
+      f.appendChild(n);
+      n.x = x;
+      n.y = y;
+    }
+    await react(f, [{ on: { key: 27 }, do: 'close' }]);
+    return f;
+  }
+  // Names a flow starting at start on page; one entry per frame and per name.
+  async function flow(pg, start, name) {
+    pg = await node(pg);
+    start = await node(start);
+    pg.flowStartingPoints = pg.flowStartingPoints.filter(function (p) { return p.nodeId !== start.id && p.name !== name; })
+      .concat([{ nodeId: start.id, name: name }]);
+    return pg.flowStartingPoints;
+  }
+  // The top-level frame holding n (null inside a component, whose screens are its instances').
+  function screenOf(n) {
+    for (; n && n.parent; n = n.parent) {
+      if (n.type === 'COMPONENT' || n.type === 'COMPONENT_SET') return null;
+      if (n.parent.type === 'PAGE' || n.parent.type === 'SECTION') return n;
+    }
+    return null;
+  }
+  // Figma refuses unknown destinations and drops reactions to removed nodes, so danglingReactions
+  // catches only state written some other way. An instance's reactions read its main's until it
+  // has its own, an empty list included.
+  async function reactionProblems(own, lists) {
+    for (var i = 0; i < own.length; i++) {
+      var n = own[i], rs = n.reactions || [], dangling = false;
+      for (var j = 0; j < rs.length; j++) {
+        var acts = rs[j].actions || [rs[j].action];
+        for (var k = 0; k < acts.length; k++) {
+          var a = acts[k];
+          if (!a || a.type !== 'NODE' || !a.destinationId) continue;
+          var dest = await figma.getNodeByIdAsync(a.destinationId);
+          if (!dest) { dangling = true; continue; }
+          var screen = a.navigation === 'OVERLAY' && screenOf(n);
+          if (screen && (dest.overlayPositionType || 'CENTER') === 'CENTER' && (dest.width < screen.width || dest.height < screen.height)) {
+            lists.overlayNotFullSize.push(n);
+          }
+        }
+      }
+      if (dangling) lists.danglingReactions.push(n);
+      if (n.type === 'INSTANCE' && !rs.some(function (r) { return r.trigger && r.trigger.type === 'ON_HOVER'; })) {
+        var m = await n.getMainComponentAsync();
+        if (m && (m.reactions || []).some(function (r) { return r.trigger && r.trigger.type === 'ON_HOVER'; })) lists.lostHover.push(n);
+      }
+    }
+  }
+
   // ---- audit
 
   // Structural problems under rootId (default: the current page): counts (all best at 0) plus up to
@@ -589,6 +714,7 @@
     var lists = {
       rawRepeats: [], fixedInFlow: [], absDefaultConstraints: m.absDefault.slice(), groups: [], defaultNames: m.defaultNamed,
       unboundPaints: [], textFixedInAutoLayout: [], textOverflow: [], componentsWithoutAutoLayout: [], unlinkedProps: [],
+      danglingReactions: [], lostHover: [], overlayNotFullSize: [],
     };
     patterns(nodes).forEach(function (g) { lists.rawRepeats = lists.rawRepeats.concat(g.nodes); });
     lists.fixedInFlow = m.fixedFlow.filter(function (c) { return c.type !== 'INSTANCE' && c.type !== 'TEXT'; });
@@ -621,6 +747,7 @@
         Object.keys(d).forEach(function (k) { if (d[k].type !== 'VARIANT' && !used[k]) lists.unlinkedProps.push(n.id + ':' + propName(k)); });
       }
     });
+    await reactionProblems(own, lists);
     var counts = {}, ids = {};
     Object.keys(lists).forEach(function (k) {
       counts[k] = lists[k].length;
@@ -639,7 +766,7 @@
 
   window.__fx = {
     v: V, recon: recon, inventory: inventory, frame: frame, autoLayout: autoLayout, text: text, instance: instance,
-    bindFill: bindFill, audit: audit, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
+    bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
   };
 })();

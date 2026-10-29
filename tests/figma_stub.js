@@ -7,7 +7,12 @@
 // the set rather than a variant, no property references inside an instance, and no removing
 // the current page. `figma._stats.variantDefReads` counts reads of componentPropertyDefinitions
 // on a variant, which throw as in Figma; `figma._unloadFonts()` forgets loaded fonts, as a new
-// session in the tab would.
+// session in the tab would. Prototyping follows what probes of the real API showed: reactions are
+// set only through setReactionsAsync, an instance without its own reactions reads its main
+// component's and its own replace them (an empty list too), a destination must exist on the
+// source's page (CHANGE_TO only from an instance or inside a variant), removing a node drops the
+// reactions and flow starting points that point at it, SET_VARIABLE / CONDITIONAL are refused (free plan), the
+// overlay settings are read-only and ignore assignments, and a page's flowStartingPoints is set whole.
 //
 //   const { createFigma } = require('./figma_stub');
 //   global.figma = createFigma();
@@ -18,6 +23,7 @@ const CHILD_API = { appendChild: 1, insertChild: 1, findAll: 1, findOne: 1, find
 const DEFAULT_NAME = { FRAME: 'Frame', TEXT: 'Text', RECTANGLE: 'Rectangle', ELLIPSE: 'Ellipse', COMPONENT: 'Component',
   COMPONENT_SET: 'Component set', INSTANCE: 'Instance', PAGE: 'Page', GROUP: 'Group', VECTOR: 'Vector', SECTION: 'Section' };
 const solid = (r, g, b) => [{ type: 'SOLID', visible: true, opacity: 1, blendMode: 'NORMAL', color: { r, g, b } }];
+const OVERLAY = { overlayPositionType: 'CENTER', overlayBackground: { type: 'NONE' }, overlayBackgroundInteraction: 'NONE' };
 const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 
 function createFigma() {
@@ -41,7 +47,8 @@ function createFigma() {
     const t = { id, type, name: DEFAULT_NAME[type] || type, parent: null, removed: false, visible: true,
       x: 0, y: 0, width: 100, height: 100, opacity: 1, rotation: 0,
       constraints: { horizontal: 'MIN', vertical: 'MIN' }, layoutPositioning: 'AUTO', layoutGrow: 0, layoutAlign: 'INHERIT',
-      componentPropertyReferences: null, boundVariables: {}, fillStyleId: '', effects: [], strokes: [], strokeWeight: 1 };
+      componentPropertyReferences: null, boundVariables: {}, fillStyleId: '', effects: [], strokes: [], strokeWeight: 1,
+      _reactions: null };
     if (CONTAINERS[type]) t.children = [];
     if (type === 'FRAME' || type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'INSTANCE') {
       Object.assign(t, { layoutMode: 'NONE', itemSpacing: 0, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
@@ -54,7 +61,7 @@ function createFigma() {
       textAutoResize: 'WIDTH_AND_HEIGHT', fills: solid(0, 0, 0), _sizing: { h: 'HUG', v: 'HUG' } });
     if (type === 'RECTANGLE' || type === 'ELLIPSE' || type === 'VECTOR') Object.assign(t, { fills: solid(0.85, 0.85, 0.85), cornerRadius: 0, _sizing: { h: 'FIXED', v: 'FIXED' } });
     if (type === 'COMPONENT' || type === 'COMPONENT_SET') t._props = {};
-    if (type === 'PAGE') delete t.constraints;
+    if (type === 'PAGE') { delete t.constraints; delete t._reactions; t.flowStartingPoints = []; }
 
     const api = {
       appendChild(c) { insert(proxy, c, t.children.length); },
@@ -63,6 +70,7 @@ function createFigma() {
         if (type === 'PAGE' && proxy === currentPage) throw new Error('Cannot remove the current page');
         if (t.parent) t.parent.children.splice(t.parent.children.indexOf(proxy), 1);
         markRemoved(proxy);
+        dropLinks();
       },
       resize(w, h) { t.width = w; t.height = h; },
       resizeWithoutConstraints(w, h) { t.width = w; t.height = h; },
@@ -130,6 +138,28 @@ function createFigma() {
       },
       clone() { const c = makeNode(type); copyInto(proxy, c); if (t.parent) insert(t.parent, c, t.parent.children.indexOf(proxy) + 1); return c; },
       async loadAsync() { t._loaded = true; },
+      async setReactionsAsync(rs) {
+        if (type === 'PAGE' || type === 'DOCUMENT') throw new Error('setReactionsAsync is not on ' + type);
+        if (!Array.isArray(rs)) throw new Error('reactions must be an array');
+        for (const r of rs) {
+          if (!r.trigger || !r.trigger.type) throw new Error('a reaction needs a trigger');
+          if (r.action && r.actions) throw new Error('a reaction takes action or actions, not both');
+          for (const a of r.actions || [r.action]) {
+            if (!a || !a.type) throw new Error('an action needs a type');
+            if (a.type === 'SET_VARIABLE' || a.type === 'CONDITIONAL') throw new Error(a.type + ' requires a paid plan');
+            if (a.type !== 'NODE' || !a.destinationId) continue;
+            const dest = byId[a.destinationId];
+            const sourceOk = a.navigation !== 'CHANGE_TO' || type === 'INSTANCE' || inVariant(proxy);
+            if (!dest || dest.removed || pageOf(dest) !== pageOf(proxy) || !sourceOk) {
+              throw new Error('Reaction at index ' + rs.indexOf(r) + ' was invalid (destination ' + a.destinationId + ' was rejected)');
+            }
+          }
+        }
+        t._reactions = rs.map((r) => {
+          const actions = clone(r.actions || [r.action]);
+          return { trigger: clone(r.trigger), action: actions[0], actions };
+        });
+      },
     };
 
     const proxy = new Proxy(t, {
@@ -143,6 +173,11 @@ function createFigma() {
         if (k === 'layoutSizingHorizontal') return target._sizing ? target._sizing.h : undefined;
         if (k === 'layoutSizingVertical') return target._sizing ? target._sizing.v : undefined;
         if (k === 'mainComponent') return target._main || null;
+        if (k === 'reactions' && '_reactions' in target) {
+          if (target._reactions) return clone(target._reactions);
+          return target.type === 'INSTANCE' && target._main && !target._main.removed ? target._main.reactions : [];
+        }
+        if (OVERLAY[k] && target.type !== 'PAGE') return clone(OVERLAY[k]);
         if (k === 'componentPropertyDefinitions') return defs(target);
         if (k === 'componentProperties' && target.type === 'INSTANCE') return instanceProps(target);
         if (k === 'variantProperties') return variantProps(target);
@@ -151,6 +186,9 @@ function createFigma() {
       },
       set(target, k, v) {
         if (target.removed) throw new Error('The node with id "' + target.id + '" does not exist');
+        if (OVERLAY[k]) return true;
+        if (k === 'reactions') throw new Error('reactions is read-only; use setReactionsAsync');
+        if (k === 'flowStartingPoints') { target[k] = clone(v); return true; }
         if (target.type === 'TEXT') {
           if (k === 'fontName' && !loadedFonts[v.family + '/' + v.style]) throw new Error('fontName set before loadFontAsync: ' + JSON.stringify(v));
           if (k === 'characters' && !loadedFonts[target.fontName.family + '/' + target.fontName.style]) throw new Error('characters set before a loaded fontName');
@@ -247,6 +285,20 @@ function createFigma() {
     parent._raw.children.splice(i, 0, c);
     if (raw._sizing && !isAL(parent) && raw._sizing.h === 'FILL') raw._sizing.h = 'FIXED';
     if (raw._sizing && !isAL(parent) && raw._sizing.v === 'FILL') raw._sizing.v = 'FIXED';
+  }
+  function pageOf(n) { while (n && n.type !== 'PAGE') n = n.parent; return n; }
+  function inVariant(n) {
+    for (; n; n = n.parent) if (n.type === 'COMPONENT' && n.parent && n.parent.type === 'COMPONENT_SET') return true;
+    return false;
+  }
+  function dropLinks() {
+    const live = (id) => byId[id] && !byId[id].removed;
+    for (const n of Object.values(byId)) {
+      const t = n._raw;
+      if (t.removed) continue;
+      if (t.flowStartingPoints) t.flowStartingPoints = t.flowStartingPoints.filter((p) => live(p.nodeId));
+      if (t._reactions) t._reactions = t._reactions.filter((r) => r.actions.every((a) => a.type !== 'NODE' || !a.destinationId || live(a.destinationId)));
+    }
   }
   function markRemoved(n) { n._raw.removed = true; (n._raw.children || []).forEach(markRemoved); }
   function walk(n, fn) { fn(n); (n._raw.children || []).forEach((c) => walk(c, fn)); }

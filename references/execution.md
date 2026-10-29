@@ -55,6 +55,9 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 | `__fx.text(chars, {parent, name, family, weight, size, lineHeight, textStyle, color, w, align})` | loads the font first; `textStyle` by name or id; `w` `'fill'` or a width wraps |
 | `__fx.instance(idOrKeyOrName, props, {parent, name, w, h})` | variant axes in `props` pick the variant (from a variant id, the axes left out keep its values); other properties by short name (`Label`, not `Label#1:2`) |
 | `__fx.bindFill(ref, value, field)` | `value` a hex, or a variable or paint style (name, id or object). A hex binds the local variable (else paint style) with exactly that value, else paints raw. Returns `{bound, id}`; `field` `'strokes'` for strokes |
+| `__fx.react(ref, [{on, do}], {append})` | sets reactions: `on` `'click'`\|`'hover'`\|`'press'`\|`{key: 27}`\|`{after: ms}`; `do` `'back'`\|`'close'`\|`{to, nav: 'navigate'\|'overlay'\|'swap'\|'change'\|'scroll', anim: 'smart'\|'dissolve'\|'instant'\|'push-left', ms}`. Replaces the list; `append` replaces only the triggers named: `references/prototyping.md` |
+| `__fx.overlayFrame({base, name, items, scrim, page})` | an overlay that opens in place: base-sized, see-through, `items` (`{node, x, y}`) at their place over a Scrim that closes, Esc closes |
+| `__fx.flow(page, frame, name)` | a named flow starting point on the page, one per frame and name |
 | `__fx.audit(rootId, {limit})` | structural problems under a node or page: `{counts, shares, ids}` (up to 5 ids each) |
 
 `frame` and `text` take `fill` / `stroke` / `color` the way `bindFill` does, so a source hex lands bound when the file has a matching token.
@@ -66,7 +69,7 @@ await __fx.instance('Button', { Variant: 'Primary', Label: 'Sign in' }, { parent
 return __fx.audit(s.id);
 ```
 
-`audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references). `shares` holds `instanceRatio` and `autoLayoutShare`, higher is better.
+`audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references), `danglingReactions` (a destination that doesn't resolve), `lostHover` (an instance whose own reactions dropped its main component's hover), `overlayNotFullSize` (an overlay smaller than the screen that opens it). `shares` holds `instanceRatio` and `autoLayoutShare`, higher is better.
 
 ## State between evals
 

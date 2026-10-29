@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 3, sha: 'ad0f93d1e71ae557' };
+const PIN = { v: 4, sha: '9c5df736473414d4' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -421,6 +421,7 @@ test('audit: counts every structural problem with capped offending ids', async (
   assert.deepEqual(a.counts, {
     rawRepeats: 3, fixedInFlow: 1, absDefaultConstraints: 3, groups: 1,
     defaultNames: 2, unboundPaints: 1, textFixedInAutoLayout: 1, textOverflow: 1, componentsWithoutAutoLayout: 1, unlinkedProps: 1,
+    danglingReactions: 0, lostHover: 0, overlayNotFullSize: 0,
   });
   assert.deepEqual(a.shares, { instanceRatio: 0.1, autoLayoutShare: 0.8 });
   assert.deepEqual(a.ids.rawRepeats, [rows[0].id, rows[1].id]);
@@ -478,4 +479,136 @@ test('measure: the counts tests/eval/lib.js quality() is built on', async () => 
   const m = fx.measure(figma.currentPage.findAll());
   assert.deepEqual([m.containers.length, m.auto.length, m.stacks.length, m.flow.length, m.fixedFlow.length,
     m.instances.length, m.rawFrames.length, m.defaultNamed.length], [4, 3, 1, 6, 1, 0, 4, 0]);
+});
+
+// ---- prototyping
+
+// A Toggle set, State=Default|Hover, with hover on Default as an interactive component.
+async function hoverSet(fx, parent) {
+  const def = figma.createComponent(); def.name = 'State=Default';
+  const hov = figma.createComponent(); hov.name = 'State=Hover';
+  const set = figma.combineAsVariants([def, hov], parent);
+  set.name = 'Toggle';
+  await fx.react(def, [{ on: 'hover', do: { to: hov, nav: 'change' } }]);
+  return { set, def, hov };
+}
+
+test('react: triggers and actions map to Plugin API reactions with default transitions', async () => {
+  const fx = fresh();
+  const page = figma.currentPage;
+  const a = mkFrame(page, 'A', null, 400, 300), b = mkFrame(page, 'B', null, 400, 300);
+  const btn = mkFrame(a, 'Button', null, 80, 32);
+  assert.equal(await fx.react(btn.id, [
+    { on: 'click', do: { to: b } },
+    { on: 'hover', do: { to: b.id, nav: 'overlay', anim: 'dissolve', ms: 150 } },
+    { on: { key: 27 }, do: 'back' },
+    { on: { after: 800 }, do: 'close' },
+    { on: 'press', do: { to: b, nav: 'swap', anim: 'push-right' } },
+  ]), btn);
+  const rs = btn.reactions;
+  assert.deepEqual(rs.map((r) => r.trigger), [
+    { type: 'ON_CLICK' }, { type: 'ON_HOVER' }, { type: 'ON_KEY_DOWN', device: 'KEYBOARD', keyCodes: [27] },
+    { type: 'AFTER_TIMEOUT', timeout: 800 }, { type: 'ON_PRESS' },
+  ]);
+  const act = rs.map((r) => r.actions[0]);
+  assert.deepEqual(act[0], { type: 'NODE', destinationId: b.id, navigation: 'NAVIGATE', preserveScrollPosition: false,
+    transition: { type: 'SMART_ANIMATE', easing: { type: 'EASE_IN_AND_OUT' }, duration: 0.3 } });
+  assert.equal(act[1].navigation, 'OVERLAY');
+  assert.deepEqual(act[1].transition, { type: 'DISSOLVE', easing: { type: 'EASE_OUT' }, duration: 0.15 });
+  assert.equal(act[1].resetScrollPosition, true);
+  assert.deepEqual(act[2], { type: 'BACK' });
+  assert.deepEqual(act[3], { type: 'CLOSE' });
+  assert.equal(act[4].navigation, 'SWAP');
+  assert.equal(act[4].transition.type, 'PUSH');
+  assert.equal(act[4].transition.direction, 'RIGHT');
+});
+
+test('react: replaces reactions unless append, which swaps only the triggers it names', async () => {
+  const fx = fresh();
+  const page = figma.currentPage;
+  const a = mkFrame(page, 'A'), b = mkFrame(page, 'B'), c = mkFrame(page, 'C');
+  await fx.react(a, [{ on: 'click', do: { to: b } }, { on: 'hover', do: { to: b, nav: 'overlay' } }]);
+  await fx.react(a, [{ on: 'click', do: { to: c } }], { append: true });
+  assert.deepEqual(a.reactions.map((r) => r.trigger.type + '>' + r.actions[0].destinationId), ['ON_HOVER>' + b.id, 'ON_CLICK>' + c.id]);
+  await fx.react(a, [{ on: { key: 27 }, do: 'close' }]);
+  assert.deepEqual(a.reactions.map((r) => r.trigger.type), ['ON_KEY_DOWN']);
+});
+
+test('react: refuses an unknown trigger, a missing destination and CHANGE_TO to a non-variant', async () => {
+  const fx = fresh();
+  const page = figma.currentPage;
+  const a = mkFrame(page, 'A'), b = mkFrame(page, 'B');
+  await assert.rejects(fx.react(a, [{ on: 'drag', do: 'back' }]), /unknown trigger/);
+  await assert.rejects(fx.react(a, [{ on: 'click', do: { to: '9:999' } }]), /not found/);
+  const other = figma.createPage(), far = mkFrame(other, 'Far');
+  await assert.rejects(fx.react(a, [{ on: 'click', do: { to: far } }]), /rejected/, 'a destination on another page');
+  await assert.rejects(fx.react(a, [{ on: 'click', do: { to: b, nav: 'change' } }]), /CHANGE_TO needs a variant/);
+  await assert.rejects(fx.react(a, [{ on: 'click', do: { to: b, nav: 'teleport' } }]), /unknown nav/);
+  const { def, hov } = await hoverSet(fx, page);
+  assert.deepEqual(def.reactions[0].actions[0], { type: 'NODE', destinationId: hov.id, navigation: 'CHANGE_TO', transition: null,
+    preserveScrollPosition: false });
+});
+
+test('overlayFrame: base-sized, see-through, items in place over a scrim that closes, Esc closes', async () => {
+  const fx = fresh();
+  const page = figma.currentPage;
+  const base = mkFrame(page, 'Home', null, 1440, 900);
+  base.x = 100; base.y = 50;
+  const panel = mkFrame(page, 'Menu', null, 240, 320);
+  const old = mkFrame(page, 'Menu overlay');
+  const f = await fx.overlayFrame({ base: base.id, name: 'Menu overlay', items: [{ node: panel, x: 1180, y: 64 }] });
+  assert.ok(old.removed);
+  assert.deepEqual([f.name, f.parent, f.width, f.height, f.x, f.y, f.fills.length, f.clipsContent],
+    ['Menu overlay', page, 1440, 900, 100, 50 + 900 + 200, 0, false]);
+  assert.deepEqual(f.children.map((c) => c.name), ['Scrim', 'Menu']);
+  const scrim = f.children[0];
+  assert.deepEqual([scrim.width, scrim.height, scrim.fills.length, scrim.constraints.horizontal], [1440, 900, 0, 'STRETCH']);
+  assert.deepEqual(scrim.reactions.map((r) => [r.trigger.type, r.actions[0].type]), [['ON_CLICK', 'CLOSE']]);
+  assert.deepEqual([panel.x, panel.y], [1180, 64]);
+  assert.deepEqual(f.reactions.map((r) => [r.trigger, r.actions[0].type]),
+    [[{ type: 'ON_KEY_DOWN', device: 'KEYBOARD', keyCodes: [27] }, 'CLOSE']]);
+  const bare = await fx.overlayFrame({ base, name: 'Toast', items: [mkFrame(page, 'T')], scrim: false });
+  assert.deepEqual(bare.children.map((c) => c.name), ['T']);
+});
+
+test('flow: adds or renames a page flow starting point, one per frame and name', async () => {
+  const fx = fresh();
+  const page = figma.currentPage;
+  const a = mkFrame(page, 'A'), b = mkFrame(page, 'B');
+  await fx.flow(page, a, 'Main');
+  await fx.flow(page.id, b.id, 'Settings');
+  assert.deepEqual(await fx.flow(page, a, 'Onboarding'), [{ nodeId: b.id, name: 'Settings' }, { nodeId: a.id, name: 'Onboarding' }]);
+  assert.deepEqual(page.flowStartingPoints, [{ nodeId: b.id, name: 'Settings' }, { nodeId: a.id, name: 'Onboarding' }]);
+});
+
+test('audit: dangling destinations, instances whose own reactions dropped the hover, small overlays', async () => {
+  const fx = fresh();
+  const page = figma.currentPage;
+  const { def } = await hoverSet(fx, page);
+  const home = mkFrame(page, 'Home', null, 1440, 900), next = mkFrame(page, 'Next', null, 1440, 900);
+  const gone = mkFrame(page, 'Gone');
+  const link = mkFrame(home, 'Link'), dropped = mkFrame(home, 'Dropped');
+  await fx.react(link, [{ on: 'click', do: { to: gone } }]);
+  await fx.react(dropped, [{ on: 'click', do: { to: gone } }]);
+  page.flowStartingPoints = [{ nodeId: gone.id, name: 'Gone' }];
+  gone.remove();
+  assert.deepEqual([dropped.reactions, page.flowStartingPoints], [[], []], 'Figma drops links to a removed node');
+  // A stale reaction written some other way, which the Plugin API itself never leaves.
+  link._raw._reactions = [{ trigger: { type: 'ON_CLICK' }, actions: [{ type: 'NODE', destinationId: gone.id, navigation: 'NAVIGATE' }] }];
+  const kept = def.createInstance(); home.appendChild(kept);
+  const lost = def.createInstance(); home.appendChild(lost);
+  await fx.react(lost, [{ on: 'click', do: { to: next } }]);
+  const emptied = def.createInstance(); home.appendChild(emptied);
+  await emptied.setReactionsAsync([]);
+  const fixed = def.createInstance(); home.appendChild(fixed);
+  await fx.react(fixed, [{ on: 'click', do: { to: next } }, { on: 'hover', do: { to: def.parent.children[1], nav: 'change' } }]);
+  const small = mkFrame(page, 'Small menu', null, 240, 320);
+  const full = await fx.overlayFrame({ base: home, name: 'Full menu', items: [] });
+  const opener = mkFrame(home, 'Opener');
+  await fx.react(opener, [{ on: 'click', do: { to: small, nav: 'overlay' } }, { on: 'hover', do: { to: full, nav: 'overlay' } }]);
+  const a = await fx.audit(page.id);
+  assert.deepEqual([a.counts.danglingReactions, a.counts.lostHover, a.counts.overlayNotFullSize], [1, 2, 1]);
+  assert.deepEqual(a.ids.danglingReactions, [link.id]);
+  assert.deepEqual(a.ids.lostHover, [lost.id, emptied.id]);
+  assert.deepEqual(a.ids.overlayNotFullSize, [opener.id]);
 });

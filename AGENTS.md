@@ -34,6 +34,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── agent_browser_stub/   # stand-in agent-browser CLI (eval -b, batch --json) that runs scripts against perch_stub's `figma`, for the cdp branch offline
     ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
     ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
+    ├── prototyping_probe.js  # live: `figma_run.py --lib --file <scratch> tests/prototyping_probe.js` checks __fx.react/overlayFrame/flow and the prototype audit counts on a throwaway __probe page, plus the plan limits
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
     ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)

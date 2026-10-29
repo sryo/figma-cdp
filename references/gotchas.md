@@ -166,3 +166,14 @@ var btn = figma.createFrame(); btn.layoutMode = 'HORIZONTAL'; /* ...20 more line
 (await __fx.inventory({ match: 'button' })).text;  // SET Button [1:2] Variant=Primary|Secondary ...
 await __fx.instance('1:2', { Variant: 'Primary', Label: 'Sign in' }, { parent: form });
 ```
+
+## 17. An instance's own reactions replace its main component's: re-add the hover
+An instance with no reactions of its own runs its main component's (the hover of an interactive component). Setting any reaction on the instance replaces that whole list, so the instance stops hovering. `__fx.audit` counts these as `lostHover`.
+```js
+// WRONG: the card now navigates but no longer hovers
+await __fx.react(cardInstance, [{ on: 'click', do: { to: detail } }]);
+// CORRECT: give the instance the hover back with its click
+const hover = (await cardInstance.getMainComponentAsync()).reactions.filter(r => r.trigger.type === 'ON_HOVER');
+await cardInstance.setReactionsAsync(hover.map(r => ({ trigger: r.trigger, actions: r.actions })));
+await __fx.react(cardInstance, [{ on: 'click', do: { to: detail } }], { append: true });
+```

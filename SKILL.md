@@ -48,13 +48,14 @@ Specs are self-contained: verified ids, exact end state, assertions, no TBDs; [R
 | `references/api-text.md` | TextNode |
 | `references/api-layout.md` | Frames, auto layout, constraints |
 | `references/api-components.md` | Components, variables, styles |
-| `references/api-styling.md` | Effects, gradients, prototyping |
+| `references/api-styling.md` | Effects, gradients, prototype types |
+| `references/prototyping.md` | Reactions, overlays, flows, interactive components, plan limits |
 
 Per-task reference combos (a worker reads these only for calls its cheat sheet lacks):
 - Build screens: conventions + building + api-layout
 - Copy/text edit: copy + api-text
 - Component/variant/design-system: building + api-components
-- Color/effects/prototype: conventions + api-styling
+- Color/effects/prototype: conventions + api-styling (+ prototyping for interactions)
 
 ## Rules
 
