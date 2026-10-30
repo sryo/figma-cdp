@@ -560,6 +560,22 @@ class PerchBackend(Harness):
         self.assertIn('no_perch', r.stderr)
         self.assertIn('world:"main"', r.stderr)
 
+    def test_perch_with_either_kick_export_is_found_and_used(self):
+        # buildKick is today's marker for eval_js world:"main"; buildMainKick is the one before it.
+        for marker in ('buildKick', 'buildMainKick'):
+            d = os.path.join(self.tmp.name, marker)
+            os.makedirs(d)
+            with open(os.path.join(d, 'server.js'), 'w') as f:
+                f.write(f'export {{ handleCall, AWAIT_MAX_MS }} from {json.dumps(os.path.join(STUB, "server.js"))};\n'
+                        f'export function {marker}() {{}}\n')
+            with open(os.path.join(d, 'package.json'), 'w') as f:
+                f.write('{"type":"module"}')
+            for script in ('figma_run.py', 'figma_batch_run.py'):
+                r = self.run_helper(script, self.js('a.js', '1'), FIGMA_BACKEND='', PERCH_DIR=d,
+                                    FIGMA_PERCH_SOCK=os.path.join(d, script + '.sock'))
+                self.assertEqual(r.returncode, 0, f'{marker} {script}: {r.stderr}')
+                stop_daemon(os.path.join(d, script + '.sock'))
+
 
 class PerchBackendOneShot(PerchBackend):
     daemon = '0'
@@ -801,7 +817,7 @@ class PerchDaemon(Harness):
         old = os.path.join(self.tmp.name, 'broken')
         os.makedirs(old)
         with open(os.path.join(old, 'server.js'), 'w') as f:
-            f.write('export const buildMainKick = 1; throw new Error("boom");\n')
+            f.write('export const buildKick = 1; throw new Error("boom");\n')
         with open(os.path.join(old, 'package.json'), 'w') as f:
             f.write('{"type":"module"}')
         t = time.monotonic()

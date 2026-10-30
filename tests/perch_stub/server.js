@@ -39,7 +39,8 @@ if (process.env.PERCH_STUB_FIGMA === "full") {
 }
 globalThis.window = globalThis;
 
-export function buildMainKick() {}
+// Current perch marks eval_js world:"main" with buildKick; perch before 5725447 with buildMainKick.
+export function buildKick() {}
 export const AWAIT_MAX_MS = process.env.PERCH_STUB_OLD === "1" ? undefined : 300000;
 
 const text = (t) => ({ content: [{ type: "text", text: t }] });
