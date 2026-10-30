@@ -241,6 +241,18 @@ class Generic(unittest.TestCase):
         self.assertIn('\ncomponents: tab ×4 · list-item ×4 (avatar) · avatar ×4 · card ×3 (list-item) · IconButton ×2 · '
                       'tabs ×2 (tab) · Toolbar ×1 (IconButton)\n', r.stdout)
 
+    def test_summary_prints_the_values_a_plan_needs(self):
+        d = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor')
+        with tempfile.TemporaryDirectory() as tmp:
+            r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py')]
+                               + [os.path.join(d, f) for f in ('tokens.css', 'components.css', 'dashboard.html')]
+                               + ['-o', os.path.join(tmp, 'm.json')], capture_output=True, text=True)
+        lines = r.stdout.splitlines()
+        self.assertIn('variants: avatar(lg) · badge(success, warning, danger) · button(primary, secondary)', lines)
+        self.assertIn('states: input(focus, error, disabled) · tab(selected) · listitem(selected)', lines)
+        self.assertIn('scales: spacing 2 4 8 12 16 24 32 · radii 6 10 999 · font sizes 12 14 16 20 28 · '
+                      'weights 400 500 700 · families Inter, system-ui, sans-serif', lines)
+
     def test_missing_path_is_an_error(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '/nope/nothing'],
                            capture_output=True, text=True)

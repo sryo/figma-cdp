@@ -664,6 +664,23 @@ def main():
         if m['components']:
             print('components: ' + ' · '.join(f"{c['component']} ×{c['uses']}" + (f" ({', '.join(c['nests'])})" if c['nests'] else '')
                                               for c in m['components']))
+        groups = {}
+        for v in m['variants']:
+            groups.setdefault(v['component'], []).extend(v['values'])
+        if groups:
+            print('variants: ' + ' · '.join(f"{c}({', '.join(vs)})" for c, vs in groups.items()))
+        groups = {}
+        for st in m['states']:
+            groups.setdefault(st['component'], []).append(st['state'])
+        if groups:
+            print('states: ' + ' · '.join(f"{c}({', '.join(sts)})" for c, sts in groups.items()))
+        scales = [(label, m[key]) for label, key in (('spacing', 'spacing'), ('radii', 'radii'), ('font sizes', 'fontSizes'),
+                                                     ('weights', 'fontWeights')) if m[key]]
+        line = ' · '.join(f"{label} {' '.join(str(v['value']) for v in vs)}" for label, vs in scales)
+        if m['fontFamilies']:
+            line += (' · ' if line else '') + 'families ' + ', '.join(dict.fromkeys(f['value'] for f in m['fontFamilies']))
+        if line:
+            print('scales: ' + line)
     else:
         print(json.dumps(m, indent=1, ensure_ascii=False))
 
