@@ -336,7 +336,9 @@ HINTS = [
     (r'does not exist|has been removed', 'a node object went stale or was deleted; re-fetch it with await figma.getNodeByIdAsync(id) in this eval (gotchas #15)'),
     (r'documentAccess: dynamic-page|has not been explicitly loaded', 'use await figma.getNodeByIdAsync(id) or await page.loadAsync() instead of the sync API'),
     (r'(inside of |is )an instance|cannot be overridden in an instance', 'instance children are fixed: edit the main component, or set text/property overrides on the instance'),
-    (r"Cannot read propert(y|ies) of null", 'a lookup returned null: the id is on another page, deleted, or mistyped; check it before use'),
+    (r"Cannot (read|set) propert(y|ies) of null", 'a lookup returned null: the id is on another page, deleted, or mistyped; check it before use'),
+    (r'component property definitions of a component set or non-variant', 'a variant: read componentPropertyDefinitions on its set (node.parent)'),
+    (r'must be in the same page as the parent', 'nodes on two pages: create them with parent: on the target page, or await figma.setCurrentPageAsync(page) first'),
 ]
 
 def hint(error):

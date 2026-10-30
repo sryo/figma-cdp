@@ -62,10 +62,13 @@ export function timeoutMs(v) {
   return Math.round(Math.min(TIMEOUT_MS.max, Math.max(TIMEOUT_MS.min, n)));
 }
 
-function timeoutHint(ms) {
+function timeoutHint(ms, src) {
   const waited = takesTimeout ? `The script ran past the ${ms / 1000}s it was given (--timeout or FIGMA_TIMEOUT, in seconds, up to 300)`
     : "This perch awaits at most 30s; update perch to wait longer with --timeout";
-  return `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window`;
+  let lib = "";
+  try { lib = readFileSync(new URL("figma_lib.js", import.meta.url), "utf8"); } catch { /* no lib to strip */ }
+  const own = lib && src.startsWith(lib) ? src.slice(lib.length) : src;
+  return /loadAllPagesAsync/.test(own) ? `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window` : waited;
 }
 const UNDEFINED_HINT ="figma is undefined in this tab: open and close any Figma plugin once to load the Plugin API, then retry";
 
@@ -168,7 +171,7 @@ async function runEval(handleCall, tab, src, ms, page = false) {
   return { ok: true, value: out.v === undefined ? null : out.v, href: out.h };
 }
 
-const perchFatal = (e, ms) => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms)}` : e.message;
+const perchFatal = (e, ms, src = "") => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms, src)}` : e.message;
 
 // The page op: a tab of its own, shown only when Arc needs it and the caller asked, closed whatever the scripts do.
 const ARC = /^arc$/i;
@@ -263,7 +266,7 @@ export async function handle(handleCall, req, cache = null) {
       if (i === 0 && !retried && tab.cached && /^stale_tab: /.test(e.message)) res = { miss: null };
       // A perch-level failure (stale tab, timeout, browser gone) would fail every
       // later script the same way, so it ends the run.
-      else return { ...headOf(tab), results, fatal: perchFatal(e, ms) };
+      else return { ...headOf(tab), results, fatal: perchFatal(e, ms, sources[i]) };
     }
     if ("miss" in res) {
       if (cache && want) cache.delete(want);

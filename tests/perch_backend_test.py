@@ -141,6 +141,15 @@ class PerchBackend(Harness):
         self.assertEqual(r.stderr.splitlines()[-1], 'hint: appendChild into the auto-layout parent first, '
                          'then set layoutSizing* = "FILL" (gotchas #1)')
 
+    def test_errors_seen_in_eval_sessions_get_their_fix(self):
+        for message, fix in (
+                ('in get_componentPropertyDefinitions: Can only get component property definitions of a '
+                 'component set or non-variant component', 'a variant: read componentPropertyDefinitions'),
+                ('Grouped nodes must be in the same page as the parent', 'nodes on two pages:'),
+                ("Cannot set properties of null (setting 'componentPropertyReferences')", 'a lookup returned null')):
+            r = self.run_helper('figma_run.py', '-e', f'throw new Error({json.dumps(message)})')
+            self.assertTrue(r.stderr.splitlines()[-1].startswith('hint: ' + fix), r.stderr)
+
     def test_batch_prints_the_fix_under_the_error(self):
         r = self.run_helper('figma_batch_run.py', '-e', 'throw new Error("Cannot write to node with unloaded font")')
         self.assertEqual(r.returncode, 1)
@@ -309,9 +318,15 @@ class PerchBackend(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertIn('perch: timeout: eval_js (world main) timed out after 1000ms', r.stderr)
         self.assertIn('ran past the 1s it was given (--timeout or FIGMA_TIMEOUT', r.stderr)
+        self.assertNotIn('loadAllPagesAsync', r.stderr, 'only a script that calls it is told it can stall')
+        r = self.run_helper('figma_run.py', '--lib', '--timeout', '1', slow)
+        self.assertNotIn('loadAllPagesAsync', r.stderr, 'the library calling it does not count')
+        r = self.run_helper('figma_run.py', '--timeout', '1', '-e', 'await figma.loadAllPagesAsync();\n'
+                            'await new Promise(r => setTimeout(r, 1500))')
+        self.assertIn('figma.loadAllPagesAsync() on a many-page file can stall', r.stderr)
         r = self.run_helper('figma_run.py', '--timeout', '3', slow)
         self.assertEqual((r.returncode, r.stdout), (0, '"late"\n'), r.stderr)
-        self.assertEqual(self.eval_timeouts(), [1000, 3000])
+        self.assertEqual(self.eval_timeouts(), [1000, 1000, 1000, 3000])
 
     def test_timeout_from_env_and_flag_wins(self):
         self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_TIMEOUT='45')
