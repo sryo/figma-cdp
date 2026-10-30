@@ -30,7 +30,7 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 [COORDINATOR: parts with own assertions, or none]
 
 ## Cheat sheet
-`__fx` (all async; ref = node or id; these are all the options, no need to read figma_lib.js):
+`__fx` (all async; ref = node or id; these are all the options, no need to read figma_lib.js; set any other property, like `maxWidth`, on the node it returns):
 - `frame({parent, name, dir: 'V'|'H'|'NONE', gap, pad: n|[v,h]|[t,r,b,l], align, justify: start|center|end|between|baseline, wrap: true, w, h: n|'fill'|'hug', fill, stroke, strokeWeight, radius, clip, component: true, abs: true, x, y, constraints})`: no fill unless given; with `dir` it hugs
 - `text(chars, {parent, name, family, weight: 'Bold'|700, size, lineHeight, textStyle, color, align: start|center|end, w: 'fill'|n, abs, x, y, constraints})`: loads the font; `w` wraps it
 - `instance(id|key|name, {Axis: 'Value', Label: 'x'}, {parent, name, w, h, abs, x, y, constraints})`
