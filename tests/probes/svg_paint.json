@@ -1,0 +1,16 @@
+{
+  "limits": {
+    "createNodeFromSvg(baked style with opacity)": "works",
+    "createNodeFromSvg(color(srgb))": "ignored",
+    "createNodeFromSvg(currentColor from color attribute)": "ignored",
+    "createNodeFromSvg(fill attribute hex)": "works",
+    "createNodeFromSvg(fill attribute rgb())": "works",
+    "createNodeFromSvg(rgba() with alpha)": "works",
+    "createNodeFromSvg(stroke currentColor)": "ignored",
+    "createNodeFromSvg(style fill)": "works",
+    "createNodeFromSvg(stylesheet class)": "works",
+    "createNodeFromSvg(var() defined on the svg)": "works",
+    "createNodeFromSvg(var() defined only on the page)": "ignored",
+    "createNodeFromSvg(var() with a fallback)": "works"
+  }
+}

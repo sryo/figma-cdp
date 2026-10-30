@@ -1,0 +1,10 @@
+{
+ "member": "createNodeFromSvg(var() defined on the svg)",
+ "verdict": "works",
+ "error": null,
+ "probe": "svg_paint",
+ "typingsVersion": "1.142.0",
+ "date": "2026-10-30",
+ "editorType": "figma",
+ "plan": null
+}

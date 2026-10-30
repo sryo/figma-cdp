@@ -790,6 +790,38 @@
     }
   }
 
+  // A paint only the page can resolve (its custom properties, currentColor, a page stylesheet
+  // rule, CSS Color 4 syntax) imports black through createNodeFromSvg, which sees the markup
+  // alone. Each shape's and gradient stop's computed paint goes into the copy as rgb() plus an
+  // opacity; url() paints (gradients, patterns) stay as they are, their stops resolved the same way.
+  var SHAPES = { path: 1, circle: 1, rect: 1, ellipse: 1, line: 1, polyline: 1, polygon: 1, text: 1, tspan: 1, textPath: 1, use: 1 };
+  function bakePaints(src, clone) {
+    var a = [src].concat([].slice.call(src.querySelectorAll('*')));
+    var b = [clone].concat([].slice.call(clone.querySelectorAll('*')));
+    for (var i = 0; i < a.length && i < b.length; i++) {
+      var tag = a[i].localName;
+      var props = tag === 'stop' ? [['stop-color', 'stop-opacity']] : SHAPES[tag] ? [['fill', 'fill-opacity'], ['stroke', 'stroke-opacity']] : null;
+      if (!props) continue;
+      var cs = getComputedStyle(a[i]);
+      for (var j = 0; j < props.length; j++) {
+        var v = cs.getPropertyValue(props[j][0]).trim();
+        if (!v || /^url\(/.test(v)) continue;
+        var c = v === 'none' ? null : parseColor(v);
+        b[i].removeAttribute(props[j][0]);
+        b[i].removeAttribute(props[j][1]);
+        if (!c) {
+          if (tag === 'stop') b[i].style.setProperty('stop-opacity', '0');
+          else b[i].style.setProperty(props[j][0], 'none');
+          continue;
+        }
+        b[i].style.setProperty(props[j][0], 'rgb(' + Math.round(c.r * 255) + ', ' + Math.round(c.g * 255) + ', ' + Math.round(c.b * 255) + ')');
+        var o = parseFloat(cs.getPropertyValue(props[j][1]));
+        o = (isFinite(o) ? o : 1) * c.a;
+        if (o < 1) b[i].style.setProperty(props[j][1], String(Math.round(o * 1000) / 1000));
+      }
+    }
+  }
+
   function svgAsset(el, w, h) {
     var key = newAsset('svg');
     try {
@@ -797,6 +829,7 @@
       clone.setAttribute('width', String(Math.round(w)));
       clone.setAttribute('height', String(Math.round(h)));
       if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', SVGNS);
+      bakePaints(el, clone);
       inlineUseRefs(el, clone);
       store(key, { svg: new XMLSerializer().serializeToString(clone), w: Math.round(w), h: Math.round(h) });
     } catch (e) { fail(key, 'decode'); }

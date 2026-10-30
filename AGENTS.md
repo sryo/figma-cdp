@@ -29,6 +29,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── figma_lib_test.js     # `node --test tests/figma_lib_test.js`: every figma_lib.js helper against figma_stub.js, plus its version pin
     ├── importer_stub.js      # `node tests/importer_stub.js <spec.json> [--componentize]` — replays `figma_capture.py import --dry-run` against figma_stub.js, no Figma tab needed
     ├── importer_test.py      # `python3 tests/importer_test.py`: import sizing, constraints and componentize over capture_spec.json (hand-built spec of capture_fixture.html), offline
+    ├── walker_live_test.py   # `FIGMA_LIVE=1 python3 tests/walker_live_test.py`: figma_walker.js in a real background tab on svg_paint_fixture.html (SVG paints only the page resolves)
     ├── capture_spec.json     # hand-built capture spec of capture_fixture.html for importer_test.py
     ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: the helpers, --lib, figma_fidelity.py and figma_capture.py on the perch backend (daemon and one-shot) against perch_stub/, and cdp vs perch output through agent_browser_stub/, offline
     ├── agent_browser_stub/   # stand-in agent-browser CLI (eval -b, batch --json) that runs scripts against perch_stub's `figma`, for the cdp branch offline
