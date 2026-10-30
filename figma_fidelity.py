@@ -17,6 +17,20 @@ A boolean variant or a state counts as present on a component whose instances ov
 (a nested instance's variant or a hidden layer that differs from the main component).
 A kind the manifest has no entries for is not checked. The first line counts the gaps; exit 0
 when the check ran, gaps or not, 2 when it could not run.
+
+  python3 figma_fidelity.py --elements <capture-spec.json> <rootId> [--waive tests/known_losses.json] [--json]
+
+Per element instead, against a figma_capture.py walk of the source page: each captured element
+is paired with the Figma node the importer named [cap:i] (several with the same index: the
+closest), or, when most nodes carry no such name, greedily by text (bigram Dice >= 0.5) and then
+by geometry (|dx|+|dy|+|dw|+|dh|). Each pair gives one row per property that differs:
+position (> 2 px against the parent, so a moved frame is one row, not one per descendant), size
+(> 2 px), color (fill or text color, CIEDE2000 > 2.3), font-size, font-weight, font-family,
+line-height, letter-spacing (> 0.5 px), text (Dice < 1), radius, opacity, visibility. An
+element with no node is missing-node (once, at the top of a missing subtree, weighted by its
+share of the root's area); a node with no element is extra-node. --waive drops rows under an
+element the walker flagged for a loss known_losses.json lists (grid, transform) and counts them.
+Rows are {kind, source:{i, css_prop, value}, figma:{id, name, prop, value}}.
 """
 import argparse, json, os, re, subprocess, sys, tempfile
 
@@ -392,6 +406,286 @@ def collect(root, a):
     return out
 
 
+# ---- --elements: per element, against a capture spec ----------------------------------------
+
+ELEMENTS = r"""
+(async function (ROOT_ID) {
+  var root = await figma.getNodeByIdAsync(ROOT_ID);
+  if (!root) throw new Error('figma_fidelity: no node ' + ROOT_ID);
+  function hex(c) { function h(v) { var s = Math.round(v * 255).toString(16); return s.length < 2 ? '0' + s : s; } return '#' + h(c.r) + h(c.g) + h(c.b); }
+  function paint(list) {
+    if (!list || list === figma.mixed) return null;
+    for (var i = 0; i < list.length; i++) if (list[i].type === 'SOLID' && list[i].visible !== false) return { hex: hex(list[i].color), a: list[i].opacity === undefined ? 1 : list[i].opacity };
+    return null;
+  }
+  function num(v) { return typeof v === 'number' ? v : null; }
+  var out = [], base = root.absoluteBoundingBox;
+  function walk(n, parent, ox, oy) {
+    var bb = n.absoluteBoundingBox, x, y;
+    if (bb && base) { x = bb.x - base.x; y = bb.y - base.y; }
+    else { x = n === root ? 0 : ox + n.x; y = n === root ? 0 : oy + n.y; }
+    var e = { id: n.id, name: n.name, type: n.type, parent: parent, x: x, y: y, w: n.width, h: n.height,
+      visible: n.visible !== false, opacity: num(n.opacity), fill: paint(n.fills), radius: num(n.cornerRadius) };
+    if (n.type === 'TEXT') {
+      e.text = n.characters;
+      e.family = n.fontName === figma.mixed ? null : n.fontName.family;
+      e.style = n.fontName === figma.mixed ? null : n.fontName.style;
+      e.size = num(n.fontSize);
+      e.lineHeight = n.lineHeight && n.lineHeight.unit === 'PIXELS' ? n.lineHeight.value : null;
+      e.letterSpacing = n.letterSpacing && n.letterSpacing.unit === 'PIXELS' ? n.letterSpacing.value : null;
+    }
+    var me = out.length;
+    out.push(e);
+    // A group's children sit in the group's parent's coordinates.
+    var cx = n.type === 'GROUP' ? ox : x, cy = n.type === 'GROUP' ? oy : y;
+    if (n.children) for (var i = 0; i < n.children.length; i++) walk(n.children[i], me, cx, cy);
+  }
+  walk(root, -1, 0, 0);
+  return { root: { id: root.id, name: root.name }, nodes: out };
+})
+"""
+
+STYLE_WEIGHT = {'thin': 100, 'hairline': 100, 'extralight': 200, 'ultralight': 200, 'light': 300, 'regular': 400,
+                'normal': 400, 'book': 400, 'medium': 500, 'semibold': 600, 'demibold': 600, 'bold': 700,
+                'extrabold': 800, 'ultrabold': 800, 'black': 900, 'heavy': 900}
+GENERIC_FAMILIES = {'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-sans-serif', 'ui-serif',
+                    'ui-monospace', 'ui-rounded', '-apple-system', 'blinkmacsystemfont'}
+CAP = re.compile(r'^\[cap:(\d+)\]')
+WAIVE_FLAGS = {'grid': 'grid-display', 'transform': 'transform-3d'}
+
+
+def lab(h):
+    """sRGB hex → CIELAB (D65)."""
+    def lin(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(v / 255) for v in rgb(h))
+    x, y, z = ((r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047, r * 0.2126 + g * 0.7152 + b * 0.0722,
+               (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883)
+    f = lambda t: t ** (1 / 3) if t > 216 / 24389 else (24389 / 27 * t + 16) / 116
+    fx, fy, fz = f(x), f(y), f(z)
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+def delta_e(h1, h2):
+    """CIEDE2000 between two hex colors."""
+    import math
+    L1, a1, b1 = lab(h1)
+    L2, a2, b2 = lab(h2)
+    C1, C2 = math.hypot(a1, b1), math.hypot(a2, b2)
+    G = 0.5 * (1 - math.sqrt(((C1 + C2) / 2) ** 7 / (((C1 + C2) / 2) ** 7 + 25 ** 7)))
+    a1p, a2p = a1 * (1 + G), a2 * (1 + G)
+    C1p, C2p = math.hypot(a1p, b1), math.hypot(a2p, b2)
+    h1p = math.degrees(math.atan2(b1, a1p)) % 360
+    h2p = math.degrees(math.atan2(b2, a2p)) % 360
+    dL, dC = L2 - L1, C2p - C1p
+    dh = 0 if C1p * C2p == 0 else (h2p - h1p if abs(h2p - h1p) <= 180 else h2p - h1p - 360 if h2p > h1p else h2p - h1p + 360)
+    dH = 2 * math.sqrt(C1p * C2p) * math.sin(math.radians(dh / 2))
+    Lm, Cm = (L1 + L2) / 2, (C1p + C2p) / 2
+    hm = h1p + h2p if C1p * C2p == 0 else ((h1p + h2p) / 2 if abs(h1p - h2p) <= 180 else (h1p + h2p + 360) / 2 if h1p + h2p < 360 else (h1p + h2p - 360) / 2)
+    T = 1 - 0.17 * math.cos(math.radians(hm - 30)) + 0.24 * math.cos(math.radians(2 * hm)) + 0.32 * math.cos(math.radians(3 * hm + 6)) \
+        - 0.2 * math.cos(math.radians(4 * hm - 63))
+    SL = 1 + 0.015 * (Lm - 50) ** 2 / math.sqrt(20 + (Lm - 50) ** 2)
+    SC, SH = 1 + 0.045 * Cm, 1 + 0.015 * Cm * T
+    RT = -2 * math.sqrt(Cm ** 7 / (Cm ** 7 + 25 ** 7)) * math.sin(math.radians(60 * math.exp(-((hm - 275) / 25) ** 2)))
+    return math.sqrt((dL / SL) ** 2 + (dC / SC) ** 2 + (dH / SH) ** 2 + RT * (dC / SC) * (dH / SH))
+
+
+def dice(a, b):
+    a, b = ' '.join((a or '').split()), ' '.join((b or '').split())
+    if a == b:
+        return 1.0
+    grams = lambda s: [s[i:i + 2] for i in range(len(s) - 1)]
+    ga, gb = grams(a.lower()), grams(b.lower())
+    if not ga or not gb:
+        return 0.0
+    rest, hit = list(gb), 0
+    for g in ga:
+        if g in rest:
+            rest.remove(g)
+            hit += 1
+    return 2 * hit / (len(ga) + len(gb))
+
+
+def chex(c):
+    return hex_of(c) if c and c.get('a', 1) > 0 else None
+
+
+def hex_of(c):
+    return '#' + ''.join(f'{round(c[k] * 255):02x}' for k in 'rgb')
+
+
+def pair(spec, fig):
+    """{source i: {'frame': figma node or None, 'text': figma TEXT node or None}} and the pairing used."""
+    nodes, src = fig['nodes'], spec['nodes']
+    origin = src[0]['rect']
+    box = lambda n: (n['rect']['x'] - origin['x'], n['rect']['y'] - origin['y'], n['rect']['w'], n['rect']['h'])
+    gamma = lambda s, f: sum(abs(a - b) for a, b in zip(box(s), (f['x'], f['y'], f['w'], f['h'])))
+    capped = [f for f in nodes if CAP.match(f['name'])]
+    out = {s['i']: {'frame': None, 'text': None} for s in src}
+    if len(capped) * 2 >= len(nodes):
+        for f in capped:
+            i = int(CAP.match(f['name']).group(1))
+            if i not in out:
+                continue
+            slot = 'text' if f['type'] == 'TEXT' else 'frame'
+            if out[i][slot] is None or gamma(src[i], f) < gamma(src[i], out[i][slot]):
+                out[i][slot] = f
+        return out, 'cap'
+    used = set()
+    for s in src:
+        if not s.get('text'):
+            continue
+        best = max((f for f in nodes if f['type'] == 'TEXT' and f['id'] not in used),
+                   key=lambda f: (dice(s['text'], f.get('text')), -gamma(s, f)), default=None)
+        if best and dice(s['text'], best.get('text')) >= 0.5:
+            out[s['i']]['text'] = best
+            used.add(best['id'])
+    for s in src:
+        x, y, w, h = box(s)
+        cands = [f for f in nodes if f['type'] != 'TEXT' and f['id'] not in used]
+        best = min(cands, key=lambda f: gamma(s, f), default=None)
+        if best and gamma(s, best) <= max(8, 0.1 * (w + h)):
+            out[s['i']]['frame'] = best
+            used.add(best['id'])
+    return out, 'geometry'
+
+
+def element_rows(spec, fig, waive=None):
+    src, nodes = spec['nodes'], fig['nodes']
+    pairs, how = pair(spec, fig)
+    origin = src[0]['rect']
+    byid = {f['id']: f for f in nodes}
+    paired_ids = {p[k]['id'] for p in pairs.values() for k in ('frame', 'text') if p[k]}
+    flagged = {f['i']: f['reason'] for f in spec.get('flagged', [])}
+
+    def flag_of(i):
+        while i >= 0:
+            if i in flagged:
+                return flagged[i]
+            i = src[i]['parent']
+        return None
+
+    rows = []
+
+    def row(kind, s, css, sv, f, prop, fv, **extra):
+        rows.append({'kind': kind, 'source': {'i': s['i'], 'css_prop': css, 'value': sv},
+                     'figma': {'id': f['id'], 'name': f['name'], 'prop': prop, 'value': fv} if f else None, **extra})
+
+    def anchor(i):
+        """The nearest paired ancestor's source rect and Figma node, for positions against the parent."""
+        p = src[i]['parent']
+        while p >= 0 and not (pairs[p]['frame'] or pairs[p]['text']):
+            p = src[p]['parent']
+        return (src[p]['rect'], pairs[p]['frame'] or pairs[p]['text']) if p >= 0 else (origin, None)
+
+    root_area = max(origin['w'] * origin['h'], 1)
+    for s in src:
+        p, st = pairs[s['i']], s.get('styles') or {}
+        f, t = p['frame'] or p['text'], p['text']
+        if not f:
+            up = s['parent']
+            if up < 0 or pairs[up]['frame'] or pairs[up]['text']:
+                row('missing-node', s, None, [s['rect'][k] for k in 'xywh'], None, None, None,
+                    weight=round(s['rect']['w'] * s['rect']['h'] / root_area, 4))
+            continue
+        r = s['rect']
+        if s['parent'] >= 0:
+            prect, pf = anchor(s['i'])
+            sx, sy = r['x'] - prect['x'], r['y'] - prect['y']
+            fx, fy = (f['x'] - pf['x'], f['y'] - pf['y']) if pf else (f['x'], f['y'])
+            if abs(sx - fx) > 2 or abs(sy - fy) > 2:
+                row('position', s, 'left/top', [round(sx, 2), round(sy, 2)], f, 'x/y', [round(fx, 2), round(fy, 2)])
+        if abs(r['w'] - f['w']) > 2 or abs(r['h'] - f['h']) > 2:
+            row('size', s, 'width/height', [r['w'], r['h']], f, 'width/height', [round(f['w'], 2), round(f['h'], 2)])
+        if not f['visible']:
+            row('visibility', s, 'visibility', 'visible', f, 'visible', False)
+        frame = p['frame']
+        bg = chex(st.get('bg'))
+        got = frame and frame['fill'] and frame['fill']['a'] > 0 and frame['fill']['hex']
+        if frame and (bg or got) and not (bg and got and delta_e(bg, got) <= 2.3):
+            row('color', s, 'background-color', bg, frame, 'fills', got or None)
+        if frame and 'radius' in st and frame['radius'] is not None and abs(st['radius'] - frame['radius']) > 0.5:
+            row('radius', s, 'border-radius', st['radius'], frame, 'cornerRadius', frame['radius'])
+        if frame and abs(st.get('opacity', 1) - (frame['opacity'] if frame['opacity'] is not None else 1)) > 0.02:
+            row('opacity', s, 'opacity', st.get('opacity', 1), frame, 'opacity', frame['opacity'])
+        if s.get('text') and t:
+            if dice(s['text'], t.get('text')) < 1:
+                row('text', s, 'content', s['text'], t, 'characters', t.get('text'))
+            c, tc = chex(st.get('color')), t['fill'] and t['fill']['hex']
+            if c and (not tc or delta_e(c, tc) > 2.3):
+                row('color', s, 'color', c, t, 'fills', tc)
+            if t.get('size') is not None and abs(st.get('fontSize', 16) - t['size']) > 0.5:
+                row('font-size', s, 'font-size', st.get('fontSize', 16), t, 'fontSize', t['size'])
+            w = STYLE_WEIGHT.get(re.sub(r'[\s_-]|italic|oblique', '', (t.get('style') or '').lower()) or 'regular')
+            if w and w != st.get('fontWeight', 400):
+                row('font-weight', s, 'font-weight', st.get('fontWeight', 400), t, 'fontName.style', t.get('style'))
+            fam = (st.get('fontFamily') or '').strip()
+            if fam and fam.lower() not in GENERIC_FAMILIES and t.get('family') and fam.lower() != t['family'].lower():
+                row('font-family', s, 'font-family', fam, t, 'fontName.family', t['family'])
+            if st.get('lineHeight') and t.get('lineHeight') is not None and abs(st['lineHeight'] - t['lineHeight']) > 0.5:
+                row('line-height', s, 'line-height', st['lineHeight'], t, 'lineHeight', t['lineHeight'])
+            if abs(st.get('letterSpacing', 0) - (t.get('letterSpacing') or 0)) > 0.5:
+                row('letter-spacing', s, 'letter-spacing', st.get('letterSpacing', 0), t, 'letterSpacing', t.get('letterSpacing'))
+    for f in nodes:
+        if f['id'] in paired_ids or not f['visible'] or f['name'] == 'spacer' or f['parent'] < 0:
+            continue
+        up = nodes[f['parent']]
+        if up['id'] in paired_ids or up['parent'] < 0:
+            rows.append({'kind': 'extra-node', 'source': None, 'figma': {'id': f['id'], 'name': f['name'], 'prop': None, 'value': None},
+                         'weight': round(f['w'] * f['h'] / root_area, 4)})
+    waived = {}
+    if waive:
+        listed = {l['id'] for l in waive}
+        kept = []
+        for r in rows:
+            loss = WAIVE_FLAGS.get(flag_of(r['source']['i'])) if r['source'] else None
+            if loss in listed:
+                waived[loss] = waived.get(loss, 0) + 1
+            else:
+                kept.append(r)
+        rows = kept
+    paired = sum(1 for p in pairs.values() if p['frame'] or p['text'])
+    return {'root': fig['root'], 'pairing': how, 'paired': paired, 'elements': len(src), 'rows': rows, 'waived': waived}
+
+
+def render_elements(rep):
+    by = {}
+    for r in rep['rows']:
+        by[r['kind']] = by.get(r['kind'], 0) + 1
+    n = len(rep['rows'])
+    head = (f"elements {rep['root']['id']} {json.dumps(rep['root']['name'], ensure_ascii=False)}: {n} gap{'' if n == 1 else 's'}"
+            + (' (' + ', '.join(f'{k} {v}' for k, v in sorted(by.items())) + ')' if by else '')
+            + f", {rep['paired']} of {rep['elements']} paired by {rep['pairing']}"
+            + (', waived ' + ', '.join(f'{k} {v}' for k, v in rep['waived'].items()) if rep['waived'] else ''))
+    lines = [head]
+    for r in rep['rows']:
+        s, f = r['source'], r['figma']
+        where = f"[cap:{s['i']}]" if s else f"{f['id']} {json.dumps(f['name'], ensure_ascii=False)}"
+        val = '' if r['kind'] in ('missing-node', 'extra-node') else f": {s['css_prop']} {json.dumps(s['value'], ensure_ascii=False)} → {f['prop']} {json.dumps(f['value'], ensure_ascii=False)}"
+        lines.append(f"{r['kind']} {where}{' ' + f['id'] if s and f else ''}{val}")
+    return '\n'.join(lines)
+
+
+def run_collect(script, a):
+    run = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_run.py')
+    if not os.path.exists(run):
+        fail(f'figma_run.py not found next to {os.path.basename(__file__)}; copy it alongside')
+    fd, path = tempfile.mkstemp(prefix='figma_fidelity_', suffix='.js')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(script)
+        cmd = [sys.executable, run, *(['--file', a.file] if a.file else []), *(['--timeout', a.timeout] if a.timeout else []), path]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    finally:
+        os.unlink(path)
+    if r.returncode != 0:
+        fail((r.stderr or r.stdout).strip()[:600])
+    try:
+        return json.loads(r.stdout)
+    except ValueError:
+        fail(f'unreadable eval output: {r.stdout.strip()[:300]}')
+
+
 def main():
     ap = argparse.ArgumentParser(prog='figma_fidelity.py', description='Diff a Figma subtree against a figma_source.py manifest')
     ap.add_argument('manifest')
@@ -399,7 +693,27 @@ def main():
     ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
     ap.add_argument('--timeout', help='seconds the eval may await (passed to figma_run.py)')
     ap.add_argument('--json', action='store_true', help='print the full report as JSON')
+    ap.add_argument('--elements', action='store_true', help='per element: the first argument is a figma_capture.py walk spec')
+    ap.add_argument('--waive', help='with --elements: known_losses.json; rows under an element flagged for a listed loss are counted, not listed')
     a = ap.parse_args()
+    if a.elements:
+        try:
+            with open(a.manifest) as f:
+                spec = json.load(f)
+            waive = None
+            if a.waive:
+                with open(a.waive) as f:
+                    waive = json.load(f)['losses']
+        except (OSError, ValueError, KeyError) as e:
+            fail(f'cannot read {a.manifest if not a.waive else a.manifest + " or " + a.waive}: {e}')
+        if not spec.get('nodes'):
+            fail(f'{a.manifest} has no nodes; pass a figma_capture.py walk spec')
+        fig = run_collect(ELEMENTS + f'({json.dumps(a.root)})', a)
+        if not isinstance(fig, dict) or 'nodes' not in fig:
+            fail(f'unexpected eval output: {str(fig)[:300]}')
+        rep = element_rows(spec, fig, waive)
+        print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else render_elements(rep))
+        sys.exit(0)
     try:
         with open(a.manifest) as f:
             m = json.load(f)
