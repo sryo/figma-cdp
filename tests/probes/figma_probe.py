@@ -120,8 +120,10 @@ def program(body='', sweep_only=False):
 def figma_run(args, file, timeout, script=None, lib=False):
     cmd = [sys.executable, os.path.join(ROOT, 'figma_run.py'), '--file', file, '--timeout', str(timeout)]
     cmd += (['--lib'] if lib else []) + (args or ['-'])
-    # Probes are harness runs, kept out of the journal as run.py's are.
-    p = subprocess.run(cmd, input=script, capture_output=True, text=True, env={**os.environ, 'FIGMA_CDP_JOURNAL': '0'})
+    # Probes are harness runs, kept out of the journal as run.py's are, and on perch as eval sessions
+    # are: CDP can reach another browser's stale copy of the file.
+    env = {**os.environ, 'FIGMA_CDP_JOURNAL': '0', 'FIGMA_BACKEND': os.environ.get('FIGMA_BACKEND') or 'perch'}
+    p = subprocess.run(cmd, input=script, capture_output=True, text=True, env=env)
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
 
