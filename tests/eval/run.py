@@ -17,12 +17,14 @@ The session runs unattended: dontAsk mode with Bash/Read/Write/Edit/Glob/Grep/Ag
 allowed, so point it only at a scratch Figma file. --skill-dir defaults to this repo; use a
 git worktree to measure a candidate change. The seeds and scorers always come from this repo.
 """
-import argparse, fcntl, json, os, re, statistics, subprocess, sys, tempfile, time
+import argparse, json, os, re, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))
 import session, source  # noqa: E402
+from figma_lock import file_lock, lock_path  # noqa: E402,F401
 
 COST = ['wall_s', 'tokens_total', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
         'cost_usd', 'turns', 'tool_calls', 'failed_tool_calls']
@@ -73,7 +75,7 @@ def figma(rel, ctx, a, tmp):
     path = os.path.join(tmp, os.path.basename(rel))
     with open(path, 'w') as f:
         f.write(compose(rel, ctx))
-    env = dict(os.environ)
+    env = dict(os.environ, FIGMA_CDP_JOURNAL='0')
     if a.tab:
         env['FIGMA_PERCH_TAB'] = a.tab
     r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_run.py'), '--file', a.file, '--timeout', '120', path],
@@ -87,20 +89,6 @@ def figma(rel, ctx, a, tmp):
     if isinstance(out, dict) and out.get('error'):
         raise FigmaError(f"{rel}: {out['error']}")
     return out
-
-
-def lock_path(key):
-    # A fixed directory, not TMPDIR: callers in different sessions get different TMPDIRs, and
-    # every one of them must queue on the same lock, since setup resets the whole file.
-    return os.path.join('/tmp', f'figma-eval-{os.getuid()}', f'{key}.lock')
-
-
-def file_lock(key):
-    path = lock_path(key)
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    f = open(path, 'a')
-    fcntl.flock(f, fcntl.LOCK_EX)
-    return f
 
 
 def tab_problem(tabs, tab):
@@ -152,6 +140,8 @@ def run_session(task, ctx, a, tmp):
     cmd = session.command(a.claude, plugin, prompt, model=a.model, add_dirs=dirs,
                           budget=a.max_budget)
     env = session_env(a)
+    # The session's eval journal (figma_run.py) stays with the run, out of the user's ~/.figma-cdp.
+    env['FIGMA_CDP_HOME'] = os.path.join(a.transcripts, f"{ctx['task']}-{ctx['rep']}") if a.transcripts else tmp
     lines = []
     t0 = time.monotonic()
     p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

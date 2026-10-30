@@ -38,7 +38,7 @@ class Fidelity(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items()
                     if k not in ('FIGMA_FILE', 'FIGMA_PERCH_TAB', 'FIGMA_CDP_PORT', 'PERCH_STUB_ERROR')}
         self.env.update(FIGMA_BACKEND='perch', PERCH_DIR=os.path.join(ROOT, 'tests', 'perch_stub'), PERCH_STUB_FIGMA='full',
-                        FIGMA_PERCH_SOCK=self.sock, FIGMA_PERCH_DAEMON='1')
+                        FIGMA_PERCH_SOCK=self.sock, FIGMA_PERCH_DAEMON='1', FIGMA_CDP_JOURNAL='0')
         self.manifest = os.path.join(self.tmp.name, 'manifest.json')
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '-o', self.manifest,
                             *(os.path.join(APP, f) for f in ('login.html', 'components.css', 'tokens.css'))],

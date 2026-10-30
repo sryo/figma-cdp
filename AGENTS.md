@@ -35,6 +35,11 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
     ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
     ├── prototyping_probe.js  # live: `figma_run.py --lib --file <scratch> tests/prototyping_probe.js` checks __fx.react/overlayFrame/flow and the prototype audit counts on a throwaway __probe page, plus the plan limits
+    ├── figma_lock.py         # the one flock every live dev entry point (run.py, probes, case repros) takes on the scratch file
+    ├── cases/case.py         # failure cases: `new` (from the run journal), `triage`, `set`, `claim` (worktree + lease), `close` (ledger row), `list`, `stats` — Improving the skill
+    ├── cases_test.py         # `python3 tests/cases_test.py`: case.py and figma_lock.py offline
+    ├── ledger/               # one JSON per closed case (class, signature, fix commit, repro); read before fixing a similar signature
+    ├── known_losses.json     # capture losses capture.md already documents; case.py refuses them as new cases
     ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
     ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
     ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)
@@ -124,6 +129,28 @@ Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means 
 - **Unattended.** `--permission-mode dontAsk` with Bash/Read/Write/Edit/Glob/Grep/Agent/Skill allowed; anything else is denied and counts as a failed tool call. Auth is the user's CLI login (or `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`); env vars a host Claude Code session sets for its children are dropped.
 - **Metrics.** Cost: `wall_s`, `tokens_total` and its parts, `cost_usd`, `turns`, `tool_calls`, `failed_tool_calls`, summed over the main session and its subagents (`modelUsage` and every assistant message in the stream: a turn is one model response, a worker's included). A metric a task lists as `saturated` (it scores the same on good and bad output) shows as `info` in `compare.py` and never counts. Quality: each scorer's task metrics (instances of seeded components, duplicates, variant axes, diffs fixed, ids preserved, no mutation...) plus `quality()` in `lib.js` on every build: `autoLayoutShare`, `absoluteStacks`, `sizingShare`, `constrainedAbsShare`, `instanceRatio`, `duplicateComponents`, `detachedLike`, `defaultNames`, and `boundPaintShare` / `hardcodedPaints` when the file has color variables (every seed adds the fixture's tokens as variables). `pass_rate` is the share of reps whose scorer passed.
 - **Adding a task.** `tasks/<id>.json` with a prompt a user would type, a seed and a scorer, plus `offline/<id>_good.js` and `_bad.js` end states the scorer must tell apart in `offline_test.py`. A task with `"fixture": "<dir>"` derives its expectations from that fixture's markup and `tokens.css` (`tests/eval/source.py`); the older tasks read `fixtures/expect.json`, kept in step with `fixtures/app`.
+
+## Improving the skill
+
+When the skill fails, or a build doesn't match its source, the question is whether the skill could have done better (an API we didn't know, a wrong doc, a helper bug) or not (a Figma or plan limit, the environment). The loop turns each one into a case and decides that before anything is patched.
+
+1. **Journal.** `figma_run.py` and `figma_batch_run.py` append every eval (script, result or error, hint) to `~/.figma-cdp/journal/<day>.jsonl`: outside the repo, kept 14 days, `FIGMA_CDP_JOURNAL=0` turns it off, `FIGMA_CDP_HOME` moves it. Eval reps keep their session's journal with the run (`--transcripts`), and the harness's own seed and scorer calls aren't journaled.
+2. **File.** `python3 tests/cases/case.py new --last` (or `--rid <id>`, or `--symptom "..."` for a mismatch seen by eye, with `--expected "<src path:line>"`). The case lives in `~/.figma-cdp/inbox/<case>/`, since it quotes the user's files; only a minimized, sanitized repro enters the repo. Same signature as an open case or a ledger row → `dup`; a documented capture loss (`tests/known_losses.json`) is refused.
+3. **Attribute**, in this order, first fit wins (`case.py triage` proposes from the deterministic signals and prints the rest):
+   | Class | Decided by | Fix |
+   |---|---|---|
+   | `env` | a perch/browser error code, a missing font family, or no repro (deterministic replay; 0 of 3 reps for agent-level failures) | connection.md line or a hint, never a gotcha |
+   | `harness` | the scorer disagrees with a manual read of the `--keep` page | scorer + `offline/` states; human review |
+   | `source-extract` | `figma_source.py` output wrong or missing for the cited source | source/fidelity + their tests; generic framing |
+   | `helper-bug` | a raw Plugin API script on a `__probe` page works where `__fx` or the importer fails | stub repro, offline test, fix |
+   | `doc-wrong` | a probe contradicts a reference line or the stub | doc and stub together, citing the probe |
+   | `api-unknown` | a member that does it exists (the typings, `references/api-*.md`), the skill doesn't use it, and a probe says it works | reference line; helper if it recurs; stub + test + probe |
+   | `api-plan-limited` | the member exists and the scratch file's plan refuses it | "the free plan refuses X" plus a fallback; provisional |
+   | `api-limit` | every route fails: the candidate members and the alternates (SVG, vector, image fill, a component swap) | "can't, do X instead"; the stub models it; Ceiling if architectural |
+   | `agent-ignored-doc` | the recipe is documented and works, and the miss repeats in 2 of 3 reps | move it to the point of use: a hint, an audit line, a validating helper |
+   Probes run on a throwaway `__probe` page in the scratch file only, under `tests/figma_lock.py`, and remove it in a `finally` (`tests/prototyping_probe.js` is the pattern). Confirm the class with `case.py set <case> class=<class>`.
+4. **Fix test-first.** `case.py claim <case>` makes `.claude/worktrees/case-<case>` on branch `case/<case>` (a 4 h lease; `--steal` after it). Commit the failing test first (offline if it can be, else a probe, else an eval task with good and bad offline states), then the fix. Generalize: no case-specific names, ids or copy in docs. Gates, cheapest first: the offline suites, `budget_test.py`, the probe, then `run.py` on the affected tasks and `compare.py`. Main is the installed skill (`~/.claude/skills/figma-cdp` links here), so nothing merges to main before the gates pass.
+5. **Close.** `case.py close <case> --status merged --commit <sha> --reason "..."` writes `tests/ledger/<case>.json`; commit it with the fix. A case is `merged` only when the original symptom is gone, not just the minimized repro. `parked` / `wontfix` rows record why, so the next session doesn't retry the same hypothesis.
 
 ## Rules for changes
 

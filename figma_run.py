@@ -361,6 +361,29 @@ def hint(error):
             return f'hint: {fix}'
     return None
 
+def journal(rid, file, label, source, ok, out):
+    """One eval appended to ~/.figma-cdp/journal/<day>.jsonl for tests/cases/case.py: the script, and its
+    result or error. FIGMA_CDP_HOME moves the folder, FIGMA_CDP_JOURNAL=0 turns it off; days older than
+    14 are deleted. Never committed, and a failed write never fails the eval."""
+    if os.environ.get('FIGMA_CDP_JOURNAL') == '0':
+        return
+    try:
+        d = os.path.join(os.environ.get('FIGMA_CDP_HOME') or os.path.expanduser('~/.figma-cdp'), 'journal')
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        for name in os.listdir(d):
+            if time.time() - os.path.getmtime(os.path.join(d, name)) > 14 * 86400:
+                os.remove(os.path.join(d, name))
+        text = out if isinstance(out, str) else json.dumps(out, default=str)
+        entry = {'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'rid': rid, 'tool': PROG, 'backend': backend(),
+                 'file': file or '', 'label': label, 'sha': hashlib.sha256(source.encode()).hexdigest()[:12],
+                 'script': source[:20000], 'ok': ok, 'result' if ok else 'error': text[:4000]}
+        if not ok:
+            entry['hint'] = hint(text)
+        with open(os.path.join(d, time.strftime('%Y-%m-%d') + '.jsonl'), 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+
 def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
     sys.exit(1)
@@ -427,6 +450,10 @@ sources = [recover(rec)] if rec else [program(src, rid, opts['--ns']) for _, src
 if opts['--lib'] and sources:
     sources[0] = with_lib(sources[0])
 
+def log(ok, out):
+    label, src = scripts[0] if scripts else ('--recover', rec)
+    journal(rid, opts['--file'], label, src, ok, out)
+
 def fail(error):
     print(f"✗ Evaluation error: {error}", file=sys.stderr)
     if hint(error):
@@ -440,10 +467,10 @@ if backend() == 'perch':
         sys.exit(0)
     res = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
                 timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
-    if not res['ok']:
-        fail(timeout_note(res['error'], rid))
-    if ledger_error(res['value']):
-        fail(ledger_error(res['value']))
+    err = timeout_note(res['error'], rid) if not res['ok'] else ledger_error(res['value'])
+    log(err is None, err or res['value'])
+    if err:
+        fail(err)
     print(compact(res['value']))
     sys.exit(0)
 
@@ -464,6 +491,8 @@ except FileNotFoundError:
           file=sys.stderr)
     sys.exit(1)
 
+if r.returncode and not shot:
+    log(False, r.stderr or r.stdout)
 if r.returncode or shot:
     print(r.stdout, end='')
     if r.stderr:
@@ -477,6 +506,7 @@ try:
 except ValueError:
     print(r.stdout, end='')
     sys.exit(r.returncode)
+log(not ledger_error(value), ledger_error(value) or value)
 if ledger_error(value):
     fail(ledger_error(value))
 print(compact(value))

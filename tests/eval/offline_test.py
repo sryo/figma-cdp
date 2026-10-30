@@ -22,7 +22,7 @@ RECON_ANSWER = ('Onboarding / Step 1 is 375x812 with 3 text layers, Onboarding /
 
 def stub_env(sock):
     return {'FIGMA_BACKEND': 'perch', 'PERCH_DIR': os.path.join(ROOT, 'tests', 'perch_stub'), 'PERCH_STUB_FIGMA': 'full',
-            'FIGMA_PERCH_SOCK': sock, 'FIGMA_PERCH_DAEMON': '1'}
+            'FIGMA_PERCH_SOCK': sock, 'FIGMA_PERCH_DAEMON': '1', 'FIGMA_CDP_JOURNAL': '0'}
 
 
 def stop_daemon(sock):

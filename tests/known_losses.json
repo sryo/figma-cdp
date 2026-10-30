@@ -1,0 +1,12 @@
+{
+  "_doc": "Capture losses references/capture.md already documents. case.py new refuses a case whose symptom or error matches one, so the inbox holds only gaps nobody has written down. Remove an entry when a patch fixes it.",
+  "losses": [
+    {"id": "cross-origin-iframe", "pattern": "cross-origin iframe|\\[capture:iframe", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "tainted-image", "pattern": "\\[capture:image (tainted|timeout|too-large|decode|fetch)\\]", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "mixed-content-text", "pattern": "text beside block|bare text (lost|dropped)", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "mask-image-icon", "pattern": "mask-image", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "grid-display", "pattern": "\\[capture:grid\\]|display: ?grid", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "transform-3d", "pattern": "\\[capture:transform\\]|3d transform|non-affine", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "variable-font-axes", "pattern": "variable[- ]font|optical size|font-variation", "doc": "references/capture.md#risks-and-limitations"}
+  ]
+}

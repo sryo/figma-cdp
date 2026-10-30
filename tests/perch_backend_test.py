@@ -73,7 +73,7 @@ class Harness(unittest.TestCase):
 
     def helper_env(self, env):
         e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
-             'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon}
+             'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon, 'FIGMA_CDP_HOME': self.tmp.name}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'AGENT_BROWSER_STUB_LOG', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
                   'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
@@ -596,7 +596,7 @@ class SameOutputOnBothBackends(Harness):
                     out[d.targets[0].id] = ast.dump(d.value)
             return out
         run, batch = defs('figma_run.py'), defs('figma_batch_run.py')
-        for name in ('RUN', 'HINTS', 'hint', 'program', 'recover', 'ledger_error', 'timeout_note', 'perch', 'parse_args'):
+        for name in ('RUN', 'HINTS', 'hint', 'journal', 'program', 'recover', 'ledger_error', 'timeout_note', 'perch', 'parse_args'):
             self.assertEqual(run[name], batch[name], name)
 
     def test_figma_run(self):
@@ -608,6 +608,38 @@ class SameOutputOnBothBackends(Harness):
         self.both('figma_run.py', '-e', 'await 0;\nthrow new Error("late")')
         self.both('figma_run.py', '-e', 'throw new Error("Node not found")')
         self.both('figma_run.py', '-e', 'throw new Error("The node with id 1:2 does not exist")')
+
+    def journal(self):
+        d = os.path.join(self.tmp.name, 'journal')
+        return [json.loads(l) for f in sorted(os.listdir(d)) for l in open(os.path.join(d, f))] if os.path.isdir(d) else []
+
+    def test_journal_keeps_each_eval_on_both_backends(self):
+        for backend in ('cdp', 'perch'):
+            env = dict(FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9', PATH=AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH']) if backend == 'cdp' else {}
+            self.run_helper('figma_run.py', '-e', '1 + 1', **env)
+            self.run_helper('figma_run.py', '-e', 'throw new Error("unloaded font Inter")', **env)
+            self.run_helper('figma_batch_run.py', '-e', '"a"', '-e', 'throw new Error("odd")', **env)
+            got = [(e['tool'], e['label'], e['ok'], e.get('result') or e['error'][:40], e.get('hint') is not None) for e in self.journal()]
+            self.assertEqual([g[:3] for g in got], [('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[1]', False),
+                                                   ('figma_batch_run.py', '-e[1]', True), ('figma_batch_run.py', '-e[2]', False)], backend)
+            self.assertEqual(got[0][3], '2', backend)
+            self.assertIn('unloaded font', got[1][3], backend)
+            self.assertEqual([g[4] for g in got if not g[2]], [True, False], backend)
+            e = self.journal()[0]
+            self.assertEqual((e['script'], e['backend'], len(e['rid'])), ('1 + 1', backend, 12))
+            os.rename(os.path.join(self.tmp.name, 'journal'), os.path.join(self.tmp.name, 'journal-' + backend))
+
+    def test_journal_off_and_old_days_dropped(self):
+        d = os.path.join(self.tmp.name, 'journal')
+        os.makedirs(d)
+        old = os.path.join(d, '2000-01-01.jsonl')
+        open(old, 'w').close()
+        os.utime(old, (0, 0))
+        self.run_helper('figma_run.py', '-e', '1', FIGMA_CDP_JOURNAL='0')
+        self.assertEqual(self.journal(), [])
+        self.run_helper('figma_run.py', '-e', '1')
+        self.assertFalse(os.path.exists(old))
+        self.assertEqual(len(self.journal()), 1)
 
     def test_lib(self):
         self.both('figma_run.py', '--lib', '-e', '[typeof __fx.audit, __fx.v > 0]')

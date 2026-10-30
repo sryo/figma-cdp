@@ -350,6 +350,29 @@ def hint(error):
             return f'hint: {fix}'
     return None
 
+def journal(rid, file, label, source, ok, out):
+    """One eval appended to ~/.figma-cdp/journal/<day>.jsonl for tests/cases/case.py: the script, and its
+    result or error. FIGMA_CDP_HOME moves the folder, FIGMA_CDP_JOURNAL=0 turns it off; days older than
+    14 are deleted. Never committed, and a failed write never fails the eval."""
+    if os.environ.get('FIGMA_CDP_JOURNAL') == '0':
+        return
+    try:
+        d = os.path.join(os.environ.get('FIGMA_CDP_HOME') or os.path.expanduser('~/.figma-cdp'), 'journal')
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        for name in os.listdir(d):
+            if time.time() - os.path.getmtime(os.path.join(d, name)) > 14 * 86400:
+                os.remove(os.path.join(d, name))
+        text = out if isinstance(out, str) else json.dumps(out, default=str)
+        entry = {'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'rid': rid, 'tool': PROG, 'backend': backend(),
+                 'file': file or '', 'label': label, 'sha': hashlib.sha256(source.encode()).hexdigest()[:12],
+                 'script': source[:20000], 'ok': ok, 'result' if ok else 'error': text[:4000]}
+        if not ok:
+            entry['hint'] = hint(text)
+        with open(os.path.join(d, time.strftime('%Y-%m-%d') + '.jsonl'), 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    except Exception:
+        pass
+
 def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
     sys.exit(1)
@@ -426,7 +449,8 @@ if backend() == 'perch':
     # sorted and non-ASCII escaped, a failure its error.
     out['results'] = [{'ok': False, 'error': ledger_error(r['value'])} if r['ok'] and ledger_error(r['value']) else r
                       for r in out['results']]
-    for (label, _), rid, res in zip(scripts, rids, out['results']):
+    for (label, src), rid, res in zip(scripts, rids, out['results']):
+        journal(rid, opts['--file'], label, src, res['ok'], res['value'] if res['ok'] else res['error'])
         print(f'== {label} ==')
         print(json.dumps({'origin': res.get('href') or out['origin'], 'result': res['value']}, sort_keys=True)
               if res['ok'] else f"Evaluation error: {timeout_note(res['error'], rid)}")
@@ -479,12 +503,13 @@ else:
 
 marked = False
 if isinstance(results, list):
-    for (label, _), res in zip(scripts, results):
+    for (label, src), rid, res in zip(scripts, rids, results):
         marker = ledger_error((res.get('result') or {}).get('result')) if res.get('success') else None
         if marker:
             res, marked = {'success': False, 'error': f'Evaluation error: {marker}'}, True
         print(f'== {label} ==')
         body = res.get('result') if res.get('success') else res.get('error')
+        journal(rid, opts['--file'], label, src, bool(res.get('success')), body)
         print('' if body is None else body if isinstance(body, str) else json.dumps(body))
         if not res.get('success') and hint(str(body)):
             print(hint(str(body)))
