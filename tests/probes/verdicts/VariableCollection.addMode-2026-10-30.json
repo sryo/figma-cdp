@@ -1,0 +1,10 @@
+{
+ "member": "VariableCollection.addMode",
+ "verdict": "refused",
+ "error": "in addMode: Limited to 1 modes only",
+ "probe": "prototyping",
+ "typingsVersion": null,
+ "date": "2026-10-30",
+ "editorType": "figma",
+ "plan": "free(assumed)"
+}

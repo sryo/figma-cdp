@@ -155,7 +155,7 @@ function createFigma() {
           if (r.action && r.actions) throw new Error('a reaction takes action or actions, not both');
           for (const a of r.actions || [r.action]) {
             if (!a || !a.type) throw new Error('an action needs a type');
-            if (a.type === 'SET_VARIABLE' || a.type === 'CONDITIONAL') throw new Error(a.type + ' requires a paid plan');
+            if (a.type === 'SET_VARIABLE' || a.type === 'CONDITIONAL') throw new Error('You cannot use ' + (a.type === 'SET_VARIABLE' ? 'Set Variable' : 'Conditional') + ' actions in Reactions with your current plan.');
             if (a.type !== 'NODE' || !a.destinationId) continue;
             const dest = byId[a.destinationId];
             const sourceOk = a.navigation !== 'CHANGE_TO' || type === 'INSTANCE' || inVariant(proxy);
@@ -409,7 +409,7 @@ function createFigma() {
     variables: {
       createVariableCollection(name) {
         const c = { id: 'VariableCollectionId:' + nextId++, name, modes: [{ modeId: 'm1', name: 'Mode 1' }], defaultModeId: 'm1', variableIds: [],
-          addMode() { throw new Error('in addMode: a second mode requires a paid plan'); },
+          addMode() { throw new Error('in addMode: Limited to 1 modes only'); },
           remove() { this.variableIds.forEach((id) => delete variables[id]); delete collections[this.id]; } };
         collections[c.id] = c;
         return c;

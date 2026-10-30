@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live probes of the Plugin API, guarded so they can only touch what they create on the scratch file.
 
-  python3 tests/probes/figma_probe.py --file <scratch-url-or-key> [--timeout <s>] [--record [<dir>]] [<probe> ...]
+  python3 tests/probes/figma_probe.py --file <scratch-url-or-key> [--timeout <s>] [--record [--record-dir <dir>]] [<probe> ...]
 
 A probe is tests/probes/<name>.js, a script body that gets `pg` (a fresh `__probe` page, already
 current) and three reporters: check(what, want, got), refuses(what, fn, regex) and
@@ -22,7 +22,7 @@ The guard:
 
 Prints one JSON line per probe: {probe, passed, failures, limits, drift}. drift lists members whose
 verdict differs from <name>.json. Exits 0 only when every probe passed with no drift. --record
-writes each verdict to <dir>/<member>-<date>.json (default tests/probes/verdicts/).
+writes each verdict to <record-dir>/<member>-<date>.json (default tests/probes/verdicts/).
 """
 import argparse, datetime, glob, json, os, re, subprocess, sys, time
 
@@ -173,7 +173,8 @@ def main():
     ap.add_argument('--file', required=True, help='the scratch file URL or key')
     ap.add_argument('--timeout', type=int, default=120)
     ap.add_argument('--recover-wait', type=int, default=300, help='seconds to wait for a timed-out probe before sweeping')
-    ap.add_argument('--record', nargs='?', const=os.path.join(HERE, 'verdicts'), help='write verdict files here')
+    ap.add_argument('--record', action='store_true', help='write a verdict file per member')
+    ap.add_argument('--record-dir', default=os.path.join(HERE, 'verdicts'))
     ap.add_argument('--plan', default='free(assumed)', help="the file's plan, stamped on refused verdicts")
     ap.add_argument('probes', nargs='*')
     a = ap.parse_args()
@@ -204,7 +205,7 @@ def main():
             print(json.dumps({'probe': name, 'passed': res['passed'], 'failures': res['failures'], 'limits': res['limits'], 'drift': drift}))
             ok = ok and res['passed'] and not drift
             if a.record:
-                record(a.record, name, res, a.plan)
+                record(a.record_dir, name, res, a.plan)
     sys.exit(0 if ok else 1)
 
 

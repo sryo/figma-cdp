@@ -33,7 +33,7 @@ CLASSES = ['env', 'harness', 'source-extract', 'helper-bug', 'doc-wrong', 'api-u
 STATUSES = ['open', 'claimed', 'parked', 'merged', 'wontfix', 'out-of-scope', 'dup']
 ENV = re.compile(r"^(perch: )?(timeout|stale_tab|tab_not_visible|tab_not_scriptable|no_tab|ambiguous_tab|no_perch|perch_daemon|no_browser"
                  r"|window_offscreen|dialog_open)\b|figma is undefined|agent-browser not found|node not found", re.M)
-PLAN = re.compile(r'paid plan|requires? an? (paid|professional|organization|enterprise)|upgrade (your|to)|not available on (your|the) plan', re.I)
+PLAN = re.compile(r'paid plan|with your current plan|limited to \d+ modes? only|requires? an? (paid|professional|organization|enterprise)|upgrade (your|to)|not available on (your|the) plan', re.I)
 
 
 def die(msg, code=1):

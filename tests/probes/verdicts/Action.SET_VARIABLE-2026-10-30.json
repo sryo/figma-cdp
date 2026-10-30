@@ -1,0 +1,10 @@
+{
+ "member": "Action.SET_VARIABLE",
+ "verdict": "refused",
+ "error": "You cannot use Set Variable actions in Reactions with your current plan.",
+ "probe": "prototyping",
+ "typingsVersion": null,
+ "date": "2026-10-30",
+ "editorType": "figma",
+ "plan": "free(assumed)"
+}

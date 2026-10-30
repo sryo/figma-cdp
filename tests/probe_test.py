@@ -100,14 +100,14 @@ class Runner(Harness):
     def test_record_writes_one_verdict_file_per_member(self):
         self.scratch()
         out = os.path.join(self.tmp.name, 'verdicts')
-        p = self.probe('--record', out, 'prototyping')
+        p = self.probe('--record', '--record-dir', out, 'prototyping')
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         rows = {r['member']: r for r in (read(f) for f in glob.glob(os.path.join(out, '*.json')))}
         self.assertEqual(sorted(rows), ['Action.SET_VARIABLE', 'FrameNode.overlayBackgroundInteraction',
                                         'FrameNode.overlayPositionType', 'VariableCollection.addMode'])
         row = rows['Action.SET_VARIABLE']
         self.assertEqual((row['verdict'], row['plan'], row['probe'], row['editorType']), ('refused', 'free(assumed)', 'prototyping', 'figma'))
-        self.assertIn('paid plan', row['error'])
+        self.assertIn('current plan', row['error'])
         self.assertIsNone(rows['FrameNode.overlayPositionType']['plan'])
         self.assertEqual(set(row), {'member', 'verdict', 'error', 'probe', 'typingsVersion', 'date', 'editorType', 'plan'})
 

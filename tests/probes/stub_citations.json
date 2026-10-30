@@ -1,8 +1,8 @@
 {
   "_": "What justifies each refusal or ignored assignment tests/figma_stub.js models (each `throw new Error(` line, and the OVERLAY setter). `probed` rows cite the probe that showed it on the real API: a member in <probe>.json limits or a check name in <probe>.js. Rules modeled before probes existed are listed under known-before-ledger by a substring of their line; a new one cites a probe. probe_test.py keeps this in step with the stub.",
   "probed": [
-    {"match": "' requires a paid plan'", "probe": "prototyping", "member": "Action.SET_VARIABLE"},
-    {"match": "in addMode: a second mode requires a paid plan", "probe": "prototyping", "member": "VariableCollection.addMode"},
+    {"match": "actions in Reactions with your current plan", "probe": "prototyping", "member": "Action.SET_VARIABLE"},
+    {"match": "in addMode: Limited to 1 modes only", "probe": "prototyping", "member": "VariableCollection.addMode"},
     {"match": "if (OVERLAY[k]) return true", "probe": "prototyping", "member": "FrameNode.overlayPositionType"},
     {"match": "was invalid (destination", "probe": "prototyping", "check": "unknown destination"}
   ],

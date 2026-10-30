@@ -65,6 +65,8 @@ class Cases(unittest.TestCase):
     def test_triage_proposes_from_deterministic_signals(self):
         for symptom, want in [('perch: tab_not_visible: eval_js needs the tab', 'env'),
                               ('SET_VARIABLE requires a paid plan', 'api-plan-limited'),
+                              ('You cannot use Set Variable actions in Reactions with your current plan.', 'api-plan-limited'),
+                              ('in addMode: Limited to 1 modes only', 'api-plan-limited'),
                               ('the overlay opens centered, not under the button', None)]:
             cid = self.case('new', '--symptom', symptom)['case']
             self.assertEqual(self.case('triage', cid)['proposed_class'], want, symptom)
