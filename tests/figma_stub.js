@@ -11,7 +11,7 @@
 // set only through setReactionsAsync, an instance without its own reactions reads its main
 // component's and its own replace them (an empty list too), a destination must exist on the
 // source's page (CHANGE_TO only from an instance or inside a variant), removing a node drops the
-// reactions and flow starting points that point at it, SET_VARIABLE / CONDITIONAL are refused (free plan), the
+// reactions and flow starting points that point at it, SET_VARIABLE / CONDITIONAL and a second variable mode are refused (free plan), the
 // overlay settings are read-only and ignore assignments, and a page's flowStartingPoints is set whole.
 // figma.on / page.on take handlers (currentpagechange fires on setCurrentPageAsync), and
 // `figma._nodeChange([{node, origin}])` fires a nodechange on the current page, as an edit would.
@@ -350,6 +350,7 @@ function createFigma() {
   const figma = {
     mixed,
     root,
+    editorType: 'figma',
     get currentPage() { return currentPage; },
     set currentPage(p) { throw new Error('Setting figma.currentPage is not supported; use setCurrentPageAsync'); },
     async setCurrentPageAsync(p) { if (p.type !== 'PAGE' || p.removed) throw new Error('not a page'); currentPage = p; emit('figma', 'currentpagechange', undefined); },
@@ -408,6 +409,7 @@ function createFigma() {
     variables: {
       createVariableCollection(name) {
         const c = { id: 'VariableCollectionId:' + nextId++, name, modes: [{ modeId: 'm1', name: 'Mode 1' }], defaultModeId: 'm1', variableIds: [],
+          addMode() { throw new Error('in addMode: a second mode requires a paid plan'); },
           remove() { this.variableIds.forEach((id) => delete variables[id]); delete collections[this.id]; } };
         collections[c.id] = c;
         return c;

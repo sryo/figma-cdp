@@ -1,0 +1,43 @@
+{
+  "_": "What justifies each refusal or ignored assignment tests/figma_stub.js models (each `throw new Error(` line, and the OVERLAY setter). `probed` rows cite the probe that showed it on the real API: a member in <probe>.json limits or a check name in <probe>.js. Rules modeled before probes existed are listed under known-before-ledger by a substring of their line; a new one cites a probe. probe_test.py keeps this in step with the stub.",
+  "probed": [
+    {"match": "' requires a paid plan'", "probe": "prototyping", "member": "Action.SET_VARIABLE"},
+    {"match": "in addMode: a second mode requires a paid plan", "probe": "prototyping", "member": "VariableCollection.addMode"},
+    {"match": "if (OVERLAY[k]) return true", "probe": "prototyping", "member": "FrameNode.overlayPositionType"},
+    {"match": "was invalid (destination", "probe": "prototyping", "check": "unknown destination"}
+  ],
+  "known-before-ledger": [
+    "'no ' + (type || '') + ' style '",
+    "Cannot remove the current page",
+    "setTextStyleIdAsync before loading the style font",
+    "createInstance is only on components",
+    "detachInstance is only on instances",
+    "Cannot add properties to a variant",
+    "addComponentProperty is only on components and component sets",
+    "setProperties is only on instances",
+    "No variant matches",
+    "in setProperties: Cannot write to node with unloaded font",
+    "setReactionsAsync is not on",
+    "reactions must be an array",
+    "a reaction needs a trigger",
+    "a reaction takes action or actions, not both",
+    "an action needs a type",
+    "does not exist",
+    "reactions is read-only; use setReactionsAsync",
+    "fontName set before loadFontAsync",
+    "characters set before a loaded fontName",
+    "' set before a loaded fontName'",
+    "FILL can only be set on children of auto-layout frames",
+    "HUG can only be set on auto-layout frames and text nodes",
+    "ABSOLUTE positioning needs an auto-layout parent",
+    "Cannot set componentPropertyReferences on a node inside an instance",
+    "Can only get definitions of a component set or non-variant component",
+    "Setting figma.currentPage is not supported",
+    "'not a page'",
+    "combineAsVariants takes components",
+    "createImage takes Uint8Array",
+    "'bad svg'",
+    "getNodeById is not supported with documentAccess",
+    "'font not found'"
+  ]
+}

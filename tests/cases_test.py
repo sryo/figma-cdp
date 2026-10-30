@@ -106,6 +106,9 @@ class Lock(unittest.TestCase):
         sys.path.insert(0, os.path.join(ROOT, 'tests', 'eval'))
         import run
         self.assertIs(run.file_lock, figma_lock.file_lock)
+        sys.path.insert(0, os.path.join(ROOT, 'tests', 'probes'))
+        import figma_probe
+        self.assertIs(figma_probe.file_lock, figma_lock.file_lock)
 
     def test_the_lock_is_exclusive(self):
         import figma_lock

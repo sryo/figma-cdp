@@ -1,0 +1,9 @@
+{
+  "lib": true,
+  "limits": {
+    "FrameNode.overlayPositionType": "ignored",
+    "FrameNode.overlayBackgroundInteraction": "ignored",
+    "Action.SET_VARIABLE": "refused",
+    "VariableCollection.addMode": "refused"
+  }
+}

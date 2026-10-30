@@ -6,7 +6,7 @@
   "status": "merged",
   "reason": "setReactionsAsync, flowStartingPoints and CHANGE_TO were usable but undocumented (api-unknown): __fx.react / overlayFrame / flow, references/prototyping.md and gotcha 17. Probes also found api-limit parts (overlayPositionType, overlayBackground and overlayBackgroundInteraction read-only and silently ignored; overlayRelativePosition needs MANUAL) and api-plan-limited parts (SET_VARIABLE, CONDITIONAL, a second variable mode refused on the free plan), documented with the full-size overlay workaround.",
   "commit": "a8a1d19",
-  "repro": "tests/prototyping_probe.js",
+  "repro": "tests/probes/prototyping.js",
   "opened": "2026-10-29T12:00:00-0300",
   "closed": "2026-10-29T17:55:00-0300"
 }

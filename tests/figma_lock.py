@@ -11,8 +11,10 @@ import fcntl, os
 
 def lock_path(key):
     # A fixed directory, not TMPDIR: callers in different sessions get different TMPDIRs, and
-    # every one of them must queue on the same lock.
-    return os.path.join('/tmp', f'figma-eval-{os.getuid()}', f'{key}.lock')
+    # every one of them must queue on the same lock. FIGMA_CDP_LOCK_DIR moves it for offline tests,
+    # which must not queue behind a live eval of the same file.
+    d = os.environ.get('FIGMA_CDP_LOCK_DIR') or os.path.join('/tmp', f'figma-eval-{os.getuid()}')
+    return os.path.join(d, f'{key}.lock')
 
 
 def file_lock(key):

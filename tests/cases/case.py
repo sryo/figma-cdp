@@ -5,6 +5,7 @@ source, sort out why, fix it test-first on its own branch, and record the outcom
   python3 tests/cases/case.py new [--last | --rid <id>] [--symptom "<what went wrong>"] [--expected "<src path:line or value>"]
   python3 tests/cases/case.py triage <case>          # proposes a class from the evidence; prints the checks left
   python3 tests/cases/case.py set <case> class=<class> [status=<status>] [key=value ...]
+  python3 tests/cases/case.py snapshot <case> --node <id> --file <url> [--max <n>]  # seed.json: the subtree, rebuildable anywhere
   python3 tests/cases/case.py claim <case> [--steal] # a worktree .claude/worktrees/case-<case> on branch case/<case>
   python3 tests/cases/case.py close <case> --status merged|wontfix|parked|out-of-scope --reason "<why>" [--commit <sha>]
   python3 tests/cases/case.py list | stats
@@ -204,6 +205,25 @@ def cmd_set(a):
     print(json.dumps({k: c[k] for k in ['id', 'class', 'status'] + [kv.split('=', 1)[0] for kv in a.pairs]}))
 
 
+def cmd_snapshot(a):
+    """The failing subtree as a seed (tests/cases/snapshot.js): journal scripts name the user file's node
+    ids, so only a seed can be rebuilt on the scratch file (tests/cases/rebuild.js) or the stub."""
+    c = load(a.case)
+    with open(os.path.join(HERE, 'snapshot.js'), encoding='utf-8') as f:
+        src = f'const SNAP_ID = {json.dumps(a.node)}, SNAP_MAX = {a.max};\n' + f.read()
+    p = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.dirname(HERE)), 'figma_run.py'), '--file', a.file, '-'], input=src,
+                       capture_output=True, text=True, env={**os.environ, 'FIGMA_CDP_JOURNAL': '0'})
+    if p.returncode != 0:
+        die(f'snapshot failed: {p.stderr.strip() or p.stdout.strip()}')
+    seed = json.loads(p.stdout)
+    with open(os.path.join(case_dir(c['id']), 'seed.json'), 'w') as f:
+        json.dump(seed, f, indent=1, ensure_ascii=False)
+        f.write('\n')
+    c['snapshot'] = 'seed.json'
+    save(c)
+    print(json.dumps({'id': c['id'], 'snapshot': 'seed.json', 'nodes': seed['nodes'], 'truncated': seed['truncated']}))
+
+
 def cmd_claim(a):
     c = load(a.case)
     lock = os.path.join(INBOX, c['id'], 'claim')
@@ -275,6 +295,8 @@ def main():
     p.add_argument('--force', action='store_true', help='file a known loss anyway')
     p = sub.add_parser('triage'); p.add_argument('case')
     p = sub.add_parser('set'); p.add_argument('case'); p.add_argument('pairs', nargs='+')
+    p = sub.add_parser('snapshot'); p.add_argument('case'); p.add_argument('--node', required=True)
+    p.add_argument('--file', required=True); p.add_argument('--max', type=int, default=2000)
     p = sub.add_parser('claim'); p.add_argument('case'); p.add_argument('--steal', action='store_true')
     p = sub.add_parser('close'); p.add_argument('case')
     p.add_argument('--status', required=True, choices=['merged', 'wontfix', 'parked', 'out-of-scope'])
