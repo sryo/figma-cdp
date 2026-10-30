@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- Inline SVGs painted the ways a page paints icons: through the page's own custom properties,
+     currentColor, a page stylesheet, CSS Color 4 syntax and alpha. walker_live_test.py walks it. -->
+<html><head><meta charset="utf-8"><title>svg paint</title>
+<style>
+  :root { --ink: #ff0000; --ok: color(srgb 0 0.5 0); }
+  body { margin: 0; padding: 16px; display: flex; gap: 8px; font-family: sans-serif; }
+  .tinted { color: #0000ff; }
+  .icon path { fill: var(--ok); }
+</style></head>
+<body>
+  <svg aria-label="page-var" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="var(--ink)"/></svg>
+  <span class="tinted"><svg aria-label="current-color" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="currentColor"/></svg></span>
+  <svg aria-label="page-class" class="icon" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z"/></svg>
+  <span class="tinted"><svg aria-label="stroke-current" width="10" height="10" viewBox="0 0 10 10"><path d="M1 1H9V9H1Z" fill="none" stroke="currentColor"/></svg></span>
+  <svg aria-label="alpha" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="rgba(255, 0, 0, 0.5)"/></svg>
+  <svg aria-label="gradient" width="10" height="10" viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0" stop-color="var(--ink)"/><stop offset="1" stop-color="currentColor"/></linearGradient></defs><path d="M0 0H10V10H0Z" fill="url(#g)"/></svg>
+</body></html>
