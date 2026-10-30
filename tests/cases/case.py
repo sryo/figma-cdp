@@ -305,7 +305,9 @@ def gate_plan(c, wt, a):
     task = (re.fullmatch(r'tests/eval/tasks/([\w-]+)\.json', repro) or [None, None])[1]
     probe = (re.fullmatch(r'tests/probes/([\w-]+)\.js', repro) or [None, None])[1]
     perch = any(PERCH_SIDE.match(f) for f in files)
-    suites = [s if s[0] == 'node' else [py] + s for s in OFFLINE if perch or s != ['tests/perch_backend_test.py']]
+    # A branch cut before a suite existed runs the suites it has.
+    have = lambda s: all(os.path.isfile(os.path.join(wt, f)) for f in s if f.startswith('tests/'))
+    suites = [s if s[0] == 'node' else [py] + s for s in OFFLINE if (perch or s != ['tests/perch_backend_test.py']) and have(s)]
     tasks = ([task] if task else []) + [t for t in affected(files, wt) if t != task]
     live = None if a.file else 'needs --file <scratch-url>'
     d = case_dir(c['id'])
