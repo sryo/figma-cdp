@@ -8,7 +8,7 @@ Two helpers compare a built subtree with the implementation it mirrors, determin
 python3 <skill-dir>/figma_source.py <files-or-dirs the screen mirrors> -o /tmp/figma_source_<slug>.json
 ```
 
-Pass the files behind the screen being built: its markup or UI code, the style sheets it uses, the theme or token files. A whole repo works too, but copy from other screens then shows up as missing. The script prints a summary line. The JSON holds:
+Pass the files behind the screen being built: its markup or UI code, the style sheets it uses, the theme or token files. An HTML page brings its own `<link rel=stylesheet>` sheets, and a sheet brings its `@import`s. A whole repo works too, but copy from other screens then shows up as missing. The script prints a summary line. The JSON holds:
 
 - `tokens` `[{name, value, kind, src}]`: custom properties, `$`/`@` variables, theme constants with a color value, JSON token files (nested keys and `$value`). References (`var(--x)`, `{a.b}`) are resolved.
 - `colors`, `spacing`, `radii`, `fontSizes`, `fontWeights`, `fontFamilies` `[{value, token?, src}]`: every literal color (`#hex`, `rgb()`, `hsl()`, `0x` on a line about color) and every number used for spacing, radius or type, in px (rem × 16).

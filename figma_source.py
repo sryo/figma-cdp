@@ -3,7 +3,8 @@
 
   python3 figma_source.py <file-or-dir>... [-o manifest.json]
 
-Reads style sheets, markup, UI code and JSON token or string files, and writes JSON with:
+Reads style sheets, markup, UI code and JSON token or string files (plus the local sheets a page links
+or a sheet @imports), and writes JSON with:
   tokens        [{name, value, kind, src}]   custom properties, theme constants, JSON tokens
   colors        [{value, token?, src}]       every literal color, as #rrggbb
   spacing, radii, fontSizes, fontWeights     [{value, token?, src}]  numbers in px
@@ -630,11 +631,41 @@ def gather(paths):
     return files
 
 
+STYLE_LINK = re.compile(r'<link\b(?=[^>]*\brel\s*=\s*["\']?stylesheet)[^>]*\bhref\s*=\s*["\']([^"\']+)["\']', re.I)
+STYLE_IMPORT = re.compile(r'@import\s+(?:url\(\s*)?["\']?([^"\')\s;]+)', re.I)
+
+
+def with_style_sheets(files):
+    """files plus the local style sheets they pull in: a page's <link rel=stylesheet>, a sheet's @import."""
+    seen, out, i = {os.path.realpath(f) for f in files}, list(files), 0
+    while i < len(out):
+        f, i = out[i], i + 1
+        ext = os.path.splitext(f)[1].lower()
+        pattern = STYLE_IMPORT if ext in STYLE_EXT else STYLE_LINK if ext in ('.html', '.htm') else None
+        if not pattern:
+            continue
+        try:
+            with open(f, encoding='utf-8', errors='replace') as fh:
+                text = fh.read(MAX_BYTES)
+        except OSError:
+            continue
+        for ref in pattern.findall(text):
+            if re.match(r'(?i)[a-z][a-z0-9+.-]*:|//', ref):
+                continue
+            p = os.path.normpath(os.path.join(os.path.dirname(f), ref.split('?')[0].split('#')[0]))
+            if os.path.isfile(p) and os.path.realpath(p) not in seen:
+                seen.add(os.path.realpath(p))
+                out.append(p)
+    return out
+
+
 def build(paths):
     paths = [os.path.abspath(p) for p in paths]
-    base = os.path.commonpath([p if os.path.isdir(p) else os.path.dirname(p) for p in paths])
+    files = with_style_sheets(gather(paths))
+    base = os.path.commonpath([p if os.path.isdir(p) else os.path.dirname(p) for p in paths]
+                              + [os.path.dirname(f) for f in files])
     s = Source(base)
-    for path in gather(paths):
+    for path in files:
         s.add_file(path)
     s.collect_tokens()
     s.collect_usages()

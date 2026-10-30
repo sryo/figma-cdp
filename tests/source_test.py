@@ -253,6 +253,21 @@ class Generic(unittest.TestCase):
         self.assertIn('scales: spacing 2 4 8 12 16 24 32 · radii 6 10 999 · font sizes 12 14 16 20 28 · '
                       'weights 400 500 700 · families Inter, system-ui, sans-serif', lines)
 
+    def test_a_page_brings_its_linked_and_imported_style_sheets(self):
+        page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor-pages', 'notes.html')
+        m = manifest(page)
+        self.assertTrue(any(t['name'] == '--space-4' for t in m['tokens']), 'tokens.css, via components.css @import')
+        self.assertTrue(any(c['component'] == 'button' for c in m['components']), 'components.css, via <link>')
+        self.assertTrue(any(e['src'].startswith('harbor/tokens.css:') for e in m['tokens']))
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'a.html'), 'w') as f:
+                f.write('<link rel="stylesheet" href="https://cdn.example.com/x.css"><link rel="stylesheet" href="gone.css">'
+                        '<link href="a.css" rel="stylesheet"><p>Hi there friend</p>')
+            with open(os.path.join(tmp, 'a.css'), 'w') as f:
+                f.write('@import url("a.css");\n.card { color: #123456; }\n')
+            m = manifest(os.path.join(tmp, 'a.html'), os.path.join(tmp, 'a.css'))
+            self.assertEqual([e['src'] for e in m['colors']], ['a.css:2'])
+
     def test_missing_path_is_an_error(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '/nope/nothing'],
                            capture_output=True, text=True)
