@@ -70,6 +70,9 @@ class Cases(unittest.TestCase):
                               ('the overlay opens centered, not under the button', None)]:
             cid = self.case('new', '--symptom', symptom)['case']
             self.assertEqual(self.case('triage', cid)['proposed_class'], want, symptom)
+        oracle = self.case('triage', self.case('new', '--symptom', 'in addMode: Limited to 1 modes only', '--force')['case'])['oracle']
+        self.assertEqual(oracle[0]['member'], 'VariableCollection.addMode')
+        self.assertEqual(set(oracle[0]), {'member', 'ro', 'covered', 'docUrl'})
         self.journal({'rid': 'h', 'file': 'K', 'ok': False, 'error': 'unloaded font', 'hint': 'hint: load it'})
         cid = self.case('new', '--rid', 'h')['case']
         self.assertEqual(self.case('triage', cid)['proposed_class'], 'agent-ignored-doc')

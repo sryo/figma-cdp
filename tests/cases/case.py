@@ -162,6 +162,20 @@ def cmd_new(a):
     print(json.dumps({'case': cid, 'status': case['status'], 'dup_of': dup, 'signature': sig, 'dir': os.path.join(INBOX, cid)}))
 
 
+def oracle(text, limit=5):
+    """The Plugin API members that best match an error or symptom, from the committed typings surface."""
+    query = (text or '').strip().split('\n', 1)[0]
+    if not query:
+        return []
+    try:
+        p = subprocess.run(['node', os.path.join(os.path.dirname(HERE), 'api', 'figma_api.mjs'), 'lookup', '--json', '--limit', str(limit), query],
+                           capture_output=True, text=True, timeout=30)
+        hits = json.loads(p.stdout) if p.returncode == 0 else []
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+    return [{k: h[k] for k in ('member', 'ro', 'covered', 'docUrl')} for h in hits]
+
+
 def cmd_triage(a):
     c = load(a.case)
     text = '\n'.join([c['symptom'], c['error']] + [e.get('error', '') for e in c['journal']])
@@ -181,13 +195,15 @@ def cmd_triage(a):
         'source-extract: is figma_source.py output wrong or missing for the cited source?',
         'helper-bug: does a raw Plugin API script on a __probe page succeed where __fx or the importer fails?',
         'doc-wrong: does a probe contradict a reference line or the stub?',
-        'api-unknown / api-plan-limited / api-limit: find the members that could do it (the typings, references/api-*.md),'
-        ' probe each on a __probe page, and try the alternate routes; api-limit needs every route to fail',
+        'api-unknown / api-plan-limited / api-limit: oracle lists the typings members that match (tests/api/figma_api.mjs lookup);'
+        ' an uncovered one is an api-unknown lead. Probe each candidate (tests/probes/figma_probe.py) and try the alternate'
+        ' routes; api-limit needs every route to fail',
         'agent-ignored-doc: is the recipe already in references or the cheat sheet, and missed in 2 of 3 reps?',
     ]
     c['proposed_class'] = proposed
+    c['oracle'] = oracle(c['error'] or c['symptom'])
     save(c)
-    print(json.dumps({'case': c['id'], 'proposed_class': proposed, 'why': why, 'checks': checks}, indent=2))
+    print(json.dumps({'case': c['id'], 'proposed_class': proposed, 'why': why, 'oracle': c['oracle'], 'checks': checks}, indent=2))
 
 
 def cmd_set(a):
