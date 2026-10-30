@@ -1,6 +1,6 @@
 # figma-cdp
 
-Build Figma mockups from code or plain English. The reverse of Figma MCP (which turns Figma into code). Point Claude at your app's code, paste HTML, or describe a screen, and it builds it in your Figma file.
+Build Figma mockups from code or plain English. The reverse of Figma MCP (which turns Figma into code). Point your agent at your app's code, paste HTML, or describe a screen, and it builds it in your Figma file.
 
 It reads your real code first, so the mockup uses your actual copy, colors and spacing. It reuses the components already in your file, turns repeated pieces into components with variants, and checks the result against your code before it says it's done.
 
@@ -12,15 +12,17 @@ No Figma MCP required. It works directly in the Figma file you have open in your
 git clone https://github.com/sryo/figma-cdp ~/.claude/skills/figma-cdp
 ```
 
-Claude Code picks up the skill automatically when you mention a Figma URL or ask for a mockup. If it doesn't, restart Claude Code.
+That's Claude Code's skills folder. Codex and GitHub Copilot look in `~/.agents/skills`, so for those clone into `~/.agents/skills/figma-cdp` instead.
 
-On a Mac, also install [perch](https://github.com/sryo/perch). figma-cdp uses it automatically: it's faster, it works in Chrome, Arc or Safari, and your browser won't ask you to allow remote debugging. In Arc, keep the Figma tab showing in its window while Claude works.
+Your agent picks up the skill when you mention a Figma URL or ask for a mockup. If it doesn't, restart it.
+
+On a Mac, also install [perch](https://github.com/sryo/perch). figma-cdp uses it automatically: it's faster, it works in Chrome, Arc or Safari, and your browser won't ask you to allow remote debugging. In Arc, keep the Figma tab showing in its window while your agent works.
 
 Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or comments. Generate a token at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
 
 ## Usage
 
-Talk to Claude Code:
+Talk to your agent:
 
 - *"Mock up the settings screen from ~/Code/myapp in this Figma file: https://www.figma.com/design/…"*
 - *"Convert this HTML mockup into Figma components."*
@@ -35,7 +37,7 @@ Without perch, the first run asks you to turn on remote debugging in Chrome (the
 
 If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet. Open and close any Figma plugin once to wake it up.
 
-If a long job in Figma stops with a timeout (a big export, a large file loading), it gets two minutes by default. Claude can give it up to five with `--timeout 300`.
+If a long job in Figma stops with a timeout (a big export, a large file loading), it gets two minutes by default. Your agent can give it up to five with `--timeout 300`.
 
 If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
 

@@ -37,7 +37,7 @@
 // on an EOF that never came and the connection holding the daemon open. The daemon exits after FIGMA_PERCH_IDLE seconds (default 600)
 // without a call.
 //
-// PERCH_DIR: the perch checkout to import (default ~/Documents/perch).
+// PERCH_DIR: the perch checkout to import (default ~/.perch, then ~/Documents/perch).
 // A request's `tab` is a perch tabId to use as is, skipping tab lookup; its
 // `timeout` is how long eval_js awaits a script, 1000 to 300000 ms (default 120000).
 import { chmodSync, existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -74,7 +74,8 @@ function finish(obj) {
 }
 
 async function loadPerch() {
-  const dir = process.env.PERCH_DIR || join(homedir(), "Documents", "perch");
+  const dir = process.env.PERCH_DIR || [join(homedir(), ".perch"), join(homedir(), "Documents", "perch")]
+    .find((d) => existsSync(join(d, "server.js"))) || join(homedir(), ".perch");
   const entry = join(dir, "server.js");
   if (!existsSync(entry)) throw new Error(`no_perch: no perch at ${dir} (set PERCH_DIR to a perch checkout)`);
   const mod = await import(pathToFileURL(entry).href);

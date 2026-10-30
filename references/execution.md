@@ -3,11 +3,11 @@
 The eval patterns for all automation against Figma's Plugin API, through perch or `agent-browser`.
 Connection setup lives in `references/connection.md` (Mode P perch, Mode A attach, Mode B Canary launch, troubleshooting).
 
-`agent-browser` commands and the `python3 <skill-dir>/figma_*.py` helper calls are pre-allowed (`Bash(agent-browser:*)`, `Bash(python3 *figma_*.py *)`), so they run without prompts. Every script below runs as `python3 <skill-dir>/figma_run.py --file <url> -e '<script>'`.
+`agent-browser` commands and the `python3 <skill-dir>/figma_*.py` helper calls are pre-allowed in Claude Code (`Bash(agent-browser:*)`, `Bash(python3 *figma_*.py *)`); other agents may ask once. Every script below runs as `python3 <skill-dir>/figma_run.py --file <url> -e '<script>'`.
 
 ## Eval methods
 
-Run the helpers in place from the skill directory (`<skill-dir>` below); they find `figma_perch.mjs` next to themselves, so nothing is copied to `/tmp`. Both modes take the same arguments and print the same output. Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — they trigger Claude Code safety warnings even with permissions set.
+Run the helpers in place from the skill directory (`<skill-dir>` below); they find `figma_perch.mjs` next to themselves, so nothing is copied to `/tmp`. Both modes take the same arguments and print the same output. Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — agents flag them for approval even with permissions set.
 
 ### Inline script (one turn per eval)
 

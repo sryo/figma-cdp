@@ -10,7 +10,7 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 ## Setup
 
-`<skill-dir>` is this skill's base directory. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`. Pass `--file` (or export `FIGMA_FILE`) on every helper call.
+`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`. Pass `--file` (or export `FIGMA_FILE`) on every helper call.
 
 ## Flow
 
@@ -19,7 +19,7 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 3. **Recon, one call:** `python3 <skill-dir>/figma_run.py --lib --file <url> -e 'await figma.saveVersionHistoryAsync("pre <task>"); return [await __fx.recon({nodeId: "<id>"}), (await __fx.inventory()).text]'`: pages, text tree, one line per component set, component, style, variable and repeated pattern.
 4. **An edit or "make it match"** on an existing frame: diff (`figma_fidelity.py`), patch the existing nodes in place, never replace or remove one, swap it for an instance or add components unless asked; skip to 8.
 5. **Component plan** (builds): every manifest `components` entry and unit repeating 2+ times, existing screens too (a shared header). Inventory first (`__fx.inventory({match: 'card'})`); a match is REUSE `<id>` as is, per-use differences (state, text) as instance overrides, never renamed, given variants or made a set unless asked; else NEW. Prop/state enums: VARIANT axes; varying text: TEXT; optional parts: BOOLEAN; swappable icons: INSTANCE_SWAP. A container with per-use content (card, panel) is still a component: a header with those props, or a slot (`createSlot`); a wrapper of repeated items (tabs, list) holds exposed item instances. A repeated PATTERN the task touches becomes a component first. Recipe: `references/building.md`.
-6. **Inline or dispatch** (below). Dispatch: pre-create target frames, fill every `figma-worker.md` slot ([Reuse]: only the lines the task needs), pass it to the Agent tool.
+6. **Inline or dispatch** (below). Dispatch: pre-create target frames, fill every `figma-worker.md` slot ([Reuse]: only the lines the task needs), hand it to a subagent.
 7. **Statuses.** DONE_WITH_CONCERNS: verify its concerns. NEEDS_CONTEXT: get it, re-dispatch. BLOCKED: from failures and `createdNodeIds`, re-split, roll back (`references/execution.md` → Rollback) or ask.
 8. **Final gate:** `figma_run.py --lib --file <url> -e 'return (await __fx.audit("<rootId>")).counts'` all 0 on what you built (an edit reports counts it found) and `figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <url>` 0 gaps. Fix gaps with targeted edits; report any left on purpose.
 9. **Summarize:** changes, node ids, retries, every worker assumption verbatim, gaps left, next steps.
@@ -60,5 +60,5 @@ Per-task reference combos (a worker reads these only for calls its cheat sheet l
 ## Rules
 
 - Say plainly what you will do.
-- Never use Chrome MCP tools; always the helpers.
+- Never use browser MCP tools; use the helpers.
 - Read before writing; make targeted edits; don't rebuild; preserve behavior unless asked.

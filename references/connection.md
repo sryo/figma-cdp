@@ -15,7 +15,7 @@ Coordinator-facing setup: how the helpers reach Figma's Plugin API, through perc
 
    No debugging toggle, no port, no "Allow debugging?" prompt. The helpers run scripts in your open Figma tab through [perch](https://github.com/sryo/perch)'s `eval_js {world:"main"}` over AppleScript.
 
-   1. Have perch checked out at `~/Documents/perch` (or set `PERCH_DIR`), on a version with `eval_js` `world:"main"`, and its one-time setup done (Chrome: View > Developer > Allow JavaScript from Apple Events).
+   1. Have perch at `~/.perch` (its installer's spot) or `~/Documents/perch` (or set `PERCH_DIR`), on a version with `eval_js` `world:"main"`, and its one-time setup done (Chrome: View > Developer > Allow JavaScript from Apple Events).
    2. Have Node 18+; it runs `figma_perch.mjs`, which sits next to the helpers.
    3. Test with the command in step 1. Expected `"object"`. The helpers pick perch on their own when `FIGMA_CDP_PORT` is unset and perch is usable; `FIGMA_BACKEND=perch` (or `cdp`) forces one.
 

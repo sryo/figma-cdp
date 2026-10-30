@@ -21,7 +21,7 @@
 
 Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
 else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
-~/Documents/perch); else cdp.
+~/.perch, then ~/Documents/perch); else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (or FIGMA_FILE) names the Figma file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 120.
@@ -55,7 +55,11 @@ def cdp_port():
 # (tests/perch_backend_test.py compares them).
 
 def perch_dir():
-    return os.environ.get('PERCH_DIR') or os.path.expanduser('~/Documents/perch')
+    # ~/.perch is where perch's installer puts it; ~/Documents/perch is a dev checkout.
+    if os.environ.get('PERCH_DIR'):
+        return os.environ['PERCH_DIR']
+    dirs = [os.path.expanduser(d) for d in ('~/.perch', '~/Documents/perch')]
+    return next((d for d in dirs if os.path.isfile(os.path.join(d, 'server.js'))), dirs[0])
 
 def perch_ready():
     try:
