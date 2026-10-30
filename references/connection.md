@@ -98,6 +98,8 @@ If `typeof figma` returns `"undefined"`:
 2. Wait for page to fully load, retry.
 3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
 
+If text set in a local system font (SF Pro, a font installed on the Mac) measures 0 wide and the node reports `hasMissingFont`, though `listAvailableFontsAsync` lists the font and `loadFontAsync` resolves: the browser hasn't granted figma.com its local-fonts permission. Have the user allow Local fonts in the site settings for figma.com, then reload the tab (a second reload may be needed). Check with one text node: `width > 0` and `hasMissingFont === false`.
+
 If a Mode P call fails, the error keeps perch's code:
 - `no_perch`: no `server.js` at `PERCH_DIR`, or a perch without `eval_js` `world:"main"`; update perch.
 - `no_tab` / `ambiguous_tab`: open the file in Chrome, or pass `--file`.
