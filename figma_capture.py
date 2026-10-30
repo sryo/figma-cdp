@@ -64,7 +64,8 @@ def perch_dir():
 def perch_ready():
     try:
         with open(os.path.join(perch_dir(), 'server.js')) as f:
-            return 'buildMainKick' in f.read()
+            # buildKick marks eval_js world:"main" (perch 5725447 on); buildMainKick, the perch before it.
+            return re.search(r'\bbuild(Main)?Kick\b', f.read()) is not None
     except OSError:
         return False
 

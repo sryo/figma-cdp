@@ -114,7 +114,7 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script (already in the helpers' parse-first wrapper, `AUTO_ASYNC`, identical on both backends: a program yields its completion value, a script with top-level `await` or `return` runs as an async body) is wrapped as `return await (0, eval)(<source>)`, and a throw is caught in-page and reported as `✗ Evaluation error: ...`. Requests carry the script text (`sources`), never file paths
 - `screenshot {target, maxWidth:0, format:"png"}` for `figma_run.py --screenshot` (the tab must be the one its window shows)
 - `new_tab {url}`, `wait {target, expression}` (readyState complete off the new tab's initial `about:blank`) and `close_tab {tabId}` for `figma_capture.py walk`
-- the `buildMainKick` export, which marks a perch new enough to have `world:"main"`
+- the `buildKick` export (`buildMainKick` before perch 5725447), which marks a perch new enough to have `world:"main"`; the helpers accept either
 
 **Daemon.** A one-shot run pays node start, the perch import, osascript startup and `list_tabs` on every call (~650 ms). So the Python helpers talk to `node figma_perch.mjs serve <socket>` over a unix socket instead, starting it on first use:
 - Socket: `$TMPDIR/figma-perch-<uid>/<hash>.sock`, dir 0700, socket 0600. The hash covers `PERCH_DIR` and the mtime and size of perch's `server.js` and of `figma_perch.mjs`, so an update gets a fresh daemon and the old one idles out. `FIGMA_PERCH_SOCK` overrides the path (tests).

@@ -83,7 +83,8 @@ async function loadPerch() {
   if (!existsSync(entry)) throw new Error(`no_perch: no perch at ${dir} (set PERCH_DIR to a perch checkout)`);
   const mod = await import(pathToFileURL(entry).href);
   if (typeof mod.handleCall !== "function") throw new Error(`no_perch: ${entry} exports no handleCall`);
-  if (typeof mod.buildMainKick !== "function") throw new Error(`no_perch: perch at ${dir} has no eval_js world:"main"; update perch`);
+  // buildKick marks eval_js world:"main" from perch 5725447 on; buildMainKick, the perch before it.
+  if (typeof mod.buildKick !== "function" && typeof mod.buildMainKick !== "function") throw new Error(`no_perch: perch at ${dir} has no eval_js world:"main"; update perch`);
   takesTimeout = typeof mod.AWAIT_MAX_MS === "number";
   return mod;
 }
