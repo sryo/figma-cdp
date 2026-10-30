@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 4;
+  var V = 6;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -703,8 +703,26 @@
 
   // ---- audit
 
+  // The fix for each audit count, printed after its ids in audit().text.
+  var AUDIT_FIX = {
+    rawRepeats: 'make one component, replace the copies with instances',
+    fixedInFlow: "set layoutSizingHorizontal/Vertical to 'FILL' or 'HUG' after appendChild",
+    absDefaultConstraints: 'put the parent in auto layout, or set constraints to how the child should pin',
+    groups: 'replace the group with an auto-layout frame',
+    defaultNames: 'name the layer for its role',
+    unboundPaints: 'bind the paint to its variable: __fx.bindFill(node, hex)',
+    textFixedInAutoLayout: "set textAutoResize to 'HEIGHT' (or 'WIDTH_AND_HEIGHT')",
+    textOverflow: "set the text to layoutSizingHorizontal 'FILL' with textAutoResize 'HEIGHT'",
+    componentsWithoutAutoLayout: 'give the component auto layout',
+    unlinkedProps: 'reference the property from a layer (componentPropertyReferences) or delete it',
+    danglingReactions: 'point the reaction at an existing node or remove it',
+    lostHover: "re-add the main component's ON_HOVER reaction to the instance (gotchas #17)",
+    overlayNotFullSize: 'size the overlay frame to the screen, or open it as a positioned overlay',
+  };
+
   // Structural problems under rootId (default: the current page): counts (all best at 0) plus up to
   // o.limit ids each, and shares (higher is better) kept apart so callers can require every count at 0.
+  // text is what to fix, one line per nonzero count with its ids, and empty when there's nothing.
   async function audit(rootId, o) {
     o = o || {};
     var lim = o.limit || 5;
@@ -748,7 +766,7 @@
       }
     });
     await reactionProblems(own, lists);
-    var counts = {}, ids = {};
+    var counts = {}, ids = {}, more = {};
     Object.keys(lists).forEach(function (k) {
       counts[k] = lists[k].length;
       if (!lists[k].length) return;
@@ -756,17 +774,120 @@
       ids[k] = [];
       lists[k].forEach(function (x) {
         var id = typeof x === 'string' ? x : x.id;
-        if (!seen[id] && ids[k].length < lim) { seen[id] = 1; ids[k].push(id); }
+        if (seen[id]) return;
+        seen[id] = 1;
+        if (ids[k].length < lim) ids[k].push(id); else more[k] = 1;
       });
     });
     var shares = { instanceRatio: share(m.instances.length, m.instances.length + m.rawFrames.length),
       autoLayoutShare: share(m.auto.length, m.containers.length) };
-    return { root: root.id, nodes: nodes.length, counts: counts, shares: shares, ids: ids };
+    var text = Object.keys(ids).map(function (k) {
+      return k + ' ' + counts[k] + ' [' + ids[k].join(',') + (more[k] ? ',...' : '') + '] -> ' + AUDIT_FIX[k];
+    }).join('\n');
+    return { root: root.id, nodes: nodes.length, counts: counts, shares: shares, ids: ids, text: text };
+  }
+
+  // ---- presence: parallel workers share one tab; figma_run.py --ns <NS> names the worker
+
+  // A worker claims the rootId its scripts return. __fx.presence (after a --ns script) notes writes
+  // under a frame another worker claimed and components another worker already made with the same
+  // name; it warns, the write stays. __fx.stale (before a --ns script) refuses to run when a
+  // collaborator (REMOTE) edited this worker's frames since its last eval. Claims lapse after
+  // 10 idle minutes, so a finished task needs no release.
+  var CLAIM_MS = 600000;
+
+  function board() { return window.__fxPresence || (window.__fxPresence = { claims: {}, comps: {}, seen: {} }); }
+  function live(c, now) { return !!c && now - c.ts < CLAIM_MS; }
+
+  // REMOTE changes on the current page, as {seq, chain: [node id, its ancestors' ids...]}. Installed
+  // once per tab whatever the library version; a tab without page events just never refuses.
+  function watch() {
+    var w = window.__fxWatch || (window.__fxWatch = { seq: 0, ring: [] });
+    if (w.on) return w;
+    try {
+      if (typeof figma.on !== 'function' || typeof figma.currentPage.on !== 'function') return w;
+      var page = figma.currentPage;
+      var onChange = function (ev) {
+        (ev.nodeChanges || []).forEach(function (c) {
+          if (c.origin !== 'REMOTE') return;
+          var chain = [];
+          try { for (var n = c.node; n && n.type !== 'PAGE' && chain.length < 40; n = n.parent) chain.push(n.id); } catch (e) {}
+          if (!chain.length) chain.push(c.id);
+          w.ring.push({ seq: ++w.seq, chain: chain });
+          if (w.ring.length > 500) w.ring.shift();
+        });
+      };
+      page.on('nodechange', onChange);
+      figma.on('currentpagechange', function () {
+        try { page.off('nodechange', onChange); page = figma.currentPage; page.on('nodechange', onChange); } catch (e) {}
+      });
+      w.on = true;
+    } catch (e) {}
+    return w;
+  }
+
+  async function presence(ns, v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
+    try {
+      var created = v.createdNodeIds || [], ids = created.concat(v.mutatedNodeIds || []);
+      if (v.rootId) ids.push(v.rootId);
+      if (!ids.length) return v;
+      var b = board(), now = Date.now(), crossed = [], dupes = [], noted = {}, i, n, c;
+      if (v.rootId && !(live(b.claims[v.rootId], now) && b.claims[v.rootId].ns !== ns)) {
+        b.claims[v.rootId] = { ns: ns, ts: now };
+        if (!(ns in b.seen)) b.seen[ns] = watch().seq;
+      }
+      for (i = 0; i < ids.length; i++) {
+        for (n = await figma.getNodeByIdAsync(ids[i]); n && n.type !== 'PAGE'; n = n.parent) {
+          c = b.claims[n.id];
+          if (!live(c, now)) continue;
+          if (c.ns === ns) c.ts = now;
+          else if (!noted[ids[i]]) { noted[ids[i]] = 1; crossed.push(ids[i] + ' (in ' + n.id + ', ' + c.ns + ')'); }
+          break;
+        }
+      }
+      for (i = 0; i < created.length; i++) {
+        n = await figma.getNodeByIdAsync(created[i]);
+        if (!n || (n.type !== 'COMPONENT' && n.type !== 'COMPONENT_SET') || (n.parent && n.parent.type === 'COMPONENT_SET')) continue;
+        c = b.comps[n.name];
+        if (live(c, now) && c.ns !== ns && c.id !== n.id && await figma.getNodeByIdAsync(c.id)) dupes.push(n.name + ' (' + c.ns + ' made ' + c.id + ')');
+        else b.comps[n.name] = { ns: ns, id: n.id, ts: now };
+      }
+      var notes = [];
+      if (crossed.length) notes.push("Wrote inside another worker's frame: " + crossed.join(', ') + ". Don't touch those nodes again; re-read them and report DONE_WITH_CONCERNS.");
+      if (dupes.length) notes.push('Another worker already made ' + dupes.join(', ') + '. Use that component instead of yours and report DONE_WITH_CONCERNS.');
+      if (!notes.length) return v;
+      var out = {};
+      Object.keys(v).forEach(function (k) { out[k] = v[k]; });
+      out.fxNote = notes.join(' ');
+      return out;
+    } catch (e) {
+      return v;
+    }
+  }
+
+  function stale(ns) {
+    var w = window.__fxWatch, b = window.__fxPresence;
+    if (!w || !b || !(ns in b.seen)) return null;
+    var since = b.seen[ns], now = Date.now(), mine = {}, changed = [];
+    b.seen[ns] = w.seq;
+    Object.keys(b.claims).forEach(function (k) { if (b.claims[k].ns === ns && live(b.claims[k], now)) mine[k] = 1; });
+    w.ring.forEach(function (r) {
+      if (r.seq <= since) return;
+      for (var i = 0; i < r.chain.length; i++) {
+        if (mine[r.chain[i]]) { if (changed.indexOf(r.chain[0]) < 0) changed.push(r.chain[0]); return; }
+      }
+    });
+    if (!changed.length) return null;
+    return { applied: false, reason: 'stale', changed: changed.slice(0, 20),
+      note: 'Someone else edited your frame since your last eval, so nothing ran. Re-read those nodes, adjust, and send the script again.' };
   }
 
   window.__fx = {
     v: V, recon: recon, inventory: inventory, frame: frame, autoLayout: autoLayout, text: text, instance: instance,
     bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
+    presence: presence, stale: stale,
   };
+  watch();
 })();

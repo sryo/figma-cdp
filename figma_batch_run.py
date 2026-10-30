@@ -8,7 +8,7 @@ intermediate inspection. On the perch backend one figma_perch.mjs request
 evaluates the scripts in order. Run it from the skill directory; nothing needs
 copying.
 
-  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] <script> [<script> ...]
+  python3 figma_batch_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] [--stop] <script> [<script> ...]
 
 A script is a <js_file>, - (stdin, once) or -e '<js>' (or --js), run in the
 order given. Each result is printed under a '== <label> ==' header: the file's
@@ -23,11 +23,14 @@ CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, els
 perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
 --lib: figma_lib.js goes in front of the first script, installing window.__fx once per tab.
+--ns <prefix>: run as that worker, as figma_run.py --ns does.
+--stop: end the batch at the first script that throws, returns nothing, or returns {error};
+later scripts don't run. Use it when a step builds on the one before.
 """
-import base64, fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
+import base64, fcntl, hashlib, json, os, re, socket, stat, subprocess, sys, time, uuid
 
 PROG = 'figma_batch_run.py'
-USAGE = "usage: python3 figma_batch_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] (<js_file> | - | -e '<js>')..."
+USAGE = "usage: python3 figma_batch_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] [--stop] [--ns <prefix>] (<js_file> | - | -e '<js>')..."
 
 def cdp_port():
     p = os.environ.get('FIGMA_CDP_PORT')
@@ -191,8 +194,9 @@ def timeout_seconds(flag):
     return min(300.0, max(1.0, v))
 
 
-def perch(req, timeout=120.0):
-    """Ask figma_perch.mjs (next to this script, symlinks followed) through its daemon, else run it once; its JSON reply."""
+def perch(req, timeout=120.0, rids=()):
+    """Ask figma_perch.mjs (next to this script, symlinks followed) through its daemon, else run it once; its JSON reply.
+    rids are the request ids of req's sources, so a timeout can say how to recover its script."""
     helper = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_perch.mjs')
     if not os.path.exists(helper):
         sys.exit(f'figma_perch.mjs not found next to {os.path.realpath(__file__)}')
@@ -207,7 +211,15 @@ def perch(req, timeout=120.0):
             if out is None and start_daemon(sock, helper):
                 out = daemon_exchange(sock, req, wait)
         except Dropped as e:
-            sys.exit(f'perch: perch_daemon: the daemon dropped the call ({e}); the script may have run, check before retrying')
+            if req.get('op') != 'eval':
+                sys.exit(f'perch: perch_daemon: the daemon dropped the call ({e})')
+            # The page's ledger answers a resend without running anything twice.
+            try:
+                out = daemon_exchange(sock, req, wait)
+                if out is None and start_daemon(sock, helper):
+                    out = daemon_exchange(sock, req, wait)
+            except Dropped as e:
+                sys.exit(f'perch: perch_daemon: the daemon dropped the call twice ({e}); check state before retrying')
     if out is None:
         try:
             r = subprocess.run(['node', helper, 'once'], input=json.dumps(req), capture_output=True, text=True)
@@ -217,8 +229,12 @@ def perch(req, timeout=120.0):
             out = json.loads(r.stdout, parse_int=js_int)
         except ValueError:
             sys.exit(f'perch: no reply from figma_perch.mjs (exit {r.returncode}): {(r.stdout + r.stderr).strip()[:400]}')
-    if out.get('fatal') and not out.get('results'):
-        sys.exit(f"perch: {out['fatal']}")
+    if out.get('fatal'):
+        ran = len(out.get('results') or [])
+        if ran < len(rids):
+            out['fatal'] = timeout_note(out['fatal'], rids[ran])
+        if not ran:
+            sys.exit(f"perch: {out['fatal']}")
     return out
 
 # Every script runs as this program on both backends. It parses the script before running any of
@@ -244,8 +260,62 @@ AUTO_ASYNC = r'''(function (src) {
   throw /return|await/i.test(asScript.message) ? asBody : asScript;
 })'''
 
-def program(src):
-    return f'{AUTO_ASYNC}({json.dumps(src)})'
+# Every script also runs inside this ledger, keyed by a request id the helper picks per script
+# and the script's hash. A resend with the same id never runs it twice: it answers from the
+# ledger (the value when it finished, the error when it threw, a running marker when it hasn't
+# finished), so a reply lost on the way back can be asked for again. `--recover <id>` reads an
+# entry without a script. With --ns the script is a worker's: __fx.stale may refuse it before it
+# runs, and __fx.presence may add a note to its value after (figma_lib.js).
+RUN = r'''(function (rid, h, ns, run) {
+  var L = globalThis.__fxRuns || (globalThis.__fxRuns = { ids: [], runs: {} }), e = L.runs[rid];
+  if (!run && !e) throw new Error('no request ' + rid + ' in this tab');
+  if (run && e && e.h !== h) throw new Error('request ' + rid + ' already ran a different script');
+  if (e) {
+    if (e.state === 'running') return { __fxRun: rid, state: 'running' };
+    if (e.state === 'threw') throw e.err;
+    return e.kept ? JSON.parse(e.v) : { __fxRun: rid, state: 'done', kept: false };
+  }
+  e = L.runs[rid] = { h: h, state: 'running' };
+  L.ids.push(rid);
+  if (L.ids.length > 50) delete L.runs[L.ids.shift()];
+  var fx = ns ? globalThis.__fx : null;
+  function done(v) {
+    e.state = 'done';
+    try { e.v = JSON.stringify(v === undefined ? null : v); e.kept = e.v.length <= 32768; } catch (x) { e.kept = false; }
+    if (!e.kept) delete e.v;
+    return v;
+  }
+  function threw(x) { e.state = 'threw'; e.err = x; throw x; }
+  try {
+    var refused = fx && fx.stale ? fx.stale(ns) : null;
+    if (refused) return done(refused);
+    return Promise.resolve(run())
+      .then(function (v) { return fx && fx.presence ? fx.presence(ns, v) : v; })
+      .then(done, threw);
+  } catch (x) { threw(x); }
+})'''
+
+def program(src, rid, ns=None):
+    h = hashlib.sha1(src.encode()).hexdigest()[:12]
+    return f'{RUN}({json.dumps(rid)}, {json.dumps(h)}, {json.dumps(ns)}, function () {{ return {AUTO_ASYNC}({json.dumps(src)}); }})'
+
+def recover(rid):
+    return f'{RUN}({json.dumps(rid)}, null, null, null)'
+
+def ledger_error(v):
+    """The error a ledger marker stands for, or None for an ordinary value."""
+    if not isinstance(v, dict) or '__fxRun' not in v:
+        return None
+    rid = v['__fxRun']
+    if v.get('state') == 'running':
+        return f'request {rid} is still running in the page; figma_run.py --recover {rid} prints its result once it finishes'
+    return f'request {rid} finished, but its result was over 32 KB and was not kept; read the state it left instead'
+
+def timeout_note(error, rid):
+    """A timed-out script keeps running in the page: say how to get its result."""
+    if not error.startswith('timeout:'):
+        return error
+    return f'{error}\nIt may still finish: figma_run.py --recover {rid} prints its result then'
 
 def with_lib(src):
     """figma_lib.js (next to this script) in front of a wrapped script: the library installs
@@ -257,16 +327,37 @@ def with_lib(src):
     except OSError:
         sys.exit(f'figma_lib.js not found next to {os.path.basename(__file__)}')
 
+# Plugin API errors name what failed, not what to do about it. Each pattern maps a known message
+# to its fix and the references/gotchas.md entry that explains it.
+HINTS = [
+    (r'unloaded font', 'await figma.loadFontAsync(...) for every font in this same eval before writing text (gotchas #2)'),
+    (r'FILL can only be set on children of auto-layout', 'appendChild into the auto-layout parent first, then set layoutSizing* = "FILL" (gotchas #1)'),
+    (r'HUG can only be set on auto-layout', 'HUG needs an auto-layout frame or a text node; set layoutMode first (gotchas #1)'),
+    (r'does not exist|has been removed', 'a node object went stale or was deleted; re-fetch it with await figma.getNodeByIdAsync(id) in this eval (gotchas #15)'),
+    (r'documentAccess: dynamic-page|has not been explicitly loaded', 'use await figma.getNodeByIdAsync(id) or await page.loadAsync() instead of the sync API'),
+    (r'(inside of |is )an instance|cannot be overridden in an instance', 'instance children are fixed: edit the main component, or set text/property overrides on the instance'),
+    (r"Cannot read propert(y|ies) of null", 'a lookup returned null: the id is on another page, deleted, or mistyped; check it before use'),
+]
+
+def hint(error):
+    """The fix for a known Plugin API error message (its first line; a stack follows), as one
+    'hint: ...' line, or None."""
+    message = (error or '').split('\n', 1)[0]
+    for pattern, fix in HINTS:
+        if re.search(pattern, message):
+            return f'hint: {fix}'
+    return None
+
 def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
     sys.exit(1)
 
-def parse_args(argv, options):
-    """Option values (FIGMA_FILE the default for --file, --lib True when given) and the scripts in
-    command-line order, each ('path', p), ('stdin', None) or ('inline', js)."""
+def parse_args(argv, options, flags=('--lib',)):
+    """Option values (FIGMA_FILE the default for --file, each flag True when given) and the scripts
+    in command-line order, each ('path', p), ('stdin', None) or ('inline', js)."""
     opts = dict.fromkeys(options)
     opts['--file'] = os.environ.get('FIGMA_FILE')
-    lib = False
+    opts.update(dict.fromkeys(flags, False))
     scripts = []
     args = iter(argv)
     for arg in args:
@@ -274,8 +365,8 @@ def parse_args(argv, options):
             print(__doc__.strip())
             sys.exit(0)
         name, eq, val = arg.partition('=') if arg.startswith('--') else (arg, '', None)
-        if arg == '--lib':
-            lib = True
+        if arg in flags:
+            opts[arg] = True
         elif name in opts or name in ('-e', '--js'):
             if not eq:
                 val = next(args, None)
@@ -291,7 +382,6 @@ def parse_args(argv, options):
             usage(f'unknown option {arg}')
         else:
             scripts.append(('path', arg))
-    opts['--lib'] = lib
     return opts, scripts
 
 def load(scripts):
@@ -314,26 +404,36 @@ def load(scripts):
                 out.append((os.path.basename(v), f.read()))
     return out
 
-opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout'))
+opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--ns'), ('--lib', '--stop'))
 if not specs:
     usage('give at least one script')
 scripts = load(specs)
 # The library goes in front of the first script only; later scripts in a batch share its tab.
-sources = [program(src) for _, src in scripts]
+rids = [uuid.uuid4().hex[:12] for _ in scripts]
+sources = [program(src, rid, opts['--ns']) for (_, src), rid in zip(scripts, rids)]
 if opts['--lib'] and sources:
     sources[0] = with_lib(sources[0])
 
+def stopped(ran):
+    return f"--stop: script {ran} of {len(scripts)} failed, returned nothing or returned {{error}}; the rest did not run"
+
 if backend() == 'perch':
-    out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
-                timeout=timeout_seconds(opts['--timeout']))
+    out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources, 'stop': opts['--stop']},
+                timeout=timeout_seconds(opts['--timeout']), rids=rids)
     # As agent-browser batch prints: a success is {origin: the page URL, result} with keys
     # sorted and non-ASCII escaped, a failure its error.
-    for (label, _), res in zip(scripts, out['results']):
+    out['results'] = [{'ok': False, 'error': ledger_error(r['value'])} if r['ok'] and ledger_error(r['value']) else r
+                      for r in out['results']]
+    for (label, _), rid, res in zip(scripts, rids, out['results']):
         print(f'== {label} ==')
         print(json.dumps({'origin': res.get('href') or out['origin'], 'result': res['value']}, sort_keys=True)
-              if res['ok'] else f"Evaluation error: {res['error']}")
+              if res['ok'] else f"Evaluation error: {timeout_note(res['error'], rid)}")
+        if not res['ok'] and hint(res['error']):
+            print(hint(res['error']))
     if out.get('fatal'):
         sys.exit(f"perch: {out['fatal']} (stopped after {len(out['results'])} of {len(scripts)} scripts)")
+    if len(out['results']) < len(scripts):
+        sys.exit(stopped(len(out['results'])))
     sys.exit(0 if all(r['ok'] for r in out['results']) else 1)
 
 cmds = [f'eval -b {base64.b64encode(src.encode()).decode()}' for src in sources]
@@ -343,29 +443,54 @@ if sum(len(c) for c in cmds) > 200_000:
           '(see references/execution.md → Batched evals), or the perch backend', file=sys.stderr)
     sys.exit(1)
 
-try:
-    r = subprocess.run(
-        ['agent-browser', '--cdp', cdp_port(), 'batch', '--json'] + cmds,
-        capture_output=True, text=True
-    )
-except FileNotFoundError:
-    print('agent-browser not found — npm i -g agent-browser && agent-browser install',
-          file=sys.stderr)
-    sys.exit(1)
+def agent_browser_batch(cmds):
+    try:
+        r = subprocess.run(['agent-browser', '--cdp', cdp_port(), 'batch', '--json'] + cmds,
+                           capture_output=True, text=True)
+    except FileNotFoundError:
+        print('agent-browser not found — npm i -g agent-browser && agent-browser install',
+              file=sys.stderr)
+        sys.exit(1)
+    try:
+        return r, json.loads(r.stdout)
+    except ValueError:
+        return r, None
 
-try:
-    results = json.loads(r.stdout)
-except ValueError:
-    results = None
+def stops(res):
+    """--stop ends a batch at a script that failed, returned nothing, or returned {error}, as perch does."""
+    v = res.get('result', {}).get('result') if res.get('success') else None
+    return v is None or isinstance(v, dict) and 'error' in v
 
+if opts['--stop']:
+    # agent-browser runs a whole batch, so run the scripts one at a time and stop where perch would.
+    results = []
+    for c in cmds:
+        r, one = agent_browser_batch([c])
+        if not isinstance(one, list):
+            results = None
+            break
+        results += one
+        if stops(one[0]):
+            break
+else:
+    r, results = agent_browser_batch(cmds)
+
+marked = False
 if isinstance(results, list):
     for (label, _), res in zip(scripts, results):
+        marker = ledger_error((res.get('result') or {}).get('result')) if res.get('success') else None
+        if marker:
+            res, marked = {'success': False, 'error': f'Evaluation error: {marker}'}, True
         print(f'== {label} ==')
         body = res.get('result') if res.get('success') else res.get('error')
         print('' if body is None else body if isinstance(body, str) else json.dumps(body))
+        if not res.get('success') and hint(str(body)):
+            print(hint(str(body)))
 else:
     print(r.stdout, end='')
 
 if r.stderr:
     print(r.stderr, end='', file=sys.stderr)
-sys.exit(r.returncode)
+if isinstance(results, list) and len(results) < len(scripts):
+    sys.exit(stopped(len(results)))
+sys.exit(r.returncode or int(marked))

@@ -170,7 +170,7 @@ Rendered children follow one rule everywhere (inline-text test, run collection, 
 
 ## Assets
 
-Sources: `<img>` (currentSrc), `<picture>` (its `<img>`), `<video>` (poster only), `<canvas>` (`toDataURL` png), inline `<svg>` (outerHTML with explicit width/height attributes set to the computed px; never recursed — the svg node has no children; `<use href="#id">` targets outside the svg are copied into a `<defs>` so the markup stands alone), `background-image: url(...)` on elements and pseudo-elements (first url only; gradients ignored). A `src` ending in `.svg` or a response of `image/svg+xml` → kind `svg` with the text.
+Sources: `<img>` (currentSrc), `<picture>` (its `<img>`), `<video>` (poster only), `<canvas>` (`toDataURL` png), inline `<svg>` (outerHTML with explicit width/height attributes set to the computed px; never recursed — the svg node has no children; `<use href="#id">` targets outside the svg are copied into a `<defs>` so the markup stands alone), `background-image: url(...)` on elements and pseudo-elements (first url only; gradients become gradient fills instead). A `src` ending in `.svg` or a response of `image/svg+xml` → kind `svg` with the text.
 
 Fetch runs in the source tab during the walk: `fetch(url)` → blob → base64, all in parallel, 8 s per asset, 20 s global budget (anything still pending → `error:"timeout"`). An `<img>` whose fetch fails is drawn to a canvas → png (tainted canvas → `error:"tainted"`). Rasters over 4096 px on a side are drawn scaled to 4096 (Figma's `createImage` limit). Assets over 4 MB raw are skipped (`error:"too-large"`); collection stops past 24 MB total (`error:"too-large"`). Bytes that won't decode → `error:"decode"`.
 
@@ -365,4 +365,4 @@ Each drop down a rung is one divergence-report entry.
 - **Mixed content.** Text sitting directly beside block-level siblings is lost — the inline-text test requires every rendered child to be inline, and a container node carries no text. Wrap-free CMS markup (`<div>Hello <p>…</p></div>`) drops the bare "Hello".
 - **`mask-image` icons** arrive as solid boxes (only the element's bg color survives the capture); gradient and `mask` paints are not modelled.
 - **grid / non-flow displays.** Demoted to NONE frames (`grid` / `block`), never guessed into Auto Layout — they land on the cleanup work-list.
-- **Still out:** 3D and non-affine transforms (flagged `transform`, subtree flattened), gradient fills (`bg` is solid-only; gradient `background-image` is ignored), CSS-variable / design-token recovery (computed values only — nothing binds to Figma variables), cross-origin iframes, native AXTree (Semantic layer → upgrade path).
+- **Still out:** 3D and non-affine transforms (flagged `transform`, subtree flattened), CSS-variable / design-token recovery (computed values only — nothing binds to Figma variables), cross-origin iframes, native AXTree (Semantic layer → upgrade path).

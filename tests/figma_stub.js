@@ -13,6 +13,8 @@
 // source's page (CHANGE_TO only from an instance or inside a variant), removing a node drops the
 // reactions and flow starting points that point at it, SET_VARIABLE / CONDITIONAL are refused (free plan), the
 // overlay settings are read-only and ignore assignments, and a page's flowStartingPoints is set whole.
+// figma.on / page.on take handlers (currentpagechange fires on setCurrentPageAsync), and
+// `figma._nodeChange([{node, origin}])` fires a nodechange on the current page, as an edit would.
 //
 //   const { createFigma } = require('./figma_stub');
 //   global.figma = createFigma();
@@ -39,6 +41,11 @@ function createFigma() {
     return s;
   };
   const mixed = Symbol('mixed');
+  // Event handlers by target ('figma' or a page id) and event name: figma.on and page.on.
+  const handlers = {};
+  const on = (target, name, fn) => { (handlers[target + ' ' + name] = handlers[target + ' ' + name] || []).push(fn); };
+  const off = (target, name, fn) => { const h = handlers[target + ' ' + name] || []; if (h.indexOf(fn) !== -1) h.splice(h.indexOf(fn), 1); };
+  const emit = (target, name, ev) => (handlers[target + ' ' + name] || []).slice().forEach((fn) => fn(ev));
   let currentPage = null;
   const isAL = (n) => n && n.layoutMode && n.layoutMode !== 'NONE';
 
@@ -65,6 +72,8 @@ function createFigma() {
 
     const api = {
       appendChild(c) { insert(proxy, c, t.children.length); },
+      on(name, fn) { on(id, name, fn); },
+      off(name, fn) { off(id, name, fn); },
       insertChild(i, c) { insert(proxy, c, i); },
       remove() {
         if (type === 'PAGE' && proxy === currentPage) throw new Error('Cannot remove the current page');
@@ -343,7 +352,14 @@ function createFigma() {
     root,
     get currentPage() { return currentPage; },
     set currentPage(p) { throw new Error('Setting figma.currentPage is not supported; use setCurrentPageAsync'); },
-    async setCurrentPageAsync(p) { if (p.type !== 'PAGE' || p.removed) throw new Error('not a page'); currentPage = p; },
+    async setCurrentPageAsync(p) { if (p.type !== 'PAGE' || p.removed) throw new Error('not a page'); currentPage = p; emit('figma', 'currentpagechange', undefined); },
+    on(name, fn) { on('figma', name, fn); },
+    off(name, fn) { off('figma', name, fn); },
+    // Test hook: a nodechange event on the current page, as a collaborator's (REMOTE) or this
+    // client's (LOCAL) edits fire it. changes: [{node, origin}].
+    _nodeChange(changes) {
+      emit(currentPage.id, 'nodechange', { nodeChanges: changes.map((c) => ({ id: c.node.id, node: c.node, origin: c.origin || 'REMOTE', type: 'PROPERTY_CHANGE' })) });
+    },
     async loadAllPagesAsync() {},
     async saveVersionHistoryAsync(title) { return { id: 'v' + nextId++, title }; },
     createPage() { const p = makeNode('PAGE'); insert(root, p, root._raw.children.length); return p; },

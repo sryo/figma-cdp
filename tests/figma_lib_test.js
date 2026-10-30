@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 4, sha: '9c5df736473414d4' };
+const PIN = { v: 6, sha: '95031cfcafe209cb' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -436,6 +436,10 @@ test('audit: counts every structural problem with capped offending ids', async (
   assert.deepEqual(a.ids.unlinkedProps, [chip.id + ':Label']);
   assert.ok(cardText);
   assert.ok(!('instanceRatio' in a.ids));
+  const lines = a.text.split('\n');
+  assert.equal(lines.length, 10, 'one line per nonzero count');
+  assert.equal(lines[0], 'rawRepeats 3 [' + rows[0].id + ',' + rows[1].id + ',...] -> make one component, replace the copies with instances');
+  assert.ok(lines.includes('groups 1 [' + group.id + '] -> replace the group with an auto-layout frame'), a.text);
 });
 
 test('audit: a clean component-built screen has no problems', async () => {
@@ -451,6 +455,7 @@ test('audit: a clean component-built screen has no problems', async () => {
   for (const k of Object.keys(a.counts)) assert.equal(a.counts[k], 0, k + ': ' + JSON.stringify(a.ids[k]));
   assert.deepEqual(a.shares, { instanceRatio: 0.75, autoLayoutShare: 1 });
   assert.deepEqual(a.ids, {});
+  assert.equal(a.text, '');
   assert.ok(tk);
 });
 
@@ -611,4 +616,61 @@ test('audit: dangling destinations, instances whose own reactions dropped the ho
   assert.deepEqual(a.ids.danglingReactions, [link.id]);
   assert.deepEqual(a.ids.lostHover, [lost.id, emptied.id]);
   assert.deepEqual(a.ids.overlayNotFullSize, [opener.id]);
+});
+
+// ---- presence and stale (figma_run.py --ns)
+
+async function run(fx, ns, v) { const refused = fx.stale(ns); return refused || fx.presence(ns, await v); }
+
+test('presence: notes a write under another worker\'s frame and a component it already made', async () => {
+  const fx = fresh();
+  const a = mkFrame(figma.currentPage, 'A'), b = mkFrame(figma.currentPage, 'B');
+  assert.deepEqual(await run(fx, 'a_', { rootId: a.id, createdNodeIds: [] }), { rootId: a.id, createdNodeIds: [] });
+  const mine = mkFrame(b, 'Row');
+  const ok = await run(fx, 'b_', { rootId: b.id, createdNodeIds: [mine.id] });
+  assert.ok(!('fxNote' in ok), 'disjoint writes get no note');
+  const stray = mkFrame(a, 'Stray');
+  const crossed = await run(fx, 'b_', { rootId: b.id, createdNodeIds: [stray.id] });
+  assert.match(crossed.fxNote, new RegExp("another worker's frame: " + stray.id + ' \\(in ' + a.id + ', a_\\)'));
+  assert.deepEqual(crossed.createdNodeIds, [stray.id], 'the value is kept');
+
+  const c1 = figma.createComponent(); c1.name = 'Chip'; a.appendChild(c1);
+  await run(fx, 'a_', { rootId: a.id, createdNodeIds: [c1.id] });
+  const c2 = figma.createComponent(); c2.name = 'Chip'; b.appendChild(c2);
+  const dup = await run(fx, 'b_', { rootId: b.id, createdNodeIds: [c2.id] });
+  assert.match(dup.fxNote, new RegExp('already made Chip \\(a_ made ' + c1.id + '\\)'));
+  assert.equal(await run(fx, 'b_', 'plain'), 'plain', 'a value without ids passes through');
+});
+
+test('presence: a lapsed claim no longer counts', async () => {
+  const fx = fresh();
+  const a = mkFrame(figma.currentPage, 'A');
+  await run(fx, 'a_', { rootId: a.id });
+  window.__fxPresence.claims[a.id].ts -= 600001;
+  const stray = mkFrame(a, 'Stray');
+  assert.ok(!('fxNote' in await run(fx, 'b_', { createdNodeIds: [stray.id] })));
+});
+
+test('stale: a collaborator\'s edit in a claimed frame refuses the next eval once', async () => {
+  const fx = fresh();
+  const a = mkFrame(figma.currentPage, 'A'), other = mkFrame(figma.currentPage, 'Other');
+  const row = mkFrame(a, 'Row');
+  await run(fx, 'a_', { rootId: a.id });
+  figma._nodeChange([{ node: other }, { node: row, origin: 'LOCAL' }]);
+  assert.equal(fx.stale('a_'), null, 'edits outside the frame, and this client\'s own, pass');
+  figma._nodeChange([{ node: row }]);
+  const r = fx.stale('a_');
+  assert.deepEqual([r.applied, r.reason, r.changed], [false, 'stale', [row.id]]);
+  assert.equal(fx.stale('a_'), null, 'the re-read goes through');
+  assert.equal(fx.stale('b_'), null, 'a worker without a claim is never refused');
+});
+
+test('stale: keeps watching after the current page changes', async () => {
+  const fx = fresh();
+  const p2 = figma.createPage();
+  await figma.setCurrentPageAsync(p2);
+  const a = mkFrame(p2, 'A');
+  await run(fx, 'a_', { rootId: a.id });
+  figma._nodeChange([{ node: a }]);
+  assert.equal(fx.stale('a_').reason, 'stale');
 });

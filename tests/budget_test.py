@@ -17,8 +17,8 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 5764,
-    'figma-worker.md': 5312,
+    'SKILL.md': 5943,
+    'figma-worker.md': 5928,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -126,10 +126,10 @@ class Docs(unittest.TestCase):
 
     def test_audit_gates_only_what_the_session_built(self):
         gate = next(l for l in docs()['SKILL.md'].splitlines() if 'Final gate' in l)
-        self.assertRegex(gate, r'(?i)all 0[^.]*(you|it) (built|created|added)', 'gate demands all-0 counts on an edit too')
+        self.assertRegex(gate, r'(?i)(all 0|empty)[^.]*(you|it) (built|created|added)', 'gate demands a clean audit on an edit too')
         worker = docs()['figma-worker.md']
         fix = next(l for l in worker.splitlines() if l.startswith('Fix ONLY'))
-        self.assertRegex(fix, r'(?i)audit counts on nodes you (built|created)', 'worker chases counts it did not cause')
+        self.assertRegex(fix, r'(?i)audit (counts|lines) on nodes you (built|created)', 'worker chases counts it did not cause')
 
     def test_worker_template_has_the_planning_slots_and_assumptions(self):
         text = docs()['figma-worker.md']

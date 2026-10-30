@@ -108,14 +108,14 @@ class PerchBackend(Harness):
                             '  return { pages: figma.root.children.map(p => p.name), n };\n})()'))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), {'pages': ['Page 1', 'Page 2'], 'n': 2})
-        self.assertIn('\n  "pages"', r.stdout)
+        self.assertEqual(r.stdout.count('\n'), 1, 'one line')
 
-    def test_output_matches_agent_browser_print(self):
+    def test_output_is_compact_json_with_sorted_keys(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", '
                             'tiny: 1e-7, big: 1e21, huge: 12345678901234567890, f: 0.5 })'))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout, '{\n  "a": {\n    "c": {},\n    "d": []\n  },\n  "big": 1e+21,\n  "f": 0.5,\n'
-                         '  "huge": 1.2345678901234567e+19,\n  "s": "ñ 😀",\n  "tiny": 1e-7,\n  "z": 1\n}\n')
+        self.assertEqual(r.stdout, '{"a":{"c":{},"d":[]},"big":1e+21,"f":0.5,'
+                         '"huge":1.2345678901234567e+19,"s":"ñ 😀","tiny":1e-7,"z":1}\n')
 
     def test_batch_output_matches_agent_browser_print(self):
         r = self.run_helper('figma_batch_run.py', self.js('a.js', '({ z: 1, a: ["ñ", 1e-7] })'))
@@ -132,6 +132,19 @@ class PerchBackend(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertTrue(r.stderr.startswith('✗ Evaluation error: Error: Node not found'), r.stderr)
         self.assertNotIn('open and close', r.stderr)
+        self.assertNotIn('hint:', r.stderr)
+
+    def test_a_known_plugin_api_error_gets_its_fix(self):
+        r = self.run_helper('figma_run.py', '-e', 'throw new Error("in set_layoutSizingHorizontal: '
+                            'FILL can only be set on children of auto-layout frames")')
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stderr.splitlines()[-1], 'hint: appendChild into the auto-layout parent first, '
+                         'then set layoutSizing* = "FILL" (gotchas #1)')
+
+    def test_batch_prints_the_fix_under_the_error(self):
+        r = self.run_helper('figma_batch_run.py', '-e', 'throw new Error("Cannot write to node with unloaded font")')
+        self.assertEqual(r.returncode, 1)
+        self.assertTrue(r.stdout.splitlines()[-1].startswith('hint: await figma.loadFontAsync'), r.stdout)
 
     def test_rejected_promise_reports_evaluation_error(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '(async () => { throw new TypeError("bad"); })()'))
@@ -162,7 +175,7 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', '-e', 'figma.currentPage.name')
         self.assertEqual((r.returncode, r.stdout), (0, '"Page 1"\n'), r.stderr)
         r = self.run_helper('figma_run.py', '--js', '({ n: 1 + 1 })')
-        self.assertEqual((r.returncode, r.stdout), (0, '{\n  "n": 2\n}\n'), r.stderr)
+        self.assertEqual((r.returncode, r.stdout), (0, '{"n":2}\n'), r.stderr)
 
     def test_script_from_stdin(self):
         r = self.run_helper('figma_run.py', '-', stdin='figma.root.children.length')
@@ -402,6 +415,20 @@ class PerchBackend(Harness):
         self.assertEqual(len(self.calls('list_tabs')), 1)
         self.assertEqual(len(self.calls('eval_js')), 3)
 
+    def test_batch_stop_ends_at_a_failed_or_error_result(self):
+        for second in ('throw new Error("mid")', '({ error: "no parent" })', 'void 0'):
+            open(self.log, 'w').close()
+            r = self.run_helper('figma_batch_run.py', '--stop', '-e', '1', '-e', second, '-e', '3')
+            self.assertEqual(r.returncode, 1, second)
+            self.assertIn('--stop: script 2 of 3', r.stderr)
+            self.assertNotIn('== -e[3] ==', r.stdout)
+            self.assertEqual(len(self.calls('eval_js')), 2, second)
+
+    def test_batch_stop_runs_everything_when_all_succeed(self):
+        r = self.run_helper('figma_batch_run.py', '--stop', '-e', '1', '-e', '2')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.calls('eval_js')), 2)
+
     def test_batch_all_ok_exits_zero(self):
         r = self.run_helper('figma_batch_run.py', self.js('1.js', '1'), self.js('2.js', '2'))
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -433,7 +460,7 @@ class PerchBackend(Harness):
 
     def test_lib_keeps_the_scripts_result(self):
         for src, out in (('var a = 1;', 'null\n'), ('figma.currentPage.name', '"Page 1"\n'),
-                         ('(async () => ({ n: 2 }))()', '{\n  "n": 2\n}\n'),
+                         ('(async () => ({ n: 2 }))()', '{"n":2}\n'),
                          ('await 0;\nreturn typeof __fx.frame', None)):
             plain = self.run_helper('figma_run.py', self.js('a.js', src))
             lib = self.run_helper('figma_run.py', '--lib', self.js('a.js', src))
@@ -477,8 +504,10 @@ class PerchBackend(Harness):
         for args in (('figma_run.py', '--lib', a), ('figma_batch_run.py', '--lib', a, b)):
             self.assertEqual(self.run_helper(*args).returncode, 0)
             self.assertEqual(self.run_helper(*args, **cdp).returncode, 0)
+        # Each call picks its own request id; the rest of the source is the same.
+        rid = lambda src: re.sub(r'\}\)\("[0-9a-f]{12}", ', '})("<rid>", ', src)
         with open(log) as f:
-            self.assertEqual([json.loads(l)['src'] for l in f], self.sent_sources())
+            self.assertEqual([rid(json.loads(l)['src']) for l in f], [rid(s) for s in self.sent_sources()])
 
     # ---- backend choice
 
@@ -540,6 +569,21 @@ class SameOutputOnBothBackends(Harness):
                 return re.search(r"AUTO_ASYNC = r'''(.*?)'''", f.read(), re.S).group(1)
         self.assertEqual(wrapper('figma_run.py'), wrapper('figma_batch_run.py'))
 
+    def test_both_helpers_share_the_ledger_and_hints(self):
+        def defs(name):
+            with open(os.path.join(ROOT, name)) as f:
+                tree = ast.parse(f.read())
+            out = {}
+            for d in tree.body:
+                if isinstance(d, ast.FunctionDef):
+                    out[d.name] = ast.dump(d)
+                elif isinstance(d, ast.Assign) and isinstance(d.targets[0], ast.Name):
+                    out[d.targets[0].id] = ast.dump(d.value)
+            return out
+        run, batch = defs('figma_run.py'), defs('figma_batch_run.py')
+        for name in ('RUN', 'HINTS', 'hint', 'program', 'recover', 'ledger_error', 'timeout_note', 'perch', 'parse_args'):
+            self.assertEqual(run[name], batch[name], name)
+
     def test_figma_run(self):
         self.both('figma_run.py', '-e', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", tiny: 1e-7, big: 1e21, f: 0.5 })')
         self.both('figma_run.py', self.js('a.js', 'const n = 2;\n(async () => ({ n }))()'))
@@ -548,6 +592,7 @@ class SameOutputOnBothBackends(Harness):
         self.both('figma_run.py', '-e', 'void 0')
         self.both('figma_run.py', '-e', 'await 0;\nthrow new Error("late")')
         self.both('figma_run.py', '-e', 'throw new Error("Node not found")')
+        self.both('figma_run.py', '-e', 'throw new Error("The node with id 1:2 does not exist")')
 
     def test_lib(self):
         self.both('figma_run.py', '--lib', '-e', '[typeof __fx.audit, __fx.v > 0]')
@@ -558,6 +603,9 @@ class SameOutputOnBothBackends(Harness):
                   '-e', 'const a = 2;\nreturn __batchState.n + a', '-', stdin='await 0;\nreturn [1e-7, null]')
         self.both('figma_batch_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
         self.both('figma_batch_run.py', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
+        self.both('figma_batch_run.py', '-e', '1', '-e', 'throw new Error("Cannot read properties of null")')
+        self.both('figma_batch_run.py', '--stop', '-e', '1', '-e', '({ error: "x" })', '-e', '3')
+        self.both('figma_batch_run.py', '--stop', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
         self.both('figma_batch_run.py', '-e', 'globalThis.__m = 1;\nawait (Promise.resolve());\n__m', '-e', '__m',
                   '-e', 'await 0;\nreturn )', '-e', 'const x = )')
 
@@ -799,11 +847,142 @@ class PerchDaemon(Harness):
         r = self.run_helper('figma_run.py', '--lib', self.js('b.js', 'window.__fx.mark'))
         self.assertEqual((r.returncode, r.stdout), (0, '7\n'), r.stderr)
 
-    def test_a_call_the_daemon_dropped_is_not_rerun(self):
+    def test_a_dropped_call_is_resent_once_with_the_same_request(self):
+        # The stub's page dies with its daemon, so the resend runs again here; in a browser the
+        # page's ledger answers it instead (Ledger below).
         r = self.run_helper('figma_run.py', self.js('a.js', 'process.exit(3)'))
         self.assertEqual(r.returncode, 1)
-        self.assertIn('perch_daemon: the daemon dropped the call', r.stderr)
-        self.assertEqual(len(self.calls('eval_js')), 1)
+        self.assertIn('perch_daemon: the daemon dropped the call twice', r.stderr)
+        first, second = [c['args']['script'] for c in self.calls('eval_js')]
+        self.assertEqual(first, second)
+
+
+class Ledger(Harness):
+    """The page's ledger: a lost reply is asked for again without running the script twice, a
+    timed-out script's result is read back with --recover, and --ns runs scripts as a worker.
+    The stub page lives in its daemon, so a proxy in front of that daemon drops the replies."""
+
+    def setUp(self):
+        super().setUp()
+        self.proxy = os.path.join(self.tmp.name, 'p.sock')
+        self.modes = []
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind(self.proxy)
+        self.server.listen(8)
+        threading.Thread(target=self.serve, daemon=True).start()
+        self.assertEqual(self.run_helper('figma_run.py', '-e', '0').returncode, 0)  # starts the daemon
+
+    def tearDown(self):
+        self.server.close()
+        super().tearDown()
+
+    def serve(self):
+        while True:
+            try:
+                client, _ = self.server.accept()
+            except OSError:
+                return
+            threading.Thread(target=self.relay, args=(client, self.modes.pop(0) if self.modes else 'pass'), daemon=True).start()
+
+    def relay(self, client, mode):
+        """pass: forward the call and its reply. after: forward it, drop the reply. early: forward
+        it and drop the connection at once. before: drop it unsent."""
+        up = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        up.connect(self.sock)
+        uf, cf = up.makefile('rb'), client.makefile('rb')
+        client.sendall(uf.readline())
+        req = cf.readline()
+        if mode != 'before':
+            up.sendall(req)
+        if mode in ('pass', 'after'):
+            reply = uf.readline()
+            if mode == 'pass':
+                client.sendall(reply)
+        client.close()
+        if mode != 'early':
+            up.close()
+
+    def via_proxy(self, *args, modes=()):
+        self.modes[:] = list(modes)
+        return self.run_helper('figma_run.py', *args, PERCH_STUB_FIGMA='full', FIGMA_PERCH_SOCK=self.proxy)
+
+    def run_helper(self, script, *args, stdin=None, **env):
+        return super().run_helper(script, *args, stdin=stdin, **{'PERCH_STUB_FIGMA': 'full', **env})
+
+    COUNT = 'globalThis.__ran = (globalThis.__ran || 0) + 1; ({ ran: __ran })'
+
+    def test_a_reply_lost_after_the_run_is_read_back_not_rerun(self):
+        r = self.via_proxy('-e', self.COUNT, modes=['after'])
+        self.assertEqual((r.returncode, r.stdout), (0, '{"ran":1}\n'), r.stderr)
+        first, second = [c['args']['script'] for c in self.calls('eval_js')][-2:]
+        self.assertEqual(first, second, 'the resend is the same request')
+        self.assertEqual(self.run_helper('figma_run.py', '-e', '__ran').stdout, '1\n')
+
+    def test_a_call_lost_before_the_run_runs_once_on_the_resend(self):
+        r = self.via_proxy('-e', self.COUNT, modes=['before'])
+        self.assertEqual((r.returncode, r.stdout), (0, '{"ran":1}\n'), r.stderr)
+
+    def test_a_thrown_error_is_answered_again_from_the_ledger(self):
+        r = self.via_proxy('-e', self.COUNT + ';\nthrow new Error("boom")', modes=['after'])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('Error: boom', r.stderr)
+        self.assertEqual(self.run_helper('figma_run.py', '-e', '__ran').stdout, '1\n')
+
+    def test_a_script_still_running_says_how_to_recover_it(self):
+        r = self.via_proxy('-e', 'await new Promise((r) => setTimeout(r, 800)); return 7', modes=['early'])
+        self.assertEqual(r.returncode, 1)
+        rid = re.search(r'request ([0-9a-f]{12}) is still running', r.stderr).group(1)
+        self.assertIn(f'figma_run.py --recover {rid}', r.stderr)
+        time.sleep(1.2)
+        rec = self.run_helper('figma_run.py', '--recover', rid)
+        self.assertEqual((rec.returncode, rec.stdout), (0, '7\n'), rec.stderr)
+
+    def test_a_timed_out_script_is_recovered_once_it_finishes(self):
+        r = self.run_helper('figma_run.py', '--timeout', '1', '-e', 'await new Promise((r) => setTimeout(r, 1500)); return "late"')
+        self.assertEqual(r.returncode, 1)
+        rid = re.search(r'--recover ([0-9a-f]{12})', r.stderr).group(1)
+        early = self.run_helper('figma_run.py', '--recover', rid)
+        self.assertIn('still running', early.stderr)
+        time.sleep(1)
+        rec = self.run_helper('figma_run.py', '--recover', rid)
+        self.assertEqual((rec.returncode, rec.stdout), (0, '"late"\n'), rec.stderr)
+
+    def test_recover_an_unknown_request(self):
+        r = self.run_helper('figma_run.py', '--recover', 'abcdefabcdef')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no request abcdefabcdef in this tab', r.stderr)
+
+    def test_recover_takes_no_script(self):
+        r = self.run_helper('figma_run.py', '--recover', 'abcdefabcdef', '-e', '1')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('--recover alone', r.stderr)
+
+    def test_ns_notes_a_write_inside_another_workers_frame(self):
+        mk = ('const f = figma.createFrame(); f.name = %s; %s'
+              'return { rootId: %s, createdNodeIds: [f.id] }')
+        a = json.loads(self.run_helper('figma_run.py', '--lib', '--ns', 'a_', '-e', mk % ('"A"', '', 'f.id')).stdout)
+        r = self.run_helper('figma_run.py', '--lib', '--ns', 'b_', '-e',
+                            mk % ('"Stray"', f'(await figma.getNodeByIdAsync("{a["rootId"]}")).appendChild(f); ', '"0:99"'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("another worker's frame", json.loads(r.stdout)['fxNote'])
+        plain = self.run_helper('figma_run.py', '--lib', '-e', mk % ('"Stray2"', f'(await figma.getNodeByIdAsync("{a["rootId"]}")).appendChild(f); ', '"0:98"'))
+        self.assertNotIn('fxNote', json.loads(plain.stdout), 'no --ns, no presence')
+
+    def test_ns_refuses_a_script_after_a_collaborator_edits_the_frame(self):
+        a = json.loads(self.run_helper('figma_run.py', '--lib', '--ns', 'a_', '-e',
+                                       'const f = figma.createFrame(); return { rootId: f.id }').stdout)
+        self.run_helper('figma_run.py', '-e', f'figma._nodeChange([{{ node: await figma.getNodeByIdAsync("{a["rootId"]}") }}]); 0')
+        r = self.run_helper('figma_run.py', '--lib', '--ns', 'a_', '-e', 'globalThis.__ran2 = 1; 1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout)['reason'], 'stale')
+        self.assertEqual(self.run_helper('figma_run.py', '-e', 'typeof __ran2').stdout, '"undefined"\n', 'nothing ran')
+        again = self.run_helper('figma_run.py', '--lib', '--ns', 'a_', '-e', '2')
+        self.assertEqual(again.stdout, '2\n')
+
+    def test_batch_ns_and_ledger(self):
+        r = self.run_helper('figma_batch_run.py', '--lib', '--ns', 'a_', '-e', self.COUNT, '-e', '__ran')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('"result": {"ran": 1}', r.stdout)
 
 
 PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='

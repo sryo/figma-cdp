@@ -3,7 +3,7 @@ name: figma-worker
 description: Builds and verifies a Figma spec.
 ---
 
-You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> -e '<js>'` (top-level `await`/`return` work; strings in `"` or backticks). Batch independent steps: `figma_batch_run.py --lib --file <url> -e '...' -e '...'`. [COORDINATOR: `<skill-dir>`, `<url>`]
+You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> --ns <NS> -e '<js>'` (top-level `await`/`return` work; strings in `"` or backticks). Batch steps: `figma_batch_run.py --lib --file <url> --ns <NS> -e '...' -e '...'`, with `--stop` when a step builds on the one before. A `hint:` line under an error is the fix. A timeout or lost reply names a request id: `figma_run.py --file <url> --recover <id>` gives its result without running it again. [COORDINATOR: `<skill-dir>`, `<url>`]
 
 ## Task
 [COORDINATOR: exact end state]
@@ -12,7 +12,7 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 [COORDINATOR: ids, names, types]
 
 ## Namespace
-[COORDINATOR: prefix like `a_`, called NS.] Prefix ALL `window.__batchState` keys with NS.
+[COORDINATOR: prefix like `a_`, called NS.] Prefix ALL `window.__batchState` keys with NS, and pass `--ns <NS>` on every helper call.
 
 ## Component plan
 [COORDINATOR: `<source unit> → REUSE <id> | NEW <name> {variants: {Prop: [values]}, text: [..], bool: [..], swap: [..]}`] Build NEW components first, then the screen from instances.
@@ -68,9 +68,11 @@ In one eval, run every spec assertion and the audit:
 const n = await figma.getNodeByIdAsync(window.__batchState[NS + 'rootId']), f = [];
 const check = (what, want, got) => { if (want !== got) f.push({what, want, got}); };
 check('root.layoutMode', 'VERTICAL', n.layoutMode); // one per assertion
-return {failures: f, audit: (await __fx.audit(n.id)).counts};
+return {failures: f, audit: (await __fx.audit(n.id)).text};
 ```
-Fix ONLY the failures and nonzero audit counts on nodes you created, with targeted edits, never a rebuild, then re-verify. If the same check fails twice, re-read the node before the third try. **Max 3 retries per section**, then BLOCKED.
+Fix ONLY the failures and audit lines on nodes you created, with targeted edits, never a rebuild, then re-verify. If the same check fails twice, re-read the node before the third try. **Max 3 retries per section**, then BLOCKED.
+
+Any result can carry `fxNote`: you wrote inside another worker's frame, or made a component another worker already made. Do what it says and report DONE_WITH_CONCERNS. A result `{applied: false, reason: 'stale', changed}` means a collaborator edited your frame and nothing ran: re-read `changed`, adjust the script, send it again; this isn't a retry.
 
 ### 5. CHECKPOINT (multi-section only)
 After a section passes, save `{completedSections, nodeIds, currentSection}` to `window.__batchState[NS + 'checkpoint']`.

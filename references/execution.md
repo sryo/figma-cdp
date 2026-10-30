@@ -19,12 +19,12 @@ await figma.loadFontAsync({ family: "Inter", style: "Regular" });
 return { name: page.name, frames: page.children.length };'
 ```
 
-- **Result.** A plain script returns its completion value (its last expression), as CDP's `Runtime.evaluate` does. A script with top-level `await` or `return` runs as an async function body instead, so its result is what it `return`s; no IIFE needed.
+- **Result.** Printed as one line of JSON, keys sorted. A plain script returns its completion value (its last expression), as CDP's `Runtime.evaluate` does. A script with top-level `await` or `return` runs as an async function body instead, so its result is what it `return`s; no IIFE needed.
 - **Scope.** Each script's top-level `const`/`let` stay in that script; share state across evals through `window.__batchState` (below).
 - **Quoting.** The script sits in single quotes, so write JS strings with `"` or backticks; a `'` ends the shell string.
 - **Other sources.** A path to a `.js` file (written with the Write tool) works the same, and `-` reads the script from stdin.
 - **File.** `--file <figma-url-or-key>` picks the tab in Mode P (required when several Figma files are open); `FIGMA_FILE` is its default.
-- **Timeout.** In Mode P a script that awaits gets 120s, or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file.
+- **Timeout.** In Mode P a script that awaits gets 120s, or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file. A script that times out keeps running; the error names `--recover <id>` for its result (Lost replies and timeouts below).
 
 In Mode A/B the helper base64-encodes the script for `agent-browser eval -b` (port: `FIGMA_CDP_PORT`, else `DevToolsActivePort`, else 9222); in Mode P it runs through perch.
 
@@ -36,7 +36,7 @@ For ≥3 sequential evals with no intermediate user feedback or state inspection
 python3 <skill-dir>/figma_batch_run.py -e 'window.__batchState = { ids: [] }; return "ready"' /tmp/step2.js -e 'return window.__batchState.ids'
 ```
 
-Each result prints under a `== <label> ==` header (the file's basename, `-e[n]` for the nth inline script, `stdin`) as `{"origin": ..., "result": ...}`, or `Evaluation error: ...`. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` invocations.
+Each result prints under a `== <label> ==` header (the file's basename, `-e[n]` for the nth inline script, `stdin`) as `{"origin": ..., "result": ...}`, or `Evaluation error: ...` (with a `hint:` line under a known error). `--stop` ends the batch at the first script that throws, returns nothing or returns `{error}`; the rest don't run and the exit code is 1. Use it whenever a step builds on the one before. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` invocations.
 
 For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), switch to `agent-browser batch`'s stdin JSON mode directly — see `agent-browser batch --help`; Mode P has no such cap.
 
@@ -58,7 +58,7 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 | `__fx.react(ref, [{on, do}], {append})` | sets reactions: `on` `'click'`\|`'hover'`\|`'press'`\|`{key: 27}`\|`{after: ms}`; `do` `'back'`\|`'close'`\|`{to, nav: 'navigate'\|'overlay'\|'swap'\|'change'\|'scroll', anim: 'smart'\|'dissolve'\|'instant'\|'push-left', ms}`. Replaces the list; `append` replaces only the triggers named: `references/prototyping.md` |
 | `__fx.overlayFrame({base, name, items, scrim, page})` | an overlay that opens in place: base-sized, see-through, `items` (`{node, x, y}`) at their place over a Scrim that closes, Esc closes |
 | `__fx.flow(page, frame, name)` | a named flow starting point on the page, one per frame and name |
-| `__fx.audit(rootId, {limit})` | structural problems under a node or page: `{counts, shares, ids}` (up to 5 ids each) |
+| `__fx.audit(rootId, {limit})` | structural problems under a node or page: `{counts, shares, ids, text}` (up to 5 ids each); `text` is empty when clean |
 
 `frame` and `text` take `fill` / `stroke` / `color` the way `bindFill` does, so a source hex lands bound when the file has a matching token.
 
@@ -69,7 +69,7 @@ await __fx.instance('Button', { Variant: 'Primary', Label: 'Sign in' }, { parent
 return __fx.audit(s.id);
 ```
 
-`audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references), `danglingReactions` (a destination that doesn't resolve), `lostHover` (an instance whose own reactions dropped its main component's hover), `overlayNotFullSize` (an overlay smaller than the screen that opens it). `shares` holds `instanceRatio` and `autoLayoutShare`, higher is better.
+`audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references), `danglingReactions` (a destination that doesn't resolve), `lostHover` (an instance whose own reactions dropped its main component's hover), `overlayNotFullSize` (an overlay smaller than the screen that opens it). `shares` holds `instanceRatio` and `autoLayoutShare`, higher is better. `text` has one line per nonzero count: the key, the count, its ids (`...` when more were left out) and the fix, e.g. `groups 1 [12:4] -> replace the group with an auto-layout frame`. Return `.text` when you only need what to fix.
 
 ## State between evals
 
@@ -137,8 +137,21 @@ When the coordinator launches parallel workers:
 
 Coordinator-side dispatch duties (pre-creating target frames, distributing component IDs) live in `SKILL.md`. Workers:
 - Call `figma.commitUndo()` after completing each logical unit (sets an undo checkpoint)
-- Between operations, read `window.__figmaEvents` via your own cursor (see Event listener injection below — the coordinator injects the listeners; never drain the buffer) to detect external changes (user moved the selection, another worker landed a change) and bail or re-read state if so. Bail = report **BLOCKED** (or **DONE_WITH_CONCERNS** if the unit completed), including what changed
 - After each `appendChild`, verify `child.parent.id === expectedParent.id` — silent reparenting is a real failure mode in long async scripts (see `gotchas.md` #14)
+
+### Concurrency safety (`--ns`)
+
+Workers in one tab can't see each other's writes as they happen, so the helpers watch for them. A worker passes `--ns <NS>` on every call; the coordinator doesn't set anything up.
+
+- **Claims.** The `rootId` a worker's script returns becomes that worker's frame. A claim lapses after 10 idle minutes.
+- **Notes after a write.** When a `--ns` script returns `createdNodeIds` / `mutatedNodeIds` under a frame another worker claimed, or creates a component whose name another worker already used, its value gains `fxNote` saying what crossed. The write stays; the worker reports DONE_WITH_CONCERNS and leaves those nodes alone.
+- **Refusal before a write.** When a collaborator in another client (a REMOTE change on the current page) edited a worker's frame since its last eval, its next `--ns` script doesn't run and returns `{applied: false, reason: 'stale', changed: [ids], note}`. The worker re-reads `changed` and sends an adjusted script; the eval after a refusal always runs. Edits made in this same tab (by the user or another worker) are LOCAL and can't be told apart, so they never refuse.
+
+`__fx.presence(ns, value)` and `__fx.stale(ns)` do this; the helpers call them for you.
+
+### Lost replies and timeouts
+
+Each script runs under a request id in the page's ledger (`window.__fxRuns`, the last 50). When the daemon drops a reply, the helper resends the same request once: a script that finished answers from the ledger, one that never ran runs now, and nothing runs twice. A timeout, or a script still running at the resend, names its id: `figma_run.py --file <url> --recover <id>` prints its result once it finishes (results over 32 KB aren't kept; read the state instead).
 
 ### When to use sessions vs shared state
 
@@ -149,78 +162,14 @@ For same-file parallel work, `window.__batchState` with namespaced keys is corre
 
 ## Error handling
 
-`agent-browser eval` exits with code 1 on error and prints the error to stderr.
+A script that throws exits with code 1 and prints the error to stderr, the same on both backends. When the message is a known Plugin API error, a `hint:` line under it names the fix and the gotcha behind it:
 
-Example error output:
 ```
-✗ Evaluation error: Error: Node not found
-```
-
-Check exit codes to detect failures in multi-step operations.
-
-## JSON output
-
-Use `--json` for structured output with success/error metadata:
-
-```bash
-agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" eval "figma.currentPage.name" --json
+✗ Evaluation error: Error: in set_layoutSizingHorizontal: FILL can only be set on children of auto-layout frames
+hint: appendChild into the auto-layout parent first, then set layoutSizing* = "FILL" (gotchas #1)
 ```
 
-Returns:
-```json
-{"success": true, "data": {"origin": "...", "result": "Page 1"}, "error": null}
-```
-
-## Event listener injection
-
-The COORDINATOR injects the listeners once during recon; workers only read.
-
-```js
-(async function() {
-  if (!window.__figmaEvents) {
-    var MAX = 100;
-    window.__figmaEvents = [];
-    window.__figmaEventsShed = 0; // total entries trimmed off the front of the ring
-    function push(e) {
-      window.__figmaEvents.push(e);
-      if (window.__figmaEvents.length > MAX) {
-        window.__figmaEvents.shift();
-        window.__figmaEventsShed++;
-      }
-    }
-    figma.on('selectionchange', function() {
-      var sel = figma.currentPage.selection.map(function(n) {
-        return {id: n.id, name: n.name, type: n.type};
-      });
-      push({type: 'selection', nodes: sel, ts: Date.now()});
-    });
-    figma.on('currentpagechange', function() {
-      push({type: 'page', name: figma.currentPage.name, ts: Date.now()});
-    });
-    figma.on('documentchange', function(e) {
-      push({type: 'docchange', count: e.documentChanges.length, ts: Date.now()});
-    });
-  }
-  return {ok: true, msg: 'event listeners active'};
-})()
-```
-
-Reading is non-destructive: never `splice(0)` the buffer — with multiple consumers, a drain steals everyone else's events. Each consumer keeps its own cursor: a position in the monotonically-growing virtual stream (`__figmaEventsShed + buffer length`). The ring sheds oldest entries, so convert the cursor to a buffer index by subtracting the shed count.
-
-```js
-(function() {
-  var NS = 'a_'; // this consumer's namespace prefix
-  window.__batchState = window.__batchState || {};
-  var cursor = window.__batchState[NS + 'evCursor'] || 0;
-  var shed = window.__figmaEventsShed || 0;
-  var events = window.__figmaEvents.slice(Math.max(cursor - shed, 0));
-  var missed = Math.max(shed - cursor, 0); // trimmed before this consumer read them
-  window.__batchState[NS + 'evCursor'] = shed + window.__figmaEvents.length;
-  return {events: events, missed: missed};
-})()
-```
-
-Poll at 1-2s intervals, not faster — each `agent-browser` invocation cold-starts the CLI (~200ms). The ring buffer holds 100 events, so 1s polling tolerates 100 events/sec before `missed` goes nonzero.
+Apply the hint before anything else; it covers unloaded fonts, FILL/HUG outside auto layout, stale or deleted nodes, dynamic-page access, instance children and null lookups.
 
 ## Large operations
 
@@ -242,7 +191,7 @@ for (var i = 0; i < nodes.length; i += BATCH) {
 
 When an eval fails mid-loop, follow this pattern:
 
-1. **Read the error**: `agent-browser` exits with code 1 and prints the error to stderr
+1. **Read the error**: the helper exits with code 1 and prints the error, and a `hint:` line when it knows the fix (Error handling above)
 2. **Don't retry blindly**: read the current state first to understand what succeeded
 3. **Return errors, don't throw**: see `references/gotchas.md` #7.
 
