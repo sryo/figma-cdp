@@ -967,6 +967,7 @@
         if (image) entry.image = image;
       }
       entry.role = role;
+      if (el.classList && el.classList.length) entry.cls = [].slice.call(el.classList, 0, 16);
       entry.axName = axNameOf(el, role, combined);
       entry.interactable = interactableOf(el, tag, role, cs.cursor);
       if (level != null) entry.level = level;

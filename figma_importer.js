@@ -331,7 +331,13 @@
     button: 'button', a: 'link', input: 'input', textarea: 'input',
     select: 'input', nav: 'nav', img: 'img'
   };
+  // A ".name" key maps the elements whose class list has that class (the page's own
+  // components), ahead of role and tag; the first listed class key that matches wins.
+  var CLASS_KEYS = Object.keys(components).filter(function (k) { return k.charAt(0) === '.' && k.length > 1; });
   function categoryOf(n) {
+    if (n.cls && CLASS_KEYS.length) {
+      for (var k = 0; k < CLASS_KEYS.length; k++) if (n.cls.indexOf(CLASS_KEYS[k].slice(1)) !== -1) return CLASS_KEYS[k];
+    }
     if (n.role && ROLE_CATEGORY[n.role]) return ROLE_CATEGORY[n.role];
     if (n.tag && TAG_CATEGORY[n.tag]) return TAG_CATEGORY[n.tag];
     return null;

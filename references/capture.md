@@ -85,6 +85,7 @@ nodes    [ node ]               flat, DFS-preorder, root i=0 (documentElement)
 | `styles` | object | **sparse** — keys omitted at their default (table below) |
 | `image` | `{asset, mode}` | when the node renders an image: asset key + `mode` ∈ FILL \| FIT \| TILE. `<img>`/`<video>`: object-fit contain/scale-down → FIT, else FILL. background-image: background-size contain → FIT, cover → FILL, otherwise repeat ≠ no-repeat → TILE else FILL. canvas/svg → FILL. A text node carries `image` only from `background-image`; the importer paints it on the text's wrapper frame |
 | `role` | string \| null | explicit ARIA `role` attribute (first token, trimmed) if present, else IMPLICIT-ROLE by tag (see Semantic layer); unknown tag → `null` (NOT `"generic"`) |
+| `cls` | string[] (absent when none) | the element's class list, first 16; matched by `--components` class keys |
 | `axName` | string \| null | best-effort accessible name, ≤80 chars whitespace-collapsed; resolution order aria-label → aria-labelledby joined text → (form controls) button `value` / `<label for>` / wrapping `<label>` / `placeholder` → alt → title → (heading/button/link only) trimmed own text → null |
 | `interactable` | bool | conservative true when tag ∈ {button, select, textarea}; OR `a[href]`; OR `input` with `type != hidden`; OR role ∈ {button, link, textbox, combobox, checkbox, radio, menuitem, tab}; OR `tabindex>=0`; OR computed `cursor === 'pointer'`; else false |
 | `level` | int (1..6) | **heading nodes only** — h1→1 … h6→6. Heading depth rides here, NOT encoded in `role` (which is the bare string `"heading"`) |
@@ -254,6 +255,8 @@ The importer derives a node's category from `role` first, else `tag`:
 | `banner` | banner | — |
 | `contentinfo` | contentinfo | — |
 | `card` | region | — |
+
+A key that starts with `.` is a class key: `{".lrow": "1:2", ".card": "1:9"}` maps every element whose class list (`cls`) has that class, ahead of the role and tag categories, so a page's own components (a row, a card, a tile) come in as instances of the library's. When an element has several mapped classes, the first listed key wins.
 
 A node instantiates **only** on an exact category hit present in the map: the importer does `figma.getNodeByIdAsync(componentId)` → `createInstance()`, resizes to the captured `rect`, sets the instance's primary text layer (`findOne(c => c.type === 'TEXT')`) from the node text, and names it (source-ref below). No match, or no component map → it falls through to the frame logic (conservative — no guessed instantiation). Instance subtrees are structurally frozen, so a captured child of a node that became an instance is placed at its absolute rect rather than appended into the frozen instance.
 
