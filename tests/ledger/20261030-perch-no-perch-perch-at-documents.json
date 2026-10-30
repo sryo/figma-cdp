@@ -1,0 +1,25 @@
+{
+  "case": "20261030-perch-no-perch-perch-at-documents",
+  "class": "helper-bug",
+  "signature": "perch: no_perch: perch at ~/documents/perch has no eval_js world:<s>; update perch",
+  "symptom": "perch: no_perch: perch at ~/Documents/perch has no eval_js world:\"main\"; update perch",
+  "status": "merged",
+  "reason": "helper-bug, though triage proposed env from the perch error code: perch 5725447 renamed the buildMainKick export to buildKick, and the helpers detected world:\"main\" by the old name. Fixed to accept either. Merged after gates 1-3 because main was already broken for every perch session; gate 5 (cheap trio) skipped, live check was a probe run on perch.",
+  "commit": "4235e28",
+  "repro": "tests/perch_backend_test.py",
+  "opened": "2026-10-30T08:08:55-0300",
+  "closed": "2026-10-30T08:59:57-0300",
+  "spend": {
+    "usd": 0,
+    "session_s": 0,
+    "sessions": 0
+  },
+  "gates": [
+    "pass",
+    "pass",
+    "pass",
+    "skip",
+    "skip"
+  ],
+  "symptom_check": "after the fix landed on main, figma_probe.py svg_paint ran live on perch (FIGMA_BACKEND=perch) against the scratch file and passed; before it, the same call failed with no_perch"
+}

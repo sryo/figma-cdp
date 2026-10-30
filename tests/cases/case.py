@@ -261,7 +261,9 @@ def cmd_claim(a):
         if r.returncode:
             shutil.rmtree(lock, ignore_errors=True)
             die(f'git worktree add: {r.stderr.strip()}')
-    c['claim'] = {'by': os.environ.get('CLAUDE_SESSION_ID') or os.environ.get('USER', '?'), 'at': time.time(), 'branch': branch, 'worktree': wt}
+    base = subprocess.run(['git', '-C', wt, 'merge-base', 'main', 'HEAD'], capture_output=True, text=True).stdout.strip()
+    c['claim'] = {'by': os.environ.get('CLAUDE_SESSION_ID') or os.environ.get('USER', '?'), 'at': time.time(), 'branch': branch, 'worktree': wt,
+                  'base': (c.get('claim') or {}).get('base') or base}
     c['status'] = 'claimed'
     save(c)
     print(json.dumps({'case': c['id'], 'branch': branch, 'worktree': wt}))
@@ -408,7 +410,9 @@ def cmd_packet(a):
     c = load(a.case)
     d = case_dir(c['id'])
     wt = (c.get('claim') or {}).get('worktree')
-    git = lambda *args: subprocess.run(['git', '-C', wt, *args], capture_output=True, text=True).stdout.strip() if wt else ''
+    git = lambda *args: subprocess.run(['git', '-C', wt, *args], capture_output=True, text=True).stdout if wt else ''
+    # The branch against where it was cut, so a packet written after the merge still shows the change.
+    base = (c.get('claim') or {}).get('base') or git('merge-base', 'main', 'HEAD').strip()
     gates = c.get('gates') or {}
     usd, secs, runs = spend(d)
     lines = [f"# {c['id']}", '', c['symptom'] or '', '',
@@ -419,9 +423,10 @@ def cmd_packet(a):
         lines.append(f"| {g['gate']} | {g['name']} | {g['verdict']}{' (' + g['why'] + ')' if g.get('why') else ''} | {g.get('secs', '')} |")
     lines += ['', '## Spend', '', f'{runs} live eval session(s), ${usd}, {secs} s of session time' if runs else 'no live eval sessions', '']
     if wt:
-        lines += ['## Changes (main...branch)', '', '```', git('log', '--oneline', 'main..HEAD'), '', git('diff', '--stat', 'main...HEAD'), '```', '']
+        lines += [f'## Changes ({base[:7]}..branch)', '', '```', git('log', '--oneline', f'{base}..HEAD').strip(), '',
+                  git('diff', '--stat', base, 'HEAD').strip(), '```', '']
         for f in ALWAYS_LOADED:
-            before = len(git('show', f'main:{f}').encode())
+            before = len(git('show', f'{base}:{f}').encode())
             after = os.path.getsize(os.path.join(wt, f)) if os.path.isfile(os.path.join(wt, f)) else 0
             lines.append(f'- {f}: {before} → {after} bytes ({after - before:+d})')
         lines.append('')
@@ -445,7 +450,7 @@ def cmd_close(a):
     row = {'case': c['id'], 'class': c.get('class'), 'signature': c['signature'], 'symptom': c['symptom'],
            'status': a.status, 'reason': a.reason, 'commit': a.commit, 'repro': c.get('repro_path'),
            'opened': c['created'], 'closed': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
-           'spend': c.get('spend'), 'gates': [g['verdict'] for g in (c.get('gates') or {}).get('results', [])] or None}
+           'spend': c.get('spend'), 'symptom_check': c.get('symptom_check'), 'gates': [g['verdict'] for g in (c.get('gates') or {}).get('results', [])] or None}
     os.makedirs(LEDGER, exist_ok=True)
     with open(os.path.join(LEDGER, c['id'] + '.json'), 'w') as f:
         json.dump(row, f, indent=2, ensure_ascii=False)
