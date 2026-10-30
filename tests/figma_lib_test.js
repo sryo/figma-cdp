@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 7, sha: 'b7f696083f2f814c' };
+const PIN = { v: 8, sha: '8960cc481497c7d7' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -145,6 +145,21 @@ test('recon: a node scope goes full depth; maxChars cuts whole lines and says so
   assert.ok(capped.tree.length <= 500);
   assert.ok(capped.tree.endsWith(']') || /\S$/.test(capped.tree));
   await assert.rejects(fx.recon({ nodeId: '9:999' }), /node 9:999 not found/);
+});
+
+test('recon props: one line per node with the layout, paint and type a rebuild matches', async () => {
+  const fx = fresh();
+  tokens();
+  const card = await fx.frame({ name: 'Card', dir: 'V', gap: 12, pad: [16, 24], w: 320, fill: 'color/primary', stroke: '#e5e7eb', radius: 8 });
+  const head = await fx.frame({ parent: card, name: 'Head', dir: 'H', justify: 'between', align: 'center', w: 'fill' });
+  const title = await fx.text('Title', { parent: head, weight: 'Bold', size: 20, lineHeight: 28 });
+  const badge = await fx.frame({ parent: card, name: 'Badge', abs: true, x: 280, y: 8, w: 24, h: 24, constraints: { horizontal: 'MAX', vertical: 'MIN' } });
+  const lines = (await fx.recon({ nodeId: card.id, props: true })).tree.split('\n');
+  assert.equal(lines[0], 'FRAME "Card" [' + card.id + '] 320x100 auto:V | pad 16,24 gap 12 size FIXED/HUG fill color/primary stroke #e5e7eb 1 radius 8');
+  assert.equal(lines[1], '  FRAME "Head" [' + head.id + '] 100x100 auto:H | justify between align center size FILL/HUG');
+  assert.equal(lines[2], '    TEXT "Title" [' + title.id + '] 20px | size HUG/HUG Inter Bold lh 28 color #000000 resize WIDTH_AND_HEIGHT');
+  assert.equal(lines[3], '  FRAME "Badge" [' + badge.id + '] 24x24 | abs MAX/MIN');
+  assert.ok(!(await fx.recon({ nodeId: card.id })).tree.includes(' | '), 'props stay off by default');
 });
 
 // ---- inventory

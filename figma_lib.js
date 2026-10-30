@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 7;
+  var V = 8;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -281,17 +281,58 @@
     if (n.visible === false) p.push('hidden');
     return p.length ? ' ' + p.join(' ') : '';
   }
-  // Pages plus a flat text tree of nodeId (default: the current page, 3 levels; a node: full depth).
+  var SIDE = { MIN: 'start', CENTER: 'center', MAX: 'end', SPACE_BETWEEN: 'between', BASELINE: 'baseline' };
+  function paintsNamed(paints, vars) {
+    return paints.filter(function (p) { return p.visible !== false; }).map(function (p) {
+      var b = p.boundVariables && p.boundVariables.color, v = b && vars[b.id];
+      return v ? v.name : paintsText([p]);
+    }).join(' + ');
+  }
+  // What a rebuild has to match, after ' | ': auto layout (pad t,r,b,l shortened, gap, justify,
+  // align, wrap), sizing H/V, absolute position and constraints, paints by variable name, radius,
+  // effects, opacity, and a text's font, line height and resize.
+  function props(n, vars) {
+    var p = [], al = isAL(n), inAL = isAL(n.parent);
+    if (al) {
+      var pad = [n.paddingTop, n.paddingRight, n.paddingBottom, n.paddingLeft];
+      if (pad.some(Boolean)) p.push('pad ' + (pad[0] === pad[1] && pad[1] === pad[2] && pad[2] === pad[3] ? pad[0]
+        : pad[0] === pad[2] && pad[1] === pad[3] ? pad[0] + ',' + pad[1] : pad.join(',')));
+      if (n.itemSpacing && n.primaryAxisAlignItems !== 'SPACE_BETWEEN') p.push('gap ' + n.itemSpacing);
+      if (n.primaryAxisAlignItems && n.primaryAxisAlignItems !== 'MIN') p.push('justify ' + SIDE[n.primaryAxisAlignItems]);
+      if (n.counterAxisAlignItems && n.counterAxisAlignItems !== 'MIN') p.push('align ' + SIDE[n.counterAxisAlignItems]);
+      if (n.layoutWrap === 'WRAP') p.push('wrap');
+    }
+    if ((al || inAL) && n.layoutSizingHorizontal && n.layoutPositioning !== 'ABSOLUTE') p.push('size ' + n.layoutSizingHorizontal + '/' + n.layoutSizingVertical);
+    var c = n.constraints;
+    if (n.layoutPositioning === 'ABSOLUTE') p.push('abs ' + c.horizontal + '/' + c.vertical);
+    else if (c && !inAL && n.parent && n.parent.type !== 'PAGE' && (c.horizontal !== 'MIN' || c.vertical !== 'MIN')) p.push('constraints ' + c.horizontal + '/' + c.vertical);
+    if (n.type !== 'TEXT' && n.fills && n.fills !== figma.mixed && n.fills.length) p.push('fill ' + paintsNamed(n.fills, vars));
+    if (n.strokes && n.strokes.length) p.push('stroke ' + paintsNamed(n.strokes, vars) + ' ' + (n.strokeWeight === figma.mixed ? 'mixed' : n.strokeWeight));
+    if (n.cornerRadius === figma.mixed) p.push('radius ' + [n.topLeftRadius, n.topRightRadius, n.bottomRightRadius, n.bottomLeftRadius].join(','));
+    else if (n.cornerRadius) p.push('radius ' + n.cornerRadius);
+    if (n.effects && n.effects.length) p.push('fx ' + n.effects.map(effectText).join(', '));
+    if (n.opacity != null && n.opacity < 1) p.push('opacity ' + round(n.opacity));
+    if (n.type === 'TEXT') {
+      if (n.fontName && n.fontName !== figma.mixed) p.push(n.fontName.family + ' ' + n.fontName.style);
+      var lh = n.lineHeight !== figma.mixed && lineHeight(n.lineHeight);
+      if (lh) p.push('lh ' + lh.slice(1));
+      if (n.fills && n.fills !== figma.mixed && n.fills.length) p.push('color ' + paintsNamed(n.fills, vars));
+      p.push('resize ' + n.textAutoResize);
+    }
+    return p.length ? ' | ' + p.join(' ') : '';
+  }
+  // Pages plus a flat text tree of nodeId (default: the current page, 3 levels; a node: full depth);
+  // props adds props() to each line.
   async function recon(o) {
     o = o || {};
-    var max = o.maxChars || 8000;
+    var max = o.maxChars || 8000, vars = o.props ? (await varContext()).vars : null;
     var root = o.nodeId ? await node(o.nodeId) : figma.currentPage;
     var depth = o.depth != null ? o.depth : o.nodeId ? 100 : 3;
     var lines = [], len = 0, truncated = false;
     async function walk(n, d) {
       var kids = n.children || [];
       var line = new Array(d + 1).join('  ') + n.type + (n.name ? ' "' + clip(n.name, 80) + '"' : '') + ' [' + n.id + ']' +
-        await summary(n) + (kids.length && d >= depth ? ' +' + kids.length : '');
+        await summary(n) + (vars && n.type !== 'PAGE' ? props(n, vars) : '') + (kids.length && d >= depth ? ' +' + kids.length : '');
       if (len + line.length + 1 > max + 1) { truncated = true; return; }
       lines.push(line);
       len += line.length + 1;
