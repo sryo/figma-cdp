@@ -24,7 +24,8 @@ Per element instead, against a figma_capture.py walk of the source page: each ca
 is paired with the Figma node the importer named [cap:i] (several with the same index: the
 closest), or, when most nodes carry no such name, greedily by text (bigram Dice >= 0.5) and then
 by geometry (|dx|+|dy|+|dw|+|dh|). Each pair gives one row per property that differs:
-position (> 2 px against the parent, so a moved frame is one row, not one per descendant), size
+position (> 2 px against the parent, so a moved frame is one row, not one per descendant; every
+child of one element shifted alike is one spacing row on that element: its padding or gap), size
 (> 2 px), color (fill or text color, CIEDE2000 > 2.3), font-size, font-weight, font-family,
 line-height, letter-spacing (> 0.5 px), text (Dice < 1), radius, opacity, visibility. An
 element with no node is missing-node (once, at the top of a missing subtree, weighted by its
@@ -626,6 +627,24 @@ def element_rows(spec, fig, waive=None):
                 row('line-height', s, 'line-height', st['lineHeight'], t, 'lineHeight', t['lineHeight'])
             if abs(st.get('letterSpacing', 0) - (t.get('letterSpacing') or 0)) > 0.5:
                 row('letter-spacing', s, 'letter-spacing', st.get('letterSpacing', 0), t, 'letterSpacing', t.get('letterSpacing'))
+    # Every paired child of one element off by the same amount: its padding or gap, one row on it.
+    kids = {}
+    for s in src:
+        if s['parent'] >= 0 and (pairs[s['i']]['frame'] or pairs[s['i']]['text']):
+            kids.setdefault(s['parent'], []).append(s['i'])
+    moved = {r['source']['i']: r for r in rows if r['kind'] == 'position'}
+    for parent, ks in kids.items():
+        if len(ks) < 2 or not all(k in moved for k in ks):
+            continue
+        shifts = {(round(moved[k]['figma']['value'][0] - moved[k]['source']['value'][0]),
+                   round(moved[k]['figma']['value'][1] - moved[k]['source']['value'][1])) for k in ks}
+        if len(shifts) == 1:
+            dx, dy = shifts.pop()
+            rows = [r for r in rows if not (r['kind'] == 'position' and r['source']['i'] in ks)]
+            pf = pairs[parent]['frame'] or pairs[parent]['text']
+            rows.append({'kind': 'spacing', 'source': {'i': parent, 'css_prop': 'padding/gap', 'value': [0, 0]},
+                         'figma': {'id': pf['id'] if pf else None, 'name': pf['name'] if pf else None, 'prop': 'padding/itemSpacing',
+                                   'value': [dx, dy]}})
     for f in nodes:
         if f['id'] in paired_ids or not f['visible'] or f['name'] == 'spacer' or f['parent'] < 0:
             continue

@@ -34,6 +34,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── agent_browser_stub/   # stand-in agent-browser CLI (eval -b, batch --json) that runs scripts against perch_stub's `figma`, for the cdp branch offline
     ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
     ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
+    ├── fidelity_elements_test.py # `python3 tests/fidelity_elements_test.py`: figma_fidelity.py --elements on capture_spec.json built on the stub, with injected faults (move, resize, recolor, retype, remove, extra layer, spacing)
     ├── api/                  # the Plugin API surface: `figma_api.mjs lookup "<error, CSS property or words>"` ranks typings members ([ro], deprecated, docs link, covered by the skill or not); `coverage <member>`; `surface` regenerates surface.json from the typings typings.lock pins
     ├── api_test.mjs          # `node --test tests/api_test.mjs`: the typings parser, coverage, lookup, and surface.json against typings.lock
     ├── probes/               # live Plugin API probes: `figma_probe.py --file <scratch> [<name>]` runs <name>.js guarded (scratch file only, denied members, __probe* swept before and after, under figma_lock) and checks its verdicts against <name>.json; `--record` writes verdicts/<member>-<date>.json. stub_citations.json: what showed each refusal figma_stub.js models

@@ -110,6 +110,15 @@ class Elements(unittest.TestCase):
         moved = next(r for r in rep['rows'] if r['kind'] == 'position')
         self.assertEqual(moved['figma']['value'][0] - moved['source']['value'][0], 20)
 
+    def test_children_shifted_alike_are_one_spacing_row_on_their_parent(self):
+        row = node_where(self.spec, axName='flex-row')['i']
+        kids = [n['i'] for n in self.spec['nodes'] if n['parent'] == row]
+        self.assertGreater(len(kids), 1)
+        for k in kids:
+            self.edit(k, 'n.y += 8')
+        rep = self.check()
+        self.assertEqual([(r['kind'], r['source']['i'], r['figma']['value']) for r in rep['rows']], [('spacing', row, [0, 8])])
+
     def test_type_faults_name_the_text_property(self):
         i = next(n['i'] for n in self.spec['nodes'] if n['text'] and n['styles'].get('fontSize'))
         self.edit(i, 't.fontSize = t.fontSize + 6')

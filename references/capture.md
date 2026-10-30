@@ -259,7 +259,7 @@ A node instantiates **only** on an exact category hit present in the map: the im
 
 ### Source-ref node naming
 
-Every created node is named `[cap:<i>] <readable>` where `readable = axName || role || tag`; the root (i=0) is `[cap:0] <meta.title>` when the title is non-empty. Flag tags are a suffix — `[cap:42] [capture:grid] div`, `[cap:42] [capture:image tainted] img`, `[cap:42] [capture:iframe <origin>]`. Text and instance nodes are named too. A text node built with a wrapper frame (box paint — see the mapping table) gives the wrapper the `[cap:<i>]` name and the `captureIds` / `captureRects` / `captureLayout` entries; its TEXT child is `[cap:<i>] text`. This compact source-index ref is what makes source↔Figma traceable for review and a future visual diff.
+Every created node is named `[cap:<i>] <readable>` where `readable = axName || role || tag`; the root (i=0) is `[cap:0] <meta.title>` when the title is non-empty. Flag tags are a suffix — `[cap:42] [capture:grid] div`, `[cap:42] [capture:image tainted] img`, `[cap:42] [capture:iframe <origin>]`. Text and instance nodes are named too. A text node built with a wrapper frame (box paint — see the mapping table) gives the wrapper the `[cap:<i>]` name and the `captureIds` / `captureRects` / `captureLayout` entries; its TEXT child is `[cap:<i>] text`. This compact source-index ref is what makes source↔Figma traceable for review, and what `figma_fidelity.py --elements` pairs on (fidelity.md §3).
 
 ## Divergence report
 

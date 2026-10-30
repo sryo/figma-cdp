@@ -43,3 +43,24 @@ not checked (no component in the subtree): toggle
 - **missing components**: a manifest component used 2+ times with no component in the subtree (defined there or behind an instance) whose name, or a `/` segment of it, holds all its words: `Card header`, `Kit/Card` and `Product card` count for `card`; `Stat card` does not when the source has a `StatCard` too.
 
 A kind the manifest has no entries for is skipped. The first line counts the gaps (`0 gaps` is clean). Exit 0 means the check ran, 2 that it could not. `--json` prints the full report, with every node id. Fix each gap with a targeted edit, or report it as a deliberate deviation, then run the check again.
+
+## 3. Per element, when the source is a page you can walk
+
+The manifest check asks whether a value appears anywhere in the source, so a wrong value on the right element passes. When the source renders as a page, diff each element instead, against a walk of it:
+
+```bash
+python3 <skill-dir>/figma_capture.py walk <url>      # spec: /tmp/figma_capture_<slug>.json
+python3 <skill-dir>/figma_fidelity.py --elements /tmp/figma_capture_<slug>.json <rootId> --file <figma-url> [--waive <skill-dir>/tests/known_losses.json]
+```
+
+Each walked element pairs with the node named `[cap:i]` (what `figma_capture.py import` names), or by text and then geometry when the build has its own names. One line per difference:
+
+```
+elements 1:23 "Login": 3 gaps (color 1, position 1, spacing 1), 41 of 43 paired by cap
+position [cap:7] 1:40: left/top [24, 16] → x/y [44, 16]
+color [cap:9] 1:44: background-color "#2563eb" → fills "#3b82f6"
+spacing [cap:12] 1:51: padding/gap [0, 0] → padding/itemSpacing [0, 8]
+```
+
+Kinds: `position` (against the parent, > 2 px), `spacing` (every child shifted alike: the parent's padding or gap), `size`, `color` (fill or text color, ΔE2000 > 2.3), `font-size`, `font-weight`, `font-family`, `line-height`, `letter-spacing`, `text`, `radius`, `opacity`, `visibility`, `missing-node` and `extra-node` (with a `weight`: their share of the root's area). `--waive` counts, rather than lists, rows under elements the walker flagged for a documented capture loss. `--json` gives each row's `css_prop` and Figma `prop`, which is what to look up when the importer has no mapping for it (`tests/api/figma_api.mjs lookup <css_prop>` in the dev repo).
+
