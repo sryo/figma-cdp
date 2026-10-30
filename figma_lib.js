@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 6;
+  var V = 7;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -471,6 +471,17 @@
     }
     return f;
   }
+  var WEIGHTS = { 100: 'Thin', 200: 'Extra Light', 300: 'Light', 400: 'Regular', 500: 'Medium',
+    600: 'Semi Bold', 700: 'Bold', 800: 'Extra Bold', 900: 'Black' };
+  // weight is a style name or a CSS weight; a two-word style ('Semi Bold', Inter's spelling)
+  // falls back to its one-word spelling ('SemiBold'), which other families use.
+  async function weightFont(family, weight) {
+    var style = WEIGHTS[weight] || weight || 'Regular';
+    if (style.indexOf(' ') < 0) return loadFont({ family: family, style: style });
+    try { return await loadFont({ family: family, style: style }); } catch (e) {
+      try { return await loadFont({ family: family, style: style.replace(' ', '') }); } catch (e2) { throw e; }
+    }
+  }
   // A text node: font loaded first (family / weight, or a text style's), color via bindFill,
   // w: 'fill' or a width wraps the text (textAutoResize HEIGHT).
   async function text(chars, o) {
@@ -481,7 +492,7 @@
         : (await figma.getLocalTextStylesAsync()).filter(function (s) { return s.name === o.textStyle; })[0];
       if (!style || style.type !== 'TEXT') throw new Error('no text style ' + o.textStyle);
     }
-    var font = await loadFont(style ? style.fontName : { family: o.family || 'Inter', style: o.weight || 'Regular' });
+    var font = style ? await loadFont(style.fontName) : await weightFont(o.family || 'Inter', o.weight);
     var parent = await parentOf(o);
     var t = figma.createText();
     t.fontName = font;

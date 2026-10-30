@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 6, sha: '95031cfcafe209cb' };
+const PIN = { v: 7, sha: 'b7f696083f2f814c' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -294,6 +294,9 @@ test('text: loads its font, binds color by variable name, fills width, applies a
   assert.deepEqual([s.textStyleId, s.fontName.style, s.fontSize, s.name], [body.id, 'Medium', 16, 'Caption']);
   const fixed = await fx.text('Wrap me', { parent: row, w: 120 });
   assert.deepEqual([fixed.width, fixed.textAutoResize], [120, 'HEIGHT']);
+  const heavy = await fx.text('700', { parent: row, weight: 700 });
+  assert.deepEqual(heavy.fontName, { family: 'Inter', style: 'Bold' }, 'a CSS weight maps to its style name');
+  assert.equal((await fx.text('600', { weight: '600' })).fontName.style, 'Semi Bold', "Inter spells it 'Semi Bold'");
   await assert.rejects(fx.text('x', { family: 'Missing' }), /font Missing Regular is not available/);
   await assert.rejects(fx.text('x', { textStyle: 'Nope' }), /no text style Nope/);
 });
