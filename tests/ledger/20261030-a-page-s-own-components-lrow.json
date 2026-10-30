@@ -1,0 +1,24 @@
+{
+  "case": "20261030-a-page-s-own-components-lrow",
+  "class": "helper-bug",
+  "signature": "a page<s>t become library instances on capture: the walker drops classlist and --components matches only by role or tag",
+  "symptom": "a page's own components (.lrow, .card, .tile) can't become library instances on capture: the walker drops classList and --components matches only by role or tag",
+  "status": "merged",
+  "reason": "helper-bug: the walker dropped classList and --components matched only role or tag categories, so a page's own components (.lrow, .card) could not map to library components. The walker records cls; a .class key maps the elements with that class, ahead of role and tag. Gates 5-6 not run: the only affected task (capture) fails 0/3 on main for an unrelated reason (case 20261030-the-capture-eval-task-fails-0).",
+  "commit": "595ec83",
+  "repro": "tests/importer_test.py",
+  "opened": "2026-10-30T08:46:03-0300",
+  "closed": "2026-10-30T09:36:08-0300",
+  "spend": {
+    "usd": 0,
+    "session_s": 0,
+    "sessions": 0
+  },
+  "symptom_check": "a live walk of svg_paint_fixture.html (Canary, background tab) carries cls on each element; replayed through importer_stub.js with --components {\".icon\": <component>}, the class=\"icon\" svg came in as an instance of that component. The Lede app itself was not re-imported (its file is off-limits here).",
+  "gates": [
+    "pass",
+    "pass",
+    "pass",
+    "skip"
+  ]
+}
