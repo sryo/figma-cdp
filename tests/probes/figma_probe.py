@@ -4,8 +4,9 @@
   python3 tests/probes/figma_probe.py --file <scratch-url-or-key> [--timeout <s>] [--record [--record-dir <dir>]] [<probe> ...]
 
 A probe is tests/probes/<name>.js, a script body that gets `pg` (a fresh `__probe` page, already
-current) and three reporters: check(what, want, got), refuses(what, fn, regex) and
-limit(member, verdict, error?), where verdict is one of VERDICTS. <name>.json, when present, says
+current) and four reporters: check(what, want, got), refuses(what, fn, regex),
+limit(member, verdict, error?), where verdict is one of VERDICTS, and note(key, value) for data
+(--out keeps it). <name>.json, when present, says
 whether it needs figma_lib.js ("lib": true) and which verdict it expects per member ("limits").
 With no names, every probe here runs; a path runs that file.
 
@@ -22,7 +23,8 @@ The guard:
 
 Prints one JSON line per probe: {probe, passed, failures, limits, drift}. drift lists members whose
 verdict differs from <name>.json. Exits 0 only when every probe passed with no drift. --record
-writes each verdict to <record-dir>/<member>-<date>.json (default tests/probes/verdicts/).
+writes each verdict to <record-dir>/<member>-<date>.json (default tests/probes/verdicts/). --pin, after
+a typings bump or a plan change, writes the verdicts seen into <name>.json.
 """
 import argparse, datetime, glob, json, os, re, subprocess, sys, time
 
@@ -62,7 +64,7 @@ const sweep = async () => {
 if (%(sweep_only)s) return { swept: await sweep() };
 const swept = await sweep();
 const home = figma.currentPage, flags = { skipInvisibleInstanceChildren: figma.skipInvisibleInstanceChildren };
-const fail = [], limits = {};
+const fail = [], limits = {}, notes = {};
 const msg = (e) => String((e && e.message) || e);
 const check = (what, want, got) => { const w = JSON.stringify(want), g = JSON.stringify(got); if (w !== g) fail.push({ what, want: w, got: g }); };
 const refuses = async (what, f, re) => {
@@ -72,13 +74,14 @@ const limit = (member, verdict, e) => {
   if (!VERDICTS.includes(verdict)) fail.push({ what: 'limit ' + member, want: VERDICTS.join('|'), got: verdict });
   limits[member] = { verdict, error: e === undefined ? null : msg(e) };
 };
+const note = (key, value) => { notes[key] = value; };
 const pg = figma.createPage();
 pg.name = '__probe';
 await figma.setCurrentPageAsync(pg);
 try {
-  await (async (pg, check, refuses, limit) => {
+  await (async (pg, check, refuses, limit, note) => {
 %(body)s
-  })(pg, check, refuses, limit);
+  })(pg, check, refuses, limit, note);
 } catch (e) {
   fail.push({ what: 'probe threw', want: 'no error', got: String((e && e.stack) || e).split('\n').slice(0, 3).join(' | ') });
 } finally {
@@ -86,7 +89,7 @@ try {
   for (const k of Object.keys(flags)) if (figma[k] !== flags[k]) figma[k] = flags[k];
   await sweep();
 }
-return { passed: !fail.length, failures: fail, limits, editorType: figma.editorType, swept };'''
+return { passed: !fail.length, failures: fail, limits, notes, editorType: figma.editorType, swept };'''
 
 
 def die(msg, code=2):
@@ -145,7 +148,7 @@ def probes(names):
             with open(spec_path) as f:
                 spec = json.load(f)
         with open(path, encoding='utf-8') as f:
-            yield os.path.basename(path)[:-3], f.read(), spec
+            yield os.path.basename(path)[:-3], f.read(), dict(spec, _path=spec_path)
 
 
 def typings_version():
@@ -176,6 +179,8 @@ def main():
     ap.add_argument('--record', action='store_true', help='write a verdict file per member')
     ap.add_argument('--record-dir', default=os.path.join(HERE, 'verdicts'))
     ap.add_argument('--plan', default='free(assumed)', help="the file's plan, stamped on refused verdicts")
+    ap.add_argument('--out', help='write each probe\'s full result, notes included, to <out>/<name>.json')
+    ap.add_argument('--pin', action='store_true', help="write the verdicts seen into <name>.json's limits (a judge edit: commit it with a Judge-Change line)")
     ap.add_argument('probes', nargs='*')
     a = ap.parse_args()
     key = file_key(a.file)
@@ -202,7 +207,19 @@ def main():
             want = spec.get('limits', {})
             got = {m: v['verdict'] for m, v in res['limits'].items()}
             drift = {m: {'want': want.get(m), 'got': got.get(m)} for m in sorted(set(want) | set(got)) if want.get(m) != got.get(m)}
-            print(json.dumps({'probe': name, 'passed': res['passed'], 'failures': res['failures'], 'limits': res['limits'], 'drift': drift}))
+            print(json.dumps({'probe': name, 'passed': res['passed'], 'failures': res['failures'], 'limits': res['limits'], 'drift': drift,
+                              'notes': sorted(res.get('notes') or {})}))
+            if a.out:
+                os.makedirs(a.out, exist_ok=True)
+                with open(os.path.join(a.out, name + '.json'), 'w') as f:
+                    json.dump(res, f, indent=1)
+            if a.pin and res['passed'] and got:
+                path = spec.pop('_path')
+                spec = {**spec, 'limits': dict(sorted(got.items()))}
+                with open(path, 'w') as f:
+                    json.dump(spec, f, indent=2)
+                    f.write('\n')
+                drift = {}
             ok = ok and res['passed'] and not drift
             if a.record:
                 record(a.record_dir, name, res, a.plan)

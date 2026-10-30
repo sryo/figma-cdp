@@ -97,6 +97,16 @@ class Runner(Harness):
         self.assertEqual(p.returncode, 1)
         self.assertEqual(json.loads(p.stdout)['failures'][0]['what'], 'limit X.y')
 
+    def test_notes_reach_out_and_pin_writes_the_verdicts_seen(self):
+        self.scratch()
+        path = self.body('seen', "note('shape', {a: 1}); limit('X.y', 'readonly');", {'lib': False, 'limits': {'X.y': 'works'}})
+        out = os.path.join(self.tmp.name, 'out')
+        p = self.probe('--out', out, '--pin', path)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(read(os.path.join(out, 'seen.json'))['notes'], {'shape': {'a': 1}})
+        self.assertEqual(read(path[:-3] + '.json'), {'lib': False, 'limits': {'X.y': 'readonly'}})
+        self.assertEqual(self.probe(path).returncode, 0, 'pinned: no drift on the next run')
+
     def test_record_writes_one_verdict_file_per_member(self):
         self.scratch()
         out = os.path.join(self.tmp.name, 'verdicts')

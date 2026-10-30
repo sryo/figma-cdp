@@ -189,7 +189,7 @@ class Verify(unittest.TestCase):
         self.repo, self.home = os.path.join(self.tmp, 'repo'), os.path.join(self.tmp, 'home')
         os.makedirs(self.repo)
         git(self.repo, 'init', '-q', '-b', 'main')
-        for p in ('tests/cases_test.py', 'tests/probe_test.py', 'tests/gates_test.py', 'tests/importer_test.py', 'tests/source_test.py',
+        for p in ('tests/cases_test.py', 'tests/probe_test.py', 'tests/gates_test.py', 'tests/drift_test.py', 'tests/importer_test.py', 'tests/source_test.py',
                   'tests/fidelity_test.py', 'tests/fidelity_elements_test.py', 'tests/eval/offline_test.py', 'tests/perch_backend_test.py', 'tests/budget_test.py',
                   'tests/probes/figma_probe.py'):
             write(self.repo, p, 'import sys; sys.exit(0)\n')

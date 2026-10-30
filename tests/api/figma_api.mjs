@@ -4,6 +4,8 @@
 //
 //   node tests/api/figma_api.mjs lookup "<error text, CSS property or words>" [--limit n] [--json]
 //   node tests/api/figma_api.mjs coverage <member> [...]       # covered or not, by name
+//   node tests/api/figma_api.mjs diff <old> <new> [--json]     # surface.json or plugin-api.d.ts, either side
+//   node tests/api/figma_api.mjs runtime <probe-result.json> [--json]   # tests/probes/runtime_surface.js against the typings
 //   node tests/api/figma_api.mjs surface <plugin-api.d.ts> [--check-docs] > tests/api/surface.json
 //
 // surface.json (committed) is the typings named in typings.lock, read with regexes rather than the
@@ -221,6 +223,58 @@ async function pages(interfaces) {
 }
 let surfaceSource = '';
 
+// Every member an interface has, its own and inherited, as {name: member}.
+export function members(surface, iface, seen = new Set()) {
+  const def = surface.interfaces[iface];
+  if (!def || seen.has(iface)) return {};
+  seen.add(iface);
+  const out = {};
+  for (const e of def.extends) Object.assign(out, members(surface, e, seen));
+  return Object.assign(out, def.members);
+}
+
+const asSurface = (file) => (file.endsWith('.json') ? load(file) : { interfaces: parse(fs.readFileSync(file, 'utf8')) });
+
+// What changed between two typings: members added and removed, and ones that turned readonly,
+// writable or deprecated. Union variants and literal values count as members.
+export function diff(a, b) {
+  const out = { added: [], removed: [], readonly: [], writable: [], deprecated: [] };
+  const names = new Set([...Object.keys(a.interfaces), ...Object.keys(b.interfaces)]);
+  for (const iface of [...names].sort()) {
+    const ma = (a.interfaces[iface] || {}).members || {}, mb = (b.interfaces[iface] || {}).members || {};
+    for (const m of Object.keys(mb).sort()) {
+      const k = iface + '.' + m;
+      if (!(m in ma)) out.added.push(k);
+      else {
+        if (mb[m].ro && !ma[m].ro) out.readonly.push(k);
+        if (!mb[m].ro && ma[m].ro) out.writable.push(k);
+        if (mb[m].deprecated && !ma[m].deprecated) out.deprecated.push(k);
+      }
+    }
+    for (const m of Object.keys(ma).sort()) if (!(m in mb)) out.removed.push(iface + '.' + m);
+  }
+  return out;
+}
+
+// A runtime_surface probe result against the typings: per interface, members the runtime has
+// and the typings don't (leads), typed members it lacks, and readonly disagreements.
+export function runtime(surface, result) {
+  const out = {};
+  for (const [iface, live] of Object.entries(result.notes || {})) {
+    const typed = members(surface, iface);
+    const r = { untyped: [], missing: [], readonlyAtRuntime: [], writableAtRuntime: [] };
+    for (const [m, kind] of Object.entries(live)) {
+      if (!(m in typed)) r.untyped.push(m);
+      else if (typed[m].kind === 'prop' && kind === 'ro' && !typed[m].ro) r.readonlyAtRuntime.push(m);
+      else if (typed[m].kind === 'prop' && kind === 'prop' && typed[m].ro) r.writableAtRuntime.push(m);
+    }
+    for (const [m, t] of Object.entries(typed)) if ((t.kind === 'prop' || t.kind === 'method') && !(m in live)) r.missing.push(m);
+    for (const k of Object.keys(r)) r[k].sort();
+    out[iface] = r;
+  }
+  return out;
+}
+
 async function main(argv) {
   const [cmd, ...rest] = argv;
   const flag = (f) => { const i = rest.indexOf(f); if (i === -1) return null; const v = rest[i + 1]; rest.splice(i, 2); return v; };
@@ -242,6 +296,22 @@ async function main(argv) {
     const hits = lookup(load(), query, { limit });
     if (json) console.log(JSON.stringify(hits, null, 1));
     else console.log(hits.length ? hits.map(line).join('\n') : 'no member matches; try other words, or the CSS property / error text');
+  } else if (cmd === 'diff') {
+    const json = rest.includes('--json');
+    const [a, b] = rest.filter((x) => x !== '--json');
+    if (!a || !b) return usage();
+    const d = diff(asSurface(a), asSurface(b));
+    if (json) console.log(JSON.stringify(d, null, 1));
+    else for (const [k, v] of Object.entries(d)) if (v.length) console.log(`${k} (${v.length}): ${v.join(', ')}`);
+  } else if (cmd === 'runtime') {
+    const json = rest.includes('--json');
+    const file = rest.find((x) => x !== '--json');
+    if (!file) return usage();
+    const r = runtime(load(), JSON.parse(fs.readFileSync(file, 'utf8')));
+    if (json) console.log(JSON.stringify(r, null, 1));
+    else for (const [iface, v] of Object.entries(r)) {
+      for (const [k, list] of Object.entries(v)) if (list.length) console.log(`${iface} ${k} (${list.length}): ${list.join(', ')}`);
+    }
   } else if (cmd === 'coverage') {
     if (!rest.length) return usage();
     const ids = covered();
@@ -250,7 +320,8 @@ async function main(argv) {
 }
 
 function usage() {
-  console.error('usage: figma_api.mjs lookup "<text>" [--limit n] [--json] | coverage <member> ... | surface <plugin-api.d.ts> [--check-docs]');
+  console.error('usage: figma_api.mjs lookup "<text>" [--limit n] [--json] | coverage <member> ... | diff <old> <new> [--json] |'
+    + ' runtime <probe-result.json> [--json] | surface <plugin-api.d.ts> [--check-docs]');
   process.exitCode = 2;
 }
 
