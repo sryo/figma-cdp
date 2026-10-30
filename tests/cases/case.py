@@ -8,6 +8,7 @@ source, sort out why, fix it test-first on its own branch, and record the outcom
   python3 tests/cases/case.py snapshot <case> --node <id> --file <url> [--max <n>]  # seed.json: the subtree, rebuildable anywhere
   python3 tests/cases/case.py claim <case> [--steal] # a worktree .claude/worktrees/case-<case> on branch case/<case>
   python3 tests/cases/case.py verify <case> [--file <scratch-url>] [--through <n>] [--dry-run]  # gates 1-6, cheapest first
+  python3 tests/cases/case.py packet <case>         # packet.md: gates, spend, diff, always-loaded bytes, symptom check
   python3 tests/cases/case.py close <case> --status merged|wontfix|parked|out-of-scope --reason "<why>" [--commit <sha>]
   python3 tests/cases/case.py list | stats
 
@@ -360,7 +361,7 @@ def cmd_verify(a):
                 code = 3
                 break
             continue
-        failed = None
+        failed, t0 = None, time.time()
         try:
             for cmd in cmds:
                 p = subprocess.run(cmd, cwd=wt, capture_output=True, text=True)
@@ -371,7 +372,7 @@ def cmd_verify(a):
             if cmds[0][:3] == ['git', 'worktree', 'add']:
                 subprocess.run(['git', '-C', wt, 'worktree', 'remove', '--force', cmds[0][4]], capture_output=True)
         print(f'gate {n} {name}: ' + ('fail' if failed else 'pass'))
-        results.append({'gate': n, 'name': name, 'verdict': 'fail' if failed else 'pass'})
+        results.append({'gate': n, 'name': name, 'verdict': 'fail' if failed else 'pass', 'secs': round(time.time() - t0)})
         if failed:
             print('  ' + failed[0] + '\n' + '\n'.join('    ' + l for l in failed[1]))
             code = 1
@@ -383,6 +384,58 @@ def cmd_verify(a):
     sys.exit(code)
 
 
+ALWAYS_LOADED = ['SKILL.md', 'figma-worker.md']
+
+
+def spend(d):
+    """(USD, session seconds, sessions) across the case's live eval runs (gates 5 and 6)."""
+    usd = secs = runs = 0
+    for name in ('gate5.json', 'base.json', 'candidate.json'):
+        try:
+            out = read(os.path.join(d, name))
+        except (OSError, ValueError):
+            continue
+        for t in out.get('tasks', {}).values():
+            for r in t.get('reps', []):
+                usd += r.get('cost_usd') or 0
+                secs += r.get('wall_s') or 0
+                runs += 1
+    return round(usd, 2), round(secs), runs
+
+
+def cmd_packet(a):
+    """packet.md beside the case: what a reviewer needs to accept the fix, from the case, its gates and its branch."""
+    c = load(a.case)
+    d = case_dir(c['id'])
+    wt = (c.get('claim') or {}).get('worktree')
+    git = lambda *args: subprocess.run(['git', '-C', wt, *args], capture_output=True, text=True).stdout.strip() if wt else ''
+    gates = c.get('gates') or {}
+    usd, secs, runs = spend(d)
+    lines = [f"# {c['id']}", '', c['symptom'] or '', '',
+             f"class: {c.get('class') or '?'} (triage proposed {c.get('proposed_class') or 'none'}); "
+             f"repro: {c.get('repro_level') or '?'} {c.get('repro_path') or ''}", '',
+             f"## Gates at {gates.get('rev', '?')} ({gates.get('at', 'not run')})", '', '| # | gate | verdict | s |', '|---|---|---|---|']
+    for g in gates.get('results', []):
+        lines.append(f"| {g['gate']} | {g['name']} | {g['verdict']}{' (' + g['why'] + ')' if g.get('why') else ''} | {g.get('secs', '')} |")
+    lines += ['', '## Spend', '', f'{runs} live eval session(s), ${usd}, {secs} s of session time' if runs else 'no live eval sessions', '']
+    if wt:
+        lines += ['## Changes (main...branch)', '', '```', git('log', '--oneline', 'main..HEAD'), '', git('diff', '--stat', 'main...HEAD'), '```', '']
+        for f in ALWAYS_LOADED:
+            before = len(git('show', f'main:{f}').encode())
+            after = os.path.getsize(os.path.join(wt, f)) if os.path.isfile(os.path.join(wt, f)) else 0
+            lines.append(f'- {f}: {before} → {after} bytes ({after - before:+d})')
+        lines.append('')
+    if c.get('oracle'):
+        lines += ['## Oracle (lookup)', ''] + [f"- {o['member']}{' [ro]' if o.get('ro') else ''} {'covered' if o.get('covered') else 'uncovered'}"
+                                              for o in c['oracle']] + ['']
+    lines += ['## Original symptom', '', c.get('symptom_check') or 'not recorded: set symptom_check=<how it was checked and what it showed>', '']
+    with open(os.path.join(d, 'packet.md'), 'w') as f:
+        f.write('\n'.join(lines))
+    c['spend'] = {'usd': usd, 'session_s': secs, 'sessions': runs}
+    save(c)
+    print(os.path.join(d, 'packet.md'))
+
+
 def cmd_close(a):
     c = load(a.case)
     if a.status == 'merged' and not a.commit:
@@ -391,7 +444,8 @@ def cmd_close(a):
         die('set the class first: case.py set <case> class=<class>')
     row = {'case': c['id'], 'class': c.get('class'), 'signature': c['signature'], 'symptom': c['symptom'],
            'status': a.status, 'reason': a.reason, 'commit': a.commit, 'repro': c.get('repro_path'),
-           'opened': c['created'], 'closed': time.strftime('%Y-%m-%dT%H:%M:%S%z')}
+           'opened': c['created'], 'closed': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+           'spend': c.get('spend'), 'gates': [g['verdict'] for g in (c.get('gates') or {}).get('results', [])] or None}
     os.makedirs(LEDGER, exist_ok=True)
     with open(os.path.join(LEDGER, c['id'] + '.json'), 'w') as f:
         json.dump(row, f, indent=2, ensure_ascii=False)
@@ -435,6 +489,7 @@ def main():
     p = sub.add_parser('verify'); p.add_argument('case'); p.add_argument('--file', help='the scratch file, for gates 4-6')
     p.add_argument('--model', default=baseline_model()); p.add_argument('--max-budget', type=float, default=3.0, help='USD per session')
     p.add_argument('--tab'); p.add_argument('--through', type=int, default=6); p.add_argument('--dry-run', action='store_true')
+    p = sub.add_parser('packet'); p.add_argument('case')
     p = sub.add_parser('close'); p.add_argument('case')
     p.add_argument('--status', required=True, choices=['merged', 'wontfix', 'parked', 'out-of-scope'])
     p.add_argument('--reason', required=True); p.add_argument('--commit')

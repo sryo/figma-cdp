@@ -236,6 +236,12 @@ class Verify(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(d, 'base')), 'the base worktree is removed')
         gates = read(os.path.join(d, 'case.json'))['gates']['results']
         self.assertEqual([g['verdict'] for g in gates], ['pass', 'pass', 'pass', 'skip', 'pass', 'pass'])
+        packet = self.case('packet', cid).strip()
+        with open(packet) as f:
+            text = f.read()
+        self.assertIn('| 6 | paired base/candidate, 3 reps | pass |', text)
+        self.assertIn('- SKILL.md: 0 → 0 bytes (+0)', text)
+        self.assertIn('not recorded: set symptom_check', text)
 
     def test_verify_stops_at_the_judge_guard(self):
         cid, wt = self.claimed('tests/eval/tasks/recon.json')
