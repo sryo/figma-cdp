@@ -1,0 +1,26 @@
+{
+  "case": "20261030-captured-svg-icons-import-black-the",
+  "class": "helper-bug",
+  "signature": "captured svg icons import black: the walker serializes fill=<s> defined on the page, currentcolor and color(srgb ...) paints, which createnodefromsvg cannot res",
+  "symptom": "captured SVG icons import black: the walker serializes fill=\"var(--x)\" defined on the page, currentColor and color(srgb ...) paints, which createNodeFromSvg cannot resolve",
+  "status": "merged",
+  "reason": "helper-bug: the walker serialized inline SVG markup as the page has it, so paints only the page resolves (its custom properties, currentColor, a page stylesheet rule, CSS Color 4) imported black through createNodeFromSvg. The walker now bakes each shape's and stop's computed paint as rgb() plus opacity.",
+  "commit": "33ed722",
+  "repro": "tests/probes/svg_paint.js",
+  "opened": "2026-10-30T08:42:17-0300",
+  "closed": "2026-10-30T09:34:23-0300",
+  "spend": {
+    "usd": 3.35,
+    "session_s": 614,
+    "sessions": 7
+  },
+  "symptom_check": "walker_live_test.py walks svg_paint_fixture.html in Canary: page var(), currentColor, page-class color(srgb), stroke, alpha and gradient stops all serialize as rgb() plus opacity (3/3); svg_paint probe shows createNodeFromSvg imports that form as drawn and paints the old forms black. Gate 6 ran on capture, which fails 0/3 on base and candidate alike for an unrelated reason (filed separately), so it shows no regression, not a gain.",
+  "gates": [
+    "pass",
+    "pass",
+    "pass",
+    "pass",
+    "pass",
+    "pass"
+  ]
+}
