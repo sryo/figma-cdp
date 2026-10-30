@@ -50,10 +50,10 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 |------|------|
 | `__fx.recon({nodeId, depth, maxChars})` | `{pages, tree, truncated}`: the page list (`*` current) and a flat text tree, 3 levels for a page, full depth for a node, 8000 chars |
 | `__fx.inventory({match, maxChars, scope, fresh})` | what the file has to reuse, one line each: `references/reading.md` → Component inventory |
-| `__fx.frame({parent, name, dir, gap, pad, align, justify, w, h, fill, stroke, radius, component, abs, x, y, constraints})` | a frame (or component). `dir` V\|H; `pad` n, [v,h] or [t,r,b,l]; `align` / `justify` start\|center\|end\|between; `w` / `h` a number (FIXED), `'fill'` or `'hug'` (the default with `dir`) |
+| `__fx.frame({parent, name, dir, gap, pad, align, justify, wrap, w, h, fill, stroke, strokeWeight, radius, clip, component, abs, x, y, constraints})` | a frame (or component), no fill unless given. `dir` V\|H\|NONE; `pad` n, [v,h] or [t,r,b,l]; `align` / `justify` start\|center\|end\|between\|baseline; `w` / `h` a number (FIXED), `'fill'` or `'hug'` (the default with `dir`) |
 | `__fx.autoLayout(ref, opts)` | the same layout options on an existing frame |
-| `__fx.text(chars, {parent, name, family, weight, size, lineHeight, textStyle, color, w, align})` | loads the font first; `textStyle` by name or id; `w` `'fill'` or a width wraps |
-| `__fx.instance(idOrKeyOrName, props, {parent, name, w, h})` | variant axes in `props` pick the variant (from a variant id, the axes left out keep its values); other properties by short name (`Label`, not `Label#1:2`) |
+| `__fx.text(chars, {parent, name, family, weight, size, lineHeight, textStyle, color, w, align, abs, x, y, constraints})` | loads the font first; `weight` a style name or a CSS weight (700 → Bold); `textStyle` by name or id; `w` `'fill'` or a width wraps |
+| `__fx.instance(idOrKeyOrName, props, {parent, name, w, h, abs, x, y, constraints})` | variant axes in `props` pick the variant (from a variant id, the axes left out keep its values); other properties by short name (`Label`, not `Label#1:2`) |
 | `__fx.bindFill(ref, value, field)` | `value` a hex, or a variable or paint style (name, id or object). A hex binds the local variable (else paint style) with exactly that value, else paints raw. Returns `{bound, id}`; `field` `'strokes'` for strokes |
 | `__fx.react(ref, [{on, do}], {append})` | sets reactions: `on` `'click'`\|`'hover'`\|`'press'`\|`{key: 27}`\|`{after: ms}`; `do` `'back'`\|`'close'`\|`{to, nav: 'navigate'\|'overlay'\|'swap'\|'change'\|'scroll', anim: 'smart'\|'dissolve'\|'instant'\|'push-left', ms}`. Replaces the list; `append` replaces only the triggers named: `references/prototyping.md` |
 | `__fx.overlayFrame({base, name, items, scrim, page})` | an overlay that opens in place: base-sized, see-through, `items` (`{node, x, y}`) at their place over a Scrim that closes, Esc closes |
@@ -66,7 +66,7 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 const s = await __fx.frame({ name: 'Login', dir: 'V', w: 375, gap: 16, pad: 24, fill: '#ffffff' });
 await __fx.text('Welcome back', { parent: s, weight: 'Bold', size: 28, color: 'color/text' });
 await __fx.instance('Button', { Variant: 'Primary', Label: 'Sign in' }, { parent: s, w: 'fill' });
-return __fx.audit(s.id);
+return (await __fx.audit(s.id)).text;
 ```
 
 `audit` counts, all best at 0: `rawRepeats` (repeated non-instance subtrees), `fixedInFlow` (frames FIXED on both axes inside auto layout), `absDefaultConstraints` (absolute or no-auto-layout children left at MIN/MIN), `groups`, `defaultNames`, `unboundPaints` (raw paints equal to a local variable), `textFixedInAutoLayout` (textAutoResize NONE), `textOverflow`, `componentsWithoutAutoLayout`, `unlinkedProps` (component properties no layer references), `danglingReactions` (a destination that doesn't resolve), `lostHover` (an instance whose own reactions dropped its main component's hover), `overlayNotFullSize` (an overlay smaller than the screen that opens it). `shares` holds `instanceRatio` and `autoLayoutShare`, higher is better. `text` has one line per nonzero count: the key, the count, its ids (`...` when more were left out) and the fix, e.g. `groups 1 [12:4] -> replace the group with an auto-layout frame`. Return `.text` when you only need what to fix.

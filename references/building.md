@@ -73,7 +73,8 @@ return {setId: set.id, variants: set.children.map(c => c.id)};
 ```
 
 - Axes and values come from the source's prop and state enums, one axis per enum.
-- Text that changes per use is a TEXT property, never one variant per string. An optional part is a BOOLEAN on its `visible`; a swappable icon or slot is an INSTANCE_SWAP on its `mainComponent`.
+- Text that changes per use is a TEXT property, never one variant per string. An optional part is a BOOLEAN on its `visible`; a swappable icon is an INSTANCE_SWAP on its `mainComponent`.
+- Per-use content (a card's body) is a slot. `comp.createSlot()` appends a SLOT layer to the component and adds its SLOT property, already linked (`slot.componentPropertyReferences.slotContentId`); the layer starts at `layoutMode` NONE, so give it a name, auto layout and sizing like any frame. Per use, find the instance's SLOT layer (`inst.findOne(n => n.type === 'SLOT')`) and `appendChild` the content into it.
 - A property no layer references does nothing; `__fx.audit` counts those as `unlinkedProps`.
 
 Using it: `__fx.instance('Button', {Variant: 'Secondary', Label: 'Cancel', 'Show Icon': false}, {parent})`. Raw API: `inst.setProperties({Variant: 'Secondary', 'Label#1:2': 'Cancel'})`; non-VARIANT names need their `#id` suffix (`references/api-components.md` → ComponentPropertiesMixin).

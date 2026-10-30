@@ -10,7 +10,7 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 ## Setup
 
-`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`; if it still fails, stop and report the error. Never work around it with browser clicks, screenshots or exported code. Pass `--file` (or export `FIGMA_FILE`) on every helper call.
+`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`; if it still fails, stop and report the error. Never work around it with browser MCP tools, clicks, screenshots or exported code. Pass `--file` (or export `FIGMA_FILE`) on every helper call. Split outputs in one Bash call with `echo ---` (zsh runs `====` as a command).
 
 ## Flow
 
@@ -60,5 +60,4 @@ Per-task reference combos (a worker reads these only for calls its cheat sheet l
 ## Rules
 
 - Say plainly what you will do.
-- Never use browser MCP tools; use the helpers.
 - Read before writing; make targeted edits; don't rebuild; preserve behavior unless asked.
