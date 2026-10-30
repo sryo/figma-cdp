@@ -28,11 +28,18 @@ class SvgPaint(unittest.TestCase):
         path = re.search(r'^spec: (\S+)', p.stdout, re.M).group(1)
         with open(path) as f:
             spec = json.load(f)
+        cls.nodes = spec['nodes']
         cls.svgs = {}
         for a in spec.get('assets', {}).values():
             if a.get('svg'):
                 root = ET.fromstring(a['svg'])
                 cls.svgs[root.get('aria-label')] = root
+
+    def test_elements_carry_their_class_list(self):
+        icon = next(n for n in self.nodes if n.get('axName') == 'page-class')
+        self.assertEqual(icon.get('cls'), ['icon'])
+        self.assertEqual(sorted({tuple(n['cls']) for n in self.nodes if n['tag'] == 'span' and n.get('cls')}), [('tinted',)])
+        self.assertNotIn('cls', next(n for n in self.nodes if n.get('axName') == 'page-var'))
 
     def shape(self, label, tag='path'):
         return self.svgs[label].find(f'.//{NS}{tag}')
