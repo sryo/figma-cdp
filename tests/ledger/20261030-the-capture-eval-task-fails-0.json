@@ -1,0 +1,26 @@
+{
+  "case": "20261030-the-capture-eval-task-fails-0",
+  "class": "harness",
+  "signature": "the capture eval task fails #/# on main and on a candidate alike: the import of https://example.com has no <s> text layer (copy #, rootfound #, autolayout #)",
+  "symptom": "the capture eval task fails 0/3 on main and on a candidate alike: the import of https://example.com has no \"Example Domain\" text layer (copy 0, rootFound 1, autoLayout 1)",
+  "status": "wontfix",
+  "reason": "Not reproduced: gate 6 found main passing capture 3/3 (copy 1) with the current scorer, so the scorer change had no failure to fix",
+  "commit": null,
+  "repro": "tests/eval/tasks/capture.json",
+  "opened": "2026-10-30T09:34:45-0300",
+  "closed": "2026-10-30T15:41:02-0300",
+  "spend": {
+    "usd": 0,
+    "session_s": 0,
+    "sessions": 0
+  },
+  "symptom_check": null,
+  "gates": [
+    "pass",
+    "pass",
+    "pass",
+    "skip",
+    "pass",
+    "fail"
+  ]
+}
