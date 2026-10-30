@@ -69,10 +69,23 @@ def command(claude, plugin, prompt, model=None, add_dirs=(), budget=None, slash=
     return cmd
 
 
+def result_text(c):
+    content = c.get('content')
+    if isinstance(content, list):
+        return '\n'.join(x.get('text', '') for x in content if isinstance(x, dict))
+    return str(content or '')
+
+
 def parse_stream(lines):
     """Metrics from a stream-json transcript: the result event's totals (subagents included,
-    via modelUsage) plus tool calls and turns counted on every assistant message, subagents' too."""
+    via modelUsage) plus tool calls and turns counted on every assistant message, subagents' too.
+    Process metrics say how the session got there, which moves even when the end state doesn't:
+    lost_replies (a helper said a reply was lost or timed out and offered --recover), recover_uses,
+    retries (a call repeating one that had failed) and unhinted_errors (a failed call with no
+    `hint:` line). `errors` keeps the failed calls' text, for a case to quote."""
     init, result, calls, failed, skill_seen, text, turns, msgs = None, None, 0, 0, False, '', 0, set()
+    uses, failed_inputs, errors = {}, set(), []
+    proc = {'lost_replies': 0, 'recover_uses': 0, 'retries': 0, 'unhinted_errors': 0}
     for line in lines:
         try:
             ev = json.loads(line)
@@ -87,17 +100,34 @@ def parse_stream(lines):
             for c in ev.get('message', {}).get('content', []):
                 if c.get('type') == 'tool_use':
                     calls += 1
+                    key = json.dumps([c.get('name'), c.get('input')], sort_keys=True)
+                    uses[c.get('id')] = (c.get('name'), key)
+                    if key in failed_inputs:
+                        proc['retries'] += 1
+                    if '--recover' in json.dumps(c.get('input') or {}):
+                        proc['recover_uses'] += 1
         elif t == 'user':
             content = ev.get('message', {}).get('content', [])
             for c in content if isinstance(content, list) else []:
+                if c.get('type') == 'tool_result':
+                    body = result_text(c)
+                    if 'figma_run.py --recover' in body or 'figma_batch_run.py --recover' in body:
+                        proc['lost_replies'] += 1
                 if c.get('type') == 'tool_result' and c.get('is_error'):
                     failed += 1
+                    name, key = uses.get(c.get('tool_use_id'), (None, None))
+                    if key:
+                        failed_inputs.add(key)
+                    if 'hint:' not in body:
+                        proc['unhinted_errors'] += 1
+                    if len(errors) < 20:
+                        errors.append({'tool': name, 'text': body[:400]})
                 if c.get('type') == 'text' and 'Base directory for this skill' in c.get('text', ''):
                     skill_seen = True
         elif t == 'result':
             result = ev
             turns += int(ev.get('num_turns') or 0)
-    m = {'tool_calls': calls, 'failed_tool_calls': failed}
+    m = {'tool_calls': calls, 'failed_tool_calls': failed, **proc, 'errors': errors}
     if init:
         m['skill_listed'] = SKILL in (init.get('skills') or [])
     if result:

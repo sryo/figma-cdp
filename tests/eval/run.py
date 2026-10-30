@@ -9,8 +9,10 @@ Per task rep, holding a per-file lock (parallel callers on one file queue):
   2. the task's seed, run through this repo's figma_run.py
   3. a headless `claude -p` session on the task prompt, pinned to --skill-dir's copy of the
      skill (session.py has the mechanism); wall time, tokens, cost, turns, tool calls and
-     failed tool calls come from its stream-json transcript, subagents included
-  4. the task's scorer against the page, then the rep's pages are deleted unless --keep
+     failed tool calls come from its stream-json transcript, subagents included, with the process
+     metrics (lost replies, --recover uses, retries, unhinted errors) and the failed calls' text
+  4. the task's scorer against the page ({metrics, lower, passed, notes}; notes say why, and
+     compare.py prints them beside a regression), then the rep's pages are deleted unless --keep
 The output holds every rep plus per-task medians, min and max; compare.py diffs two outputs.
 
 The session runs unattended: dontAsk mode with Bash/Read/Write/Edit/Glob/Grep/Agent/Skill
@@ -27,7 +29,7 @@ import session, source  # noqa: E402
 from figma_lock import file_lock, lock_path  # noqa: E402,F401
 
 COST = ['wall_s', 'tokens_total', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
-        'cost_usd', 'turns', 'tool_calls', 'failed_tool_calls']
+        'cost_usd', 'turns', 'tool_calls', 'failed_tool_calls', 'lost_replies', 'recover_uses', 'retries', 'unhinted_errors']
 
 
 def file_key(url):
@@ -189,6 +191,8 @@ def run_rep(task, rep, a):
             rec.update(score['metrics'])
             rec['passed'] = bool(score['passed']) and not m.get('session_error')
             rec['lower'] = score.get('lower', [])
+            if score.get('notes'):
+                rec['notes'] = [str(n)[:300] for n in score['notes']][:10]
         except FigmaError as e:
             rec['error'] = (rec.get('error', '') + f' score: {e}').strip()
             rec['passed'] = False
@@ -241,6 +245,7 @@ def main():
     ap.add_argument('--session-timeout', type=int, default=1800, help='seconds per session (default 1800)')
     ap.add_argument('--max-budget', type=float, help='USD cap per session (claude --max-budget-usd)')
     ap.add_argument('--transcripts', help='directory to keep each session transcript in')
+    ap.add_argument('--case', help='the case (tests/cases/case.py) this run gates, stamped in meta')
     a = ap.parse_args()
     a.skill_dir = os.path.abspath(a.skill_dir)
     if not os.path.isfile(os.path.join(a.skill_dir, 'SKILL.md')):
@@ -252,7 +257,7 @@ def main():
             sys.exit(f'run.py: {problem}')
     tasks = load_tasks([t for t in a.tasks.split(',') if t])
     rev, dirty = git_rev(a.skill_dir)
-    out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '',
+    out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '', 'case': a.case,
                     'reps': a.reps, 'date': time.strftime('%Y-%m-%dT%H:%M:%S%z')},
            'cost_metrics': COST, 'tasks': {}}
     for task in tasks:

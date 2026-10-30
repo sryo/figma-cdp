@@ -7,6 +7,7 @@ source, sort out why, fix it test-first on its own branch, and record the outcom
   python3 tests/cases/case.py set <case> class=<class> [status=<status>] [key=value ...]
   python3 tests/cases/case.py snapshot <case> --node <id> --file <url> [--max <n>]  # seed.json: the subtree, rebuildable anywhere
   python3 tests/cases/case.py claim <case> [--steal] # a worktree .claude/worktrees/case-<case> on branch case/<case>
+  python3 tests/cases/case.py verify <case> [--file <scratch-url>] [--through <n>] [--dry-run]  # gates 1-6, cheapest first
   python3 tests/cases/case.py close <case> --status merged|wontfix|parked|out-of-scope --reason "<why>" [--commit <sha>]
   python3 tests/cases/case.py list | stats
 
@@ -265,6 +266,123 @@ def cmd_claim(a):
     print(json.dumps({'case': c['id'], 'branch': branch, 'worktree': wt}))
 
 
+# Gate 1. perch_backend_test.py is most of its time and runs only when a perch-side file changed.
+OFFLINE = [['node', '--test', 'tests/figma_lib_test.js', 'tests/snapshot_test.js', 'tests/api_test.mjs'],
+           ['tests/cases_test.py'], ['tests/probe_test.py'], ['tests/gates_test.py'], ['tests/importer_test.py'], ['tests/source_test.py'],
+           ['tests/fidelity_test.py'], ['tests/eval/offline_test.py'], ['tests/perch_backend_test.py']]
+PERCH_SIDE = re.compile(r'^(figma_run\.py|figma_batch_run\.py|figma_capture\.py|figma_perch\.mjs|tests/perch_)')
+
+
+def affected(files, wt):
+    """The eval tasks tests/eval/affects.json maps the changed files to, in rule order."""
+    import fnmatch
+    with open(os.path.join(wt, 'tests', 'eval', 'affects.json')) as f:
+        rules = json.load(f)['rules']
+    tasks_dir = os.path.join(wt, 'tests', 'eval', 'tasks')
+    every = []
+    for name in sorted(os.listdir(tasks_dir)):
+        if name.endswith('.json'):
+            t = read(os.path.join(tasks_dir, name))
+            if t.get('default', True):
+                every.append(t['id'])
+    out = []
+    for path in files:
+        rule = next((r for r in rules if any(fnmatch.fnmatch(path, g) for g in r['files'])), None)
+        for t in (every if rule and rule['tasks'] == '*' else (rule or {}).get('tasks', [])):
+            if t not in out:
+                out.append(t)
+    return out
+
+
+def gate_plan(c, wt, a):
+    """[(name, [commands], skip reason or None)] for gates 1-6. Commands run in the case worktree."""
+    py = sys.executable
+    files = subprocess.run(['git', '-C', wt, 'diff', '--name-only', 'main...HEAD'], capture_output=True, text=True).stdout.split()
+    repro = c.get('repro_path') or ''
+    task = (re.fullmatch(r'tests/eval/tasks/([\w-]+)\.json', repro) or [None, None])[1]
+    probe = (re.fullmatch(r'tests/probes/([\w-]+)\.js', repro) or [None, None])[1]
+    perch = any(PERCH_SIDE.match(f) for f in files)
+    suites = [s if s[0] == 'node' else [py] + s for s in OFFLINE if perch or s != ['tests/perch_backend_test.py']]
+    tasks = ([task] if task else []) + [t for t in affected(files, wt) if t != task]
+    live = None if a.file else 'needs --file <scratch-url>'
+    d = case_dir(c['id'])
+    extra = (['--model', a.model] if a.model else []) + (['--max-budget', str(a.max_budget)] if a.max_budget else []) \
+        + (['--tab', a.tab] if a.tab else []) + ['--case', c['id']]
+    run = lambda skill, reps, out: [py, 'tests/eval/run.py', '--file', a.file or '<scratch-url>', '--skill-dir', skill,
+                                    '--tasks', ','.join(tasks), '--reps', str(reps), '--out', os.path.join(d, out)] + extra
+    base = os.path.join(d, 'base')
+    rules = (['--require', f'{task}:pass_rate>=0.67', '--gain', f'{task}:pass_rate>=0.34'] if task else [])
+    return [
+        ('offline suites', suites, None),
+        ('budget', [[py, 'tests/budget_test.py']], None),
+        ('judge guard', [[py, 'tests/judge_guard.py', 'main..HEAD']], None),
+        ('probe', [[py, 'tests/probes/figma_probe.py', '--file', a.file or '<scratch-url>', probe]],
+         None if probe and a.file else live if probe else 'no probe repro'),
+        ('affected tasks, 1 rep', [run(wt, 1, 'gate5.json')], live if tasks else 'no task is affected'),
+        ('paired base/candidate, 3 reps', [['git', 'worktree', 'add', '--detach', base, 'main'],
+                                           run(base, 3, 'base.json'), run(wt, 3, 'candidate.json'),
+                                           [py, 'tests/eval/compare.py', os.path.join(d, 'base.json'), os.path.join(d, 'candidate.json'),
+                                            '--tasks', ','.join(tasks), '--flaky'] + rules],
+         live if tasks else 'no task is affected'),
+    ]
+
+
+def baseline_model():
+    """The model baseline.json was measured with, so a paired run compares like with like."""
+    try:
+        return read(os.path.join(os.path.dirname(HERE), 'eval', 'baseline.json'))['meta'].get('model') or None
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def cmd_verify(a):
+    """Gates 1-6 on the case's branch, cheapest first, stopping at the first failure. A gate
+    with nothing to run (no probe, no affected task) is skipped with its reason; the live gates
+    without --file leave the case unverified (exit 3)."""
+    import shlex
+    c = load(a.case)
+    wt = (c.get('claim') or {}).get('worktree')
+    if not wt or not os.path.isdir(wt):
+        die('claim the case first: case.py claim <case>')
+    results, code = [], 0
+    for n, (name, cmds, skip) in enumerate(gate_plan(c, wt, a), 1):
+        if n > a.through:
+            break
+        if a.dry_run:
+            print(f'gate {n} {name}: ' + (f'skip ({skip})' if skip else ''))
+            for cmd in cmds:
+                print('  ' + shlex.join(cmd))
+            continue
+        if skip:
+            print(f'gate {n} {name}: skip ({skip})')
+            results.append({'gate': n, 'name': name, 'verdict': 'skip', 'why': skip})
+            if skip.startswith('needs'):
+                code = 3
+                break
+            continue
+        failed = None
+        try:
+            for cmd in cmds:
+                p = subprocess.run(cmd, cwd=wt, capture_output=True, text=True)
+                if p.returncode:
+                    failed = (shlex.join(cmd), (p.stdout + p.stderr).strip().splitlines()[-30:])
+                    break
+        finally:
+            if cmds[0][:3] == ['git', 'worktree', 'add']:
+                subprocess.run(['git', '-C', wt, 'worktree', 'remove', '--force', cmds[0][4]], capture_output=True)
+        print(f'gate {n} {name}: ' + ('fail' if failed else 'pass'))
+        results.append({'gate': n, 'name': name, 'verdict': 'fail' if failed else 'pass'})
+        if failed:
+            print('  ' + failed[0] + '\n' + '\n'.join('    ' + l for l in failed[1]))
+            code = 1
+            break
+    if not a.dry_run:
+        c['gates'] = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'rev': subprocess.run(
+            ['git', '-C', wt, 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True).stdout.strip(), 'results': results}
+        save(c)
+    sys.exit(code)
+
+
 def cmd_close(a):
     c = load(a.case)
     if a.status == 'merged' and not a.commit:
@@ -314,6 +432,9 @@ def main():
     p = sub.add_parser('snapshot'); p.add_argument('case'); p.add_argument('--node', required=True)
     p.add_argument('--file', required=True); p.add_argument('--max', type=int, default=2000)
     p = sub.add_parser('claim'); p.add_argument('case'); p.add_argument('--steal', action='store_true')
+    p = sub.add_parser('verify'); p.add_argument('case'); p.add_argument('--file', help='the scratch file, for gates 4-6')
+    p.add_argument('--model', default=baseline_model()); p.add_argument('--max-budget', type=float, default=3.0, help='USD per session')
+    p.add_argument('--tab'); p.add_argument('--through', type=int, default=6); p.add_argument('--dry-run', action='store_true')
     p = sub.add_parser('close'); p.add_argument('case')
     p.add_argument('--status', required=True, choices=['merged', 'wontfix', 'parked', 'out-of-scope'])
     p.add_argument('--reason', required=True); p.add_argument('--commit')
