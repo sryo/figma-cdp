@@ -166,7 +166,8 @@ def record(out_dir, name, res, plan):
         row = {'member': member, 'verdict': v['verdict'], 'error': v['error'], 'probe': name,
                'typingsVersion': typings_version(), 'date': day, 'editorType': res.get('editorType'),
                'plan': plan if v['verdict'] in ('refused', 'plan-limited') else None}
-        with open(os.path.join(out_dir, f'{member}-{day}.json'), 'w') as f:
+        slug = re.sub(r'[^\w.]+', '-', member).strip('-')
+        with open(os.path.join(out_dir, f'{slug}-{day}.json'), 'w') as f:
             json.dump(row, f, indent=1)
             f.write('\n')
 
