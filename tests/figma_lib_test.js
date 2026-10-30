@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 8, sha: '8960cc481497c7d7' };
+const PIN = { v: 10, sha: '386048cd63aada87' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -691,4 +691,31 @@ test('stale: keeps watching after the current page changes', async () => {
   await run(fx, 'a_', { rootId: a.id });
   figma._nodeChange([{ node: a }]);
   assert.equal(fx.stale('a_').reason, 'stale');
+});
+
+test('icon: an SVG as one auto-layout layer that keeps where its paths draw, clean in audit', async () => {
+  const fx = fresh();
+  const host = mkFrame(figma.currentPage, 'Icons', 'HORIZONTAL');
+  const bell = await fx.icon('<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#111" stroke-width="1.5">' +
+    '<path d="M5 8a5 5 0 0 1 10 0"/><path d="M8.5 16.5a1.5 1.5 0 0 0 3 0"/></svg>', { parent: host.id, name: 'Icon/Bell', component: true });
+  assert.equal(bell.type, 'COMPONENT');
+  assert.equal(bell.name, 'Icon/Bell');
+  assert.equal(bell.parent.id, host.id);
+  assert.deepEqual([bell.width, bell.height, bell.layoutMode], [20, 20, 'HORIZONTAL']);
+  assert.equal(bell.children.length, 1, 'paths sharing a paint flatten into one vector');
+  const v = bell.children[0];
+  assert.deepEqual([v.type, v.strokes.length, v.strokeWeight, v.fills.length], ['VECTOR', 1, 1.5, 0]);
+  assert.deepEqual([bell.paddingTop, bell.paddingRight, bell.paddingBottom, bell.paddingLeft], [2, 7, 1, 3]);
+  assert.deepEqual(bell.fills, []);
+  assert.equal((await fx.audit(bell.id)).text, '');
+  const plain = await fx.icon('<svg width="20" height="20" fill="none" stroke="#111"><path d="M10 4v12"/></svg>', { parent: host.id, name: 'Plus' });
+  assert.deepEqual([plain.primaryAxisSizingMode, plain.counterAxisSizingMode], ['AUTO', 'AUTO'], 'one vector hugs, so it is not fixed in flow');
+  assert.equal((await fx.audit(host.id)).text, '');
+
+  const mixed = await fx.icon('<svg width="20" height="20"><circle fill="#111"/><path stroke="#111" fill="none"/></svg>');
+  assert.equal(mixed.type, 'FRAME');
+  assert.equal(mixed.layoutMode, 'HORIZONTAL');
+  assert.deepEqual(mixed.children.map((c) => [c.layoutPositioning, c.x, c.y, c.constraints.horizontal]),
+    [['ABSOLUTE', 3, 2, 'SCALE'], ['ABSOLUTE', 3, 11, 'SCALE']], 'paths with different paints stay apart, pinned where they draw');
+  assert.equal((await fx.audit(mixed.id)).text, '');
 });

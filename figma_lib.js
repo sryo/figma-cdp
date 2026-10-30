@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 8;
+  var V = 10;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -506,6 +506,45 @@
     place(f, o);
     return f;
   }
+  // An SVG as one auto-layout frame (component: true for a component) that draws where the SVG does:
+  // paths sharing one paint flatten into a vector held in place by padding; paths with different
+  // paints stay apart, absolute and scaling with the frame. One vector hugs: padding + vector is the SVG's size. color binds each vector's stroke, or its
+  // fill when it has no stroke.
+  async function icon(svg, o) {
+    o = o || {};
+    var parent = await parentOf(o);
+    var f = figma.createNodeFromSvg(svg);
+    var paint = function (k) { return JSON.stringify([k.fills, k.strokes, k.strokeWeight]); };
+    var kids = f.children.slice();
+    if (kids.length > 1 && kids.every(function (k) { return paint(k) === paint(kids[0]); })) figma.flatten(kids, f);
+    var w = f.width, h = f.height;
+    var at = f.children.map(function (k) { return [k.x, k.y]; });
+    if (o.component) f = figma.createComponentFromNode(f);
+    f.name = o.name || 'Icon';
+    if (parent) parent.appendChild(f);
+    f.fills = [];
+    f.layoutMode = 'HORIZONTAL';
+    f.primaryAxisSizingMode = 'FIXED';
+    f.counterAxisSizingMode = 'FIXED';
+    f.resize(w, h);
+    var vs = f.children.slice();
+    vs.forEach(function (k, i) { k.name = vs.length === 1 ? 'Glyph' : 'Glyph ' + (i + 1); });
+    if (vs.length === 1) {
+      var v = vs[0];
+      f.paddingLeft = at[0][0]; f.paddingTop = at[0][1];
+      f.paddingRight = Math.max(0, w - at[0][0] - v.width); f.paddingBottom = Math.max(0, h - at[0][1] - v.height);
+      f.primaryAxisSizingMode = 'AUTO';
+      f.counterAxisSizingMode = 'AUTO';
+    } else {
+      vs.forEach(function (k, i) {
+        k.layoutPositioning = 'ABSOLUTE';
+        k.x = at[i][0]; k.y = at[i][1];
+        k.constraints = { horizontal: 'SCALE', vertical: 'SCALE' };
+      });
+    }
+    if (o.color) for (var i = 0; i < vs.length; i++) await bindFill(vs[i], o.color, vs[i].strokes.length ? 'strokes' : 'fills');
+    return f;
+  }
   async function loadFont(f) {
     try { await figma.loadFontAsync(f); } catch (e) {
       throw new Error('font ' + f.family + ' ' + f.style + ' is not available; pick one from figma.listAvailableFontsAsync()');
@@ -936,7 +975,7 @@
   }
 
   window.__fx = {
-    v: V, recon: recon, inventory: inventory, frame: frame, autoLayout: autoLayout, text: text, instance: instance,
+    v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, autoLayout: autoLayout, text: text, instance: instance,
     bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
     presence: presence, stale: stale,

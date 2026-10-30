@@ -34,6 +34,7 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 - `frame({parent, name, dir: 'V'|'H'|'NONE', gap, pad: n|[v,h]|[t,r,b,l], align, justify: start|center|end|between|baseline, wrap: true, w, h: n|'fill'|'hug', fill, stroke, strokeWeight, radius, clip, component: true, abs: true, x, y, constraints})`: no fill unless given; with `dir` it hugs
 - `text(chars, {parent, name, family, weight: 'Bold'|700, size, lineHeight, textStyle, color, align: start|center|end, w: 'fill'|n, abs, x, y, constraints})`: loads the font; `w` wraps it
 - `instance(id|key|name, {Axis: 'Value', Label: 'x'}, {parent, name, w, h, abs, x, y, constraints})`
+- `icon(svg, {parent, name, component: true, color})`: an SVG icon as one hugging auto-layout layer, paths where the SVG draws them
 - `bindFill(ref, '#hex'|token|style, 'fills'|'strokes')`; `fill`/`stroke`/`color` above go through it
 - `react(ref, [{on: 'click'|'hover'|'press'|{key: 27}|{after: ms}, do: 'back'|'close'|{to, nav: navigate|overlay|swap|change|scroll, anim, ms}}], {append})`, `overlayFrame({base, name, items})`, `flow(page, frame, name)`: `references/prototyping.md`. An instance's own reactions drop its main's hover
 - `autoLayout(ref, opts)`, `inventory({match})`, `audit(rootId)`

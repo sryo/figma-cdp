@@ -18,14 +18,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 5985,
-    'figma-worker.md': 5984,
+    'figma-worker.md': 6116,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 24714,
+    'Build screens': 25027,
     'Copy/text edit': 15888,
-    'Component/variant/design-system': 20800,
+    'Component/variant/design-system': 21113,
     'Color/effects/prototype': 15892,
 }
 

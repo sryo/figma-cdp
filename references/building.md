@@ -132,6 +132,8 @@ svgNode.name = 'Icons/Warning';
 // Resize as needed: svgNode.resize(48, 48);
 ```
 
+For an icon, use `__fx.icon(svg, {parent, name, component: true, color})` instead: it flattens paths that share a paint into one vector and holds it where the SVG draws it with auto-layout padding, so the icon hugs and audits clean. Moving an SVG's vectors into another frame by hand drops their offsets to 0,0.
+
 ## Effects
 
 Creating shadows and blurs:

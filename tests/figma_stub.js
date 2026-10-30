@@ -313,7 +313,7 @@ function createFigma() {
   function walk(n, fn) { fn(n); (n._raw.children || []).forEach((c) => walk(c, fn)); }
   function copyInto(src, dst) {
     const s = src._raw, d = dst._raw;
-    for (const k of ['name', 'width', 'height', 'fills', 'strokes', 'effects', 'cornerRadius', 'layoutMode', 'itemSpacing',
+    for (const k of ['name', 'width', 'height', 'x', 'y', 'fills', 'strokes', 'strokeWeight', 'effects', 'cornerRadius', 'layoutMode', 'itemSpacing',
       'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'characters', 'fontName', 'fontSize', 'textAutoResize',
       'constraints', 'layoutPositioning', 'boundVariables', 'componentPropertyReferences', 'primaryAxisAlignItems',
       'counterAxisAlignItems', 'opacity', 'visible']) if (k in s) d[k] = clone(s[k]);
@@ -385,7 +385,38 @@ function createFigma() {
     },
     createImage: (bytes) => { if (!(bytes instanceof Uint8Array)) throw new Error('createImage takes Uint8Array'); return { hash: 'h' + bytes.length }; },
     base64Decode: (s) => Uint8Array.from(Buffer.from(s, 'base64')),
-    createNodeFromSvg: (svg) => { if (!/^\s*<svg/.test(svg)) throw new Error('bad svg'); const f = create('FRAME'); f.resize(24, 24); return f; },
+    // A frame the svg's width/height with one VECTOR per shape element, each 10x8 and placed one
+    // below the other (the real call places them where the path data draws them); a stroke /
+    // fill attribute on the element or the <svg> becomes its paint.
+    createNodeFromSvg: (svg) => {
+      if (!/^\s*<svg/.test(svg)) throw new Error('bad svg');
+      const attr = (s, k) => { const m = new RegExp('\\s' + k + '="([^"]*)"').exec(s); return m && m[1]; };
+      const root = /^\s*<svg[^>]*>/.exec(svg)[0];
+      const f = create('FRAME');
+      f.resize(+attr(root, 'width') || 24, +attr(root, 'height') || 24);
+      (svg.match(/<(path|circle|rect|line|polyline|polygon|ellipse)\b[^>]*>/g) || []).forEach((el, i) => {
+        const v = makeNode('VECTOR');
+        insert(f, v, i);
+        Object.assign(v, { x: 3, y: 2 + i * 9, width: 10, height: 8 });
+        const stroke = attr(el, 'stroke') || attr(root, 'stroke'), fill = attr(el, 'fill') || attr(root, 'fill');
+        v.strokes = stroke && stroke !== 'none' ? solid(0, 0, 0) : [];
+        v.strokeWeight = +(attr(el, 'stroke-width') || attr(root, 'stroke-width') || 1);
+        v.fills = fill === 'none' ? [] : solid(0, 0, 0);
+      });
+      return f;
+    },
+    // One VECTOR over the nodes' bounds in parent, with the first node's paints.
+    flatten(nodes, parent) {
+      nodes = nodes.slice();
+      const v = makeNode('VECTOR'), first = nodes[0];
+      const x = Math.min(...nodes.map((n) => n.x)), y = Math.min(...nodes.map((n) => n.y));
+      Object.assign(v, { x, y, width: Math.max(...nodes.map((n) => n.x + n.width)) - x, height: Math.max(...nodes.map((n) => n.y + n.height)) - y,
+        fills: clone(first.fills), strokes: clone(first.strokes), strokeWeight: first.strokeWeight });
+      const at = parent || first.parent;
+      insert(at, v, at._raw.children.length);
+      nodes.forEach((n) => n.remove());
+      return v;
+    },
     getNodeById() { throw new Error('getNodeById is not supported with documentAccess: dynamic-page; use getNodeByIdAsync'); },
     getNodeByIdAsync: async (id) => (byId[id] && !byId[id].removed ? byId[id] : null),
     // Every family loads except "Missing", so font fallback paths are exercised.
