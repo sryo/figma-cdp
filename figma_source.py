@@ -39,7 +39,7 @@ WEIGHTS = {'thin': 100, 'hairline': 100, 'extralight': 200, 'ultralight': 200, '
 # Keys whose string values are code, not copy.
 CODE_KEYS = re.compile(r'(class|style|href|src|path|url|^id$|^key$|^name$|type|kind|role|variant|icon|testid|^for$|'
                        r'font|family|color|colour|size|weight|radius|padding|margin|gap|background|border|shadow|'
-                       r'^lang$|charset|^rel$|target|method|action|^title$|^alt$|^as$|^to$|mode|format|align|'
+                       r'^lang$|^d$|^points$|viewbox|transform|charset|^rel$|target|method|action|^title$|^alt$|^as$|^to$|mode|format|align|'
                        r'direction|^aria-|^data-|locale|event|^on[A-Z])', re.I)
 
 HEX = re.compile(r'(?<![&\w#])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])')
@@ -562,7 +562,7 @@ class Source:
                     self.add_copy(m.group(3), self.src(f, m.start(3)))
             for a, b in reversed(spans):
                 work = work[:a] + re.sub(r'[^\n]', ' ', work[a:b]) + work[b:]
-        if ext in ('.html', '.htm', '.xml', '.xhtml'):
+        if ext in ('.html', '.htm', '.xml', '.xhtml', '.svg'):
             return
         # Comments go first, so their quotes and words never read as literals.
         work = re.sub(r'/\*[\s\S]*?\*/', lambda m: re.sub(r'[^\n]', ' ', m.group(0)), work)

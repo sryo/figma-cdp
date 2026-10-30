@@ -268,6 +268,15 @@ class Generic(unittest.TestCase):
             m = manifest(os.path.join(tmp, 'a.html'), os.path.join(tmp, 'a.css'))
             self.assertEqual([e['src'] for e in m['colors']], ['a.css:2'])
 
+    def test_svg_path_data_is_not_copy(self):
+        icons = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor', 'icons.svg')
+        self.assertEqual(manifest(icons)['copy'], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'Bell.tsx'), 'w') as f:
+                f.write('export const Bell = () => (\n  <svg viewBox="0 0 20 20"><path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5.5 1.5 5.5h-13S5 12 5 8Z"/>'
+                        '<polyline points="1 2 3 4"/></svg>\n);\n')
+            self.assertEqual([c['text'] for c in manifest(os.path.join(tmp, 'Bell.tsx'))['copy']], [])
+
     def test_missing_path_is_an_error(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '/nope/nothing'],
                            capture_output=True, text=True)
