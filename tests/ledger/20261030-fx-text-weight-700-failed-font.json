@@ -1,0 +1,15 @@
+{
+  "case": "20261030-fx-text-weight-700-failed-font",
+  "class": "helper-bug",
+  "signature": "__fx.text({weight: #}) failed: font inter # is not available",
+  "symptom": "__fx.text({weight: 700}) failed: font Inter 700 is not available",
+  "status": "merged",
+  "reason": "figma_lib passed the CSS weight through as the style name; it now maps CSS weights to style names with a Semi Bold / SemiBold fallback. Seen in every reuse eval rep, 2026-10-30.",
+  "commit": "af019ad",
+  "repro": null,
+  "opened": "2026-10-30T09:14:41-0300",
+  "closed": "2026-10-30T09:14:41-0300",
+  "spend": null,
+  "symptom_check": null,
+  "gates": null
+}

@@ -1,0 +1,23 @@
+{
+  "case": "20261030-a-system-font-sf-pro-is",
+  "class": "env",
+  "signature": "a system font (sf pro) is listed by listavailablefontsasync and loads, but text set in it measures # wide with hasmissingfont",
+  "symptom": "a system font (SF Pro) is listed by listAvailableFontsAsync and loads, but text set in it measures 0 wide with hasMissingFont",
+  "status": "merged",
+  "reason": "env: Chrome listed SF Pro and loaded it, but without figma.com's local-fonts permission text measured 0 wide with hasMissingFont. A troubleshooting line in references/connection.md with the one-node check. No eval task can exercise it (the scratch file uses Inter), so gates 5-6 were not run.",
+  "commit": "420f9cf",
+  "repro": null,
+  "opened": "2026-10-30T08:45:06-0300",
+  "closed": "2026-10-30T09:14:31-0300",
+  "spend": {
+    "usd": 0,
+    "session_s": 0,
+    "sessions": 0
+  },
+  "symptom_check": "not reproducible on the scratch file (it uses Inter, which needs no local-fonts permission); the Lede session confirmed the fix it documents (allow Local fonts for figma.com, reload twice)",
+  "gates": [
+    "pass",
+    "pass",
+    "pass"
+  ]
+}

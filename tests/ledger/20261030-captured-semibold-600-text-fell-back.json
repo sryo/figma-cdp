@@ -1,0 +1,15 @@
+{
+  "case": "20261030-captured-semibold-600-text-fell-back",
+  "class": "helper-bug",
+  "signature": "captured semibold (#) text fell back to regular and sf pro never loaded: the importer asked inter for semibold, not semi bold, and mapped no system family",
+  "symptom": "captured semibold (600) text fell back to Regular and SF Pro never loaded: the importer asked Inter for SemiBold, not Semi Bold, and mapped no system family",
+  "status": "merged",
+  "reason": "The importer maps system, mono and serif stacks to Inter, IBM Plex Mono and Source Serif 4 and normalizes style names (Semi Bold); reported by the Stow capture 2026-10-05 (fontsFallenBack 2 and 3).",
+  "commit": "8c06f17",
+  "repro": null,
+  "opened": "2026-10-30T09:14:41-0300",
+  "closed": "2026-10-30T09:14:41-0300",
+  "spend": null,
+  "symptom_check": null,
+  "gates": null
+}
