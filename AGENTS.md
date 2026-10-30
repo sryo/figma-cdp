@@ -35,6 +35,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
     ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
     ├── fidelity_elements_test.py # `python3 tests/fidelity_elements_test.py`: figma_fidelity.py --elements on capture_spec.json built on the stub, with injected faults (move, resize, recolor, retype, remove, extra layer, spacing)
+    ├── pixels_test.py        # `python3 tests/pixels_test.py`: figma_fidelity.py --pixels: the stdlib PNG codec and the unexplained-region residual on hand-made images
     ├── api/                  # the Plugin API surface: `figma_api.mjs lookup "<error, CSS property or words>"` ranks typings members ([ro], deprecated, docs link, covered by the skill or not); `coverage <member>`; `diff <old> <new>` between two typings; `runtime <probe-result>` diffs probes/runtime_surface.js's live members against them; `surface` regenerates surface.json from the typings typings.lock pins
     ├── api_test.mjs          # `node --test tests/api_test.mjs`: the typings parser, coverage, lookup, and surface.json against typings.lock
     ├── api/drift.py          # `drift.py check` (offline-safe, for a schedule: is typings.lock the latest @figma/plugin-typings?) and `drift.py bump [<version>]` (diffs it against surface.json and opens a case)

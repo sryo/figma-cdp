@@ -32,6 +32,14 @@ element with no node is missing-node (once, at the top of a missing subtree, wei
 share of the root's area); a node with no element is extra-node. --waive drops rows under an
 element the walker flagged for a loss known_losses.json lists (grid, transform) and counts them.
 Rows are {kind, source:{i, css_prop, value}, figma:{id, name, prop, value}}.
+
+  ... --elements <spec> <rootId> --pixels <page.png> [--crops <dir>]
+
+Adds what the rows don't explain: the subtree exported as PNG, compared with a screenshot of the
+page (full page, as walked) on an 8 px grid, text masked out. Differing cells join into regions;
+a region that overlaps no row's element is listed as unexplained (with a source and a Figma crop
+in --crops), which is where to look for a loss no property check knows about (a blend mode, a
+gradient, a mask). Informational: it never decides a pass.
 """
 import argparse, json, os, re, subprocess, sys, tempfile
 
@@ -651,7 +659,7 @@ def element_rows(spec, fig, waive=None):
         up = nodes[f['parent']]
         if up['id'] in paired_ids or up['parent'] < 0:
             rows.append({'kind': 'extra-node', 'source': None, 'figma': {'id': f['id'], 'name': f['name'], 'prop': None, 'value': None},
-                         'weight': round(f['w'] * f['h'] / root_area, 4)})
+                         'weight': round(f['w'] * f['h'] / root_area, 4), 'rect': [f['x'], f['y'], f['w'], f['h']]})
     waived = {}
     if waive:
         listed = {l['id'] for l in waive}
@@ -682,7 +690,155 @@ def render_elements(rep):
         where = f"[cap:{s['i']}]" if s else f"{f['id']} {json.dumps(f['name'], ensure_ascii=False)}"
         val = '' if r['kind'] in ('missing-node', 'extra-node') else f": {s['css_prop']} {json.dumps(s['value'], ensure_ascii=False)} → {f['prop']} {json.dumps(f['value'], ensure_ascii=False)}"
         lines.append(f"{r['kind']} {where}{' ' + f['id'] if s and f else ''}{val}")
+    for g in rep.get('unexplained', []):
+        lines.append(f"unexplained {g['rect']} ({g['cells']} cells)" + (': ' + ' '.join(g['crops']) if g.get('crops') else ''))
     return '\n'.join(lines)
+
+
+# ---- --pixels: what the rows don't explain ----------------------------------------------------
+
+def png_read(data):
+    """(width, height, RGB bytes) of an 8-bit, non-interlaced PNG; alpha is composited on white."""
+    import struct, zlib
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError('not a PNG')
+    pos, idat, w = 8, [], None
+    while pos < len(data):
+        n, kind = struct.unpack('>I4s', data[pos:pos + 8])
+        body = data[pos + 8:pos + 8 + n]
+        if kind == b'IHDR':
+            w, h, depth, ctype, _, _, interlace = struct.unpack('>IIBBBBB', body)
+            if depth != 8 or ctype not in (0, 2, 4, 6) or interlace:
+                raise ValueError(f'unsupported PNG (depth {depth}, color type {ctype}, interlace {interlace})')
+        elif kind == b'IDAT':
+            idat.append(body)
+        elif kind == b'IEND':
+            break
+        pos += n + 12
+    bpp = {0: 1, 2: 3, 4: 2, 6: 4}[ctype]
+    raw, stride = zlib.decompress(b''.join(idat)), w * bpp
+    out, prev = bytearray(w * h * 3), bytearray(stride)
+    for y in range(h):
+        f, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for x in range(stride):
+            a = line[x - bpp] if x >= bpp else 0
+            b, c = prev[x], prev[x - bpp] if x >= bpp else 0
+            if f == 1:
+                line[x] = (line[x] + a) & 255
+            elif f == 2:
+                line[x] = (line[x] + b) & 255
+            elif f == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif f == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        for x in range(w):
+            px = line[x * bpp:(x + 1) * bpp]
+            rgb = (px[0], px[0], px[0]) if ctype in (0, 4) else (px[0], px[1], px[2])
+            alpha = px[-1] if ctype in (4, 6) else 255
+            o = (y * w + x) * 3
+            for k in range(3):
+                out[o + k] = (rgb[k] * alpha + 255 * (255 - alpha)) // 255
+        prev = line
+    return w, h, out
+
+
+def png_write(path, w, h, rgb):
+    import struct, zlib
+    chunk = lambda kind, body: struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body) & 0xffffffff)
+    raw = b''.join(b'\x00' + bytes(rgb[y * w * 3:(y + 1) * w * 3]) for y in range(h))
+    with open(path, 'wb') as f:
+        f.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b''))
+
+
+def crop(img, scale, box):
+    w, h, px = img
+    x0, y0 = int(box[0] * scale), int(box[1] * scale)
+    x1, y1 = min(w, int((box[0] + box[2]) * scale)), min(h, int((box[1] + box[3]) * scale))
+    out = bytearray()
+    for y in range(y0, y1):
+        out += px[(y * w + x0) * 3:(y * w + x1) * 3]
+    return max(x1 - x0, 0), max(y1 - y0, 0), out
+
+
+def residual(spec, rep, src, fig, cell=8, tol=24, crops=None):
+    """Regions where the screenshot and the export differ that no row of rep accounts for."""
+    origin = spec['nodes'][0]['rect']
+    W, H = origin['w'], origin['h']
+    viewport = (spec.get('meta') or {}).get('viewport', {}).get('w') or W
+    ss, fs = src[0] / viewport, fig[0] / W
+
+    def mean(img, scale, off, x, y):
+        """The mean color of one cell, sampling every other pixel; off is where the root sits in img."""
+        w, h, px = img
+        x0, y0 = int((x + off[0]) * scale), int((y + off[1]) * scale)
+        n, acc = 0, [0, 0, 0]
+        for yy in range(y0, min(h, y0 + max(1, int(cell * scale))), 2):
+            for xx in range(x0, min(w, x0 + max(1, int(cell * scale))), 2):
+                o = (yy * w + xx) * 3
+                acc[0] += px[o]; acc[1] += px[o + 1]; acc[2] += px[o + 2]
+                n += 1
+        return [v / n for v in acc] if n else None
+
+    box = lambda r: (r['x'] - origin['x'], r['y'] - origin['y'], r['w'], r['h'])
+    texts = [box(n['rect']) for n in spec['nodes'] if (n.get('text') or '').strip()]
+    hit = lambda a, b: a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+    cols, rows_n = int(W // cell) + 1, int(H // cell) + 1
+    bad = set()
+    for cy in range(rows_n):
+        for cx in range(cols):
+            c = (cx * cell, cy * cell, cell, cell)
+            if any(hit(c, t) for t in texts):
+                continue
+            a, b = mean(src, ss, (origin['x'], origin['y']), c[0], c[1]), mean(fig, fs, (0, 0), c[0], c[1])
+            if a and b and max(abs(p - q) for p, q in zip(a, b)) > tol:
+                bad.add((cx, cy))
+    regions, seen = [], set()
+    for start in sorted(bad):
+        if start in seen:
+            continue
+        stack, cells = [start], []
+        seen.add(start)
+        while stack:
+            cx, cy = stack.pop()
+            cells.append((cx, cy))
+            for n in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                if n in bad and n not in seen:
+                    seen.add(n)
+                    stack.append(n)
+        xs, ys = [c[0] for c in cells], [c[1] for c in cells]
+        regions.append({'rect': [min(xs) * cell, min(ys) * cell, (max(xs) - min(xs) + 1) * cell, (max(ys) - min(ys) + 1) * cell], 'cells': len(cells)})
+    explaining = []
+    for r in rep['rows']:
+        if r['source']:
+            explaining.append(box(spec['nodes'][r['source']['i']]['rect']))
+        elif r.get('rect'):
+            explaining.append(tuple(r['rect']))
+    out = [g for g in regions if not any(hit(g['rect'], e) for e in explaining)]
+    if crops:
+        os.makedirs(crops, exist_ok=True)
+        for k, g in enumerate(out, 1):
+            x, y, w, h = g['rect']
+            g['crops'] = []
+            for side, img, scale, off in (('source', src, ss, (origin['x'], origin['y'])), ('figma', fig, fs, (0, 0))):
+                cw, ch, px = crop(img, scale, (x + off[0], y + off[1], w, h))
+                path = os.path.join(crops, f'unexplained-{k}-{side}.png')
+                if cw and ch:
+                    png_write(path, cw, ch, px)
+                    g['crops'].append(path)
+    return out
+
+
+EXPORT = r"""
+(async function (ROOT_ID) {
+  var root = await figma.getNodeByIdAsync(ROOT_ID);
+  if (!root) throw new Error('figma_fidelity: no node ' + ROOT_ID);
+  var bytes = await root.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 1 } });
+  return figma.base64Encode(bytes);
+})
+"""
 
 
 def run_collect(script, a):
@@ -714,6 +870,9 @@ def main():
     ap.add_argument('--json', action='store_true', help='print the full report as JSON')
     ap.add_argument('--elements', action='store_true', help='per element: the first argument is a figma_capture.py walk spec')
     ap.add_argument('--waive', help='with --elements: known_losses.json; rows under an element flagged for a listed loss are counted, not listed')
+    ap.add_argument('--pixels', help='with --elements: a full-page screenshot of the walked page; adds the regions no row explains')
+    ap.add_argument('--figma-png', help='with --pixels: the subtree exported at scale 1 already (skips the export)')
+    ap.add_argument('--crops', help='with --pixels: write a source and a Figma crop of each unexplained region here')
     a = ap.parse_args()
     if a.elements:
         try:
@@ -731,6 +890,19 @@ def main():
         if not isinstance(fig, dict) or 'nodes' not in fig:
             fail(f'unexpected eval output: {str(fig)[:300]}')
         rep = element_rows(spec, fig, waive)
+        if a.pixels:
+            import base64
+            try:
+                with open(a.pixels, 'rb') as f:
+                    src = png_read(f.read())
+                if a.figma_png:
+                    with open(a.figma_png, 'rb') as f:
+                        exported = f.read()
+                else:
+                    exported = base64.b64decode(run_collect(EXPORT + f'({json.dumps(a.root)})', a))
+                rep['unexplained'] = residual(spec, rep, src, png_read(exported), crops=a.crops)
+            except (OSError, ValueError) as e:
+                fail(f'--pixels: {e}')
         print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else render_elements(rep))
         sys.exit(0)
     try:

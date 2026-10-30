@@ -64,3 +64,13 @@ spacing [cap:12] 1:51: padding/gap [0, 0] → padding/itemSpacing [0, 8]
 
 Kinds: `position` (against the parent, > 2 px), `spacing` (every child shifted alike: the parent's padding or gap), `size`, `color` (fill or text color, ΔE2000 > 2.3), `font-size`, `font-weight`, `font-family`, `line-height`, `letter-spacing`, `text`, `radius`, `opacity`, `visibility`, `missing-node` and `extra-node` (with a `weight`: their share of the root's area). `--waive` counts, rather than lists, rows under elements the walker flagged for a documented capture loss. `--json` gives each row's `css_prop` and Figma `prop`, which is what to look up when the importer has no mapping for it (`tests/api/figma_api.mjs lookup <css_prop>` in the dev repo).
 
+To find a loss no property check knows about (a blend mode, a gradient, a mask), add a full-page screenshot of the walked page:
+
+```bash
+agent-browser --session capture connect <cdp-port> && agent-browser --session capture open <url>
+agent-browser --session capture screenshot --full /tmp/figma_page.png      # a background tab: takes no focus
+python3 <skill-dir>/figma_fidelity.py --elements /tmp/figma_capture_<slug>.json <rootId> --file <figma-url> --pixels /tmp/figma_page.png --crops /tmp/figma_crops
+```
+
+The subtree is exported as PNG and compared with the screenshot on an 8 px grid, text masked out. Differing regions that overlap no row's element come back as `unexplained [x, y, w, h]` with a source and a Figma crop each. It is a pointer for a person to look at, not a pass/fail.
+
