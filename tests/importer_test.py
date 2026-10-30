@@ -364,6 +364,23 @@ class Componentize(unittest.TestCase):
                 self.assertEqual(button['children'][0]['characters'], spec['nodes'][li['i'] + 3]['text'])
             self.assertEqual(out['report']['warnings'], [])
 
+    def test_a_class_key_maps_the_elements_with_that_class(self):
+        # The page's own components: cls is the element's class list as the walker records it.
+        def classes(ns):
+            for i in (3, 4, 5):
+                ns[i]['cls'] = ['card', 'card--wide'] if i == 4 else ['card']
+            ns[6]['cls'] = ['card']
+        spec, out = run_edited(classes, '--stub-components', '.card,card')
+        self.assertEqual([out['node'](i).get('main') for i in (3, 4, 5, 6)], ['.card'] * 4)
+        self.assertEqual(out['node'](11).get('main'), 'card', 'an element without the class keeps its role category')
+        self.assertEqual(out['report']['warnings'], [])
+
+    def test_the_first_listed_class_key_wins(self):
+        def classes(ns):
+            ns[4]['cls'] = ['card', 'tile']
+        spec, out = run_edited(classes, '--stub-components', '.tile,.card')
+        self.assertEqual(out['node'](4).get('main'), '.tile')
+
     def test_unmatched_instance_layer_is_built_loose(self):
         def break_layer(nodes):
             li = [n for n in nodes if n['tag'] == 'li'][1]
