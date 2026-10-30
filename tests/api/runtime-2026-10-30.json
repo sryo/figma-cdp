@@ -1,0 +1,227 @@
+{
+ "ComponentNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "availableInferredVariables",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "gridColumnSizingCSS",
+   "gridRowSizingCSS",
+   "playbackSettings",
+   "setRelatedLinkPreviewAsync",
+   "updateVariableConsumption",
+   "variableConsumptionMap"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [
+   "explicitVariableModes",
+   "inferredAutoLayout",
+   "resolvedVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "EllipseNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "availableInferredVariables",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "detachedInfo",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "playbackSettings",
+   "setRelatedLinkPreviewAsync",
+   "updateVariableConsumption",
+   "variableConsumptionMap"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [
+   "explicitVariableModes",
+   "resolvedVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "FrameNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "availableInferredVariables",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "gridColumnSizingCSS",
+   "gridRowSizingCSS",
+   "playbackSettings",
+   "setRelatedLinkPreviewAsync",
+   "updateVariableConsumption",
+   "variableConsumptionMap"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [
+   "explicitVariableModes",
+   "inferredAutoLayout",
+   "resolvedVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "InstanceNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "availableInferredVariables",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "gridColumnSizingCSS",
+   "gridRowSizingCSS",
+   "masterComponent",
+   "playbackSettings",
+   "setRelatedLinkPreviewAsync",
+   "updateVariableConsumption",
+   "variableConsumptionMap"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [
+   "explicitVariableModes",
+   "inferredAutoLayout",
+   "resolvedVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "PageNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "detachedInfo",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "setRelatedLinkPreviewAsync"
+  ],
+  "missing": [
+   "focusedNode",
+   "focusedSlide"
+  ],
+  "readonlyAtRuntime": [
+   "explicitVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "PluginAPI": {
+  "untyped": [
+   "createVideo",
+   "getHTMLString",
+   "relatedLinks",
+   "widget"
+  ],
+  "missing": [
+   "buzz",
+   "createCanvasRow",
+   "createCodeBlock",
+   "createConnector",
+   "createGif",
+   "createLinkPreviewAsync",
+   "createShapeWithText",
+   "createSlide",
+   "createSlideRow",
+   "createSticky",
+   "createTable",
+   "getCanvasGrid",
+   "getSlideGrid",
+   "moveNodesToCoord",
+   "setCanvasGrid",
+   "setSlideGrid",
+   "textreview",
+   "timer",
+   "widgetId"
+  ],
+  "readonlyAtRuntime": [],
+  "writableAtRuntime": [
+   "apiVersion",
+   "clientStorage",
+   "constants",
+   "fileKey",
+   "motion",
+   "parameters",
+   "ui",
+   "util",
+   "viewport",
+   "vscode"
+  ]
+ },
+ "RectangleNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "availableInferredVariables",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "detachedInfo",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "playbackSettings",
+   "setRelatedLinkPreviewAsync",
+   "updateVariableConsumption",
+   "variableConsumptionMap"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [
+   "explicitVariableModes",
+   "resolvedVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "TextNode": {
+  "untyped": [
+   "addRelatedLinkAsync",
+   "availableInferredVariables",
+   "canUpgradeToNativeBidiSupport",
+   "createCanvasControl",
+   "deleteRelatedLinkAsync",
+   "detachedInfo",
+   "editRelatedLinkAsync",
+   "getRelatedLinksAsync",
+   "playbackSettings",
+   "setRelatedLinkPreviewAsync",
+   "updateVariableConsumption",
+   "useNativeBidiSupport",
+   "variableConsumptionMap"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [
+   "explicitVariableModes",
+   "resolvedVariableModes"
+  ],
+  "writableAtRuntime": [
+   "id",
+   "type"
+  ]
+ },
+ "VariablesAPI": {
+  "untyped": [
+   "getSubscribedVariables"
+  ],
+  "missing": [],
+  "readonlyAtRuntime": [],
+  "writableAtRuntime": []
+ }
+}
