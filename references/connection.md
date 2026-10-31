@@ -105,7 +105,7 @@ If a Mode P call fails, the error keeps perch's code:
 - `no_tab` / `ambiguous_tab`: open the file in Chrome, or pass `--file`.
 - `timeout`: an awaited eval runs at most 100s by default; pass `--timeout <seconds>` to either helper (or set `FIGMA_TIMEOUT`), up to 300. A perch older than this awaits 30s whatever you ask; update it. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
 - `tab_not_visible` (screenshot only): the tab isn't the one its window shows.
-- `figma is undefined in this tab`: open and close any plugin once, as above.
+- `figma is undefined in this tab`: on a room tab the helper first tries an exact Tools control once; if that control is unavailable, open and close any plugin once, as above.
 - `stale_tab: ... no longer shows file`: the tab moved to another file mid-batch; the rest of the batch didn't run.
 - `perch_daemon: the daemon dropped the call`: the background helper died or went silent after taking the call, so the script may have run; check the file before running it again. Its log is next to its socket in `$TMPDIR/figma-perch-<uid>/`.
 

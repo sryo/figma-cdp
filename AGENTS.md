@@ -124,6 +124,8 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 - `new_tab {url}`, `wait {target, expression}` (readyState complete off the new tab's initial `about:blank`) and `close_tab {tabId}` for `figma_capture.py walk`
 - the `buildKick` export (`buildMainKick` before perch 5725447), which marks a perch new enough to have `world:"main"`; the helpers accept either
 
+On a `room:` tab, `figma_perch.mjs` checks `typeof figma` before a script. If it is undefined and the snapshot has an exact Tools button or tab, it opens and closes that control once, then checks again. It never runs a plugin or takes the Mac's foreground. If the control is absent, the existing plugin-open hint remains.
+
 **Daemon.** A one-shot run pays node start, the perch import, osascript startup and `list_tabs` on every call (~650 ms). So the Python helpers talk to `node figma_perch.mjs serve <socket>` over a unix socket instead, starting it on first use:
 - Socket: `$TMPDIR/figma-perch-<uid>/<hash>.sock`, dir 0700, socket 0600. The hash covers `PERCH_DIR` and the mtime and size of perch's `server.js` and of `figma_perch.mjs`, so an update gets a fresh daemon and the old one idles out. `FIGMA_PERCH_SOCK` overrides the path (tests).
 - Start: under a `flock` on `<socket>.lock`, so concurrent first calls start one daemon. A socket nobody answers on is stale and replaced. The daemon's stderr goes to `<socket>.log`.

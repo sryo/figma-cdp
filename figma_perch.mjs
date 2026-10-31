@@ -172,6 +172,32 @@ async function runEval(handleCall, tab, src, ms, page = false) {
   return { ok: true, value: out.v === undefined ? null : out.v, href: out.h };
 }
 
+// Some room loads have no Plugin API until Figma's Tools panel has opened once.
+// Use only an exact accessible control in that room tab; a missing or changed
+// control leaves the normal undefined-figma error and its user-facing hint.
+export async function wakeFigma(handleCall, tab) {
+  if (!String(tab.tabId).startsWith("room:")) return false;
+  const target = { tabId: tab.tabId };
+  const probe = await call(handleCall, "eval_js", { target, world: "main", script: "return typeof figma" });
+  if (probe.text.trim() !== "undefined") return false;
+  const snap = async () => (await call(handleCall, "accessibility_snapshot", { target, max: 500 })).text;
+  const before = await snap();
+  const tools = /^(\d+) (button|tab) "Tools"[^\n]*/m.exec(before);
+  if (!tools || /\bselected\b/.test(tools[0])) return false;
+  const previous = /^(\d+) tab "[^"]+" selected(?:\s|$)/m.exec(before);
+  const clickRef = async (ref) => {
+    const { text } = await call(handleCall, "click", { target, ref });
+    return JSON.parse(text).ok === true;
+  };
+  if (!await clickRef(tools[1])) return false;
+  const after = await snap();
+  const close = tools[2] === "button" ? /^(\d+) button "Tools"(?:\s|$)/m.exec(after)
+    : previous ? [...after.matchAll(/^(\d+) tab "([^"]+)"(?:\s|$)/gm)].find((m) => m[2] === previous[0].split('"')[1]) : null;
+  if (!close || !await clickRef(close[1])) return false;
+  const again = await call(handleCall, "eval_js", { target, world: "main", script: "return typeof figma" });
+  return again.text.trim() !== "undefined";
+}
+
 // A timeout in a hidden tab is usually Chrome throttling its timers, not a slow script: say so.
 const HIDDEN_HINT = "The tab is hidden (document.visibilityState is hidden), and Chrome throttles a hidden tab's timers, so awaits in the page crawl: show the tab in its window, then --recover";
 async function tabHidden(handleCall, tab) {
@@ -268,6 +294,9 @@ export async function handle(handleCall, req, cache = null) {
 
   const results = [];
   let retried = false;
+  if (String(tab.tabId).startsWith("room:")) {
+    try { await wakeFigma(handleCall, tab); } catch { /* the ordinary eval reports the missing API */ }
+  }
   for (let i = 0; i < sources.length; i++) {
     let res;
     try {
