@@ -493,6 +493,8 @@ class Compare(unittest.TestCase):
         self.assertNotIn('noisy', m['reuse.newDuplicateComponents'], 'reps that agree stay exact')
         self.assertNotIn('reuse.cost_usd', m, 'no dollar prices')
         self.assertEqual(h['limits'], {})
+        r['meta'].update(rev='abc1234', dirty=True)
+        self.assertEqual({k: compare.fium(r)[k] for k in ('commit', 'dirty')}, {'commit': 'abc1234', 'dirty': True}, 'fium stamps a run with its commit')
 
 
     def test_noise_file_forgives_one_more_of_the_rare_counts_on_every_task(self):

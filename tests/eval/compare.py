@@ -170,7 +170,8 @@ def fium(run):
             if k in NOISY_COUNTS or (kind == 'quality' and k != 'passed' and min(vals) != max(vals)):
                 e = {'dir': d, 'kind': kind, 'noisy': True, 'samples': vals}
             out[f'{task}.{k}'] = e
-    return {'metrics': out, 'limits': {}}
+    meta = run.get('meta') or {}
+    return {'commit': meta.get('rev'), 'dirty': bool(meta.get('dirty')), 'metrics': out, 'limits': {}}
 
 
 def notes(run, task):
