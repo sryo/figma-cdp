@@ -408,7 +408,7 @@ class HarborFixture(unittest.TestCase):
 
 
 class Gate(unittest.TestCase):
-    """tests/eval/gate.py: the run in fium's format, the noise file, and fium price compare."""
+    """tests/eval/gate.py: the run in fium's format, the noise file, and fium compare."""
     def result(self, **tasks):
         out = {'meta': {'file': 'K', 'model': ''}, 'cost_metrics': run.COST, 'tasks': {}}
         for t, reps in tasks.items():
@@ -455,7 +455,7 @@ class Gate(unittest.TestCase):
     def test_gate_reads_price_trailers_from_this_repo(self):
         import gate
         cmd = gate.command('/tmp/b.json', '/tmp/r.json', '4f754e9')
-        self.assertEqual(cmd[:5], [gate.FIUM, 'price', 'compare', '/tmp/b.json', '/tmp/r.json'])
+        self.assertEqual(cmd[:4], [gate.FIUM, 'compare', '/tmp/b.json', '/tmp/r.json'])
         self.assertEqual(cmd[cmd.index('--repo') + 1], os.path.dirname(os.path.dirname(HERE)))
         self.assertEqual(cmd[cmd.index('--since') + 1], '4f754e9')
         self.assertEqual(cmd[cmd.index('--noise') + 1], gate.NOISE)

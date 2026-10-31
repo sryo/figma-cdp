@@ -27,7 +27,7 @@ def run_json(task_rates, metrics=None, notes=None, reps=3):
 
 
 class Gate(unittest.TestCase):
-    """tests/eval/gate.py: fium price compare for regressions, plus a case's --require/--gain rules."""
+    """tests/eval/gate.py: fium compare for regressions, plus a case's --require/--gain rules."""
 
     def setUp(self):
         import gate

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""The live-run gate: fium price compare on run.py outputs, plus a case's pass-rate rules.
+"""The live-run gate: fium compare on run.py outputs, plus a case's pass-rate rules.
 
   python3 tests/eval/gate.py [<baseline.json>] <candidate.json> [--tasks a,b]
                              [--require task:metric>=x ...] [--gain task:metric>=x ...]
   python3 tests/eval/gate.py --fium <run.json>          the run in fium's format, on stdout
 
-Writes both runs in fium's run format (fium RULES K2), then runs `fium price compare` with
+Writes both runs in fium's run format (fium RULES K2), then runs `fium compare` with
 tests/eval/noise.json and the Price: trailers since the baseline's rev, read from this repo. Per
 task and rep metric: wall time is time and token counts are tokens (noisy kinds); turns, tool calls,
 failed calls and unhinted errors are noisy counts, the other cost metrics exact counts; scorer
@@ -113,8 +113,8 @@ def notes(run, task):
 
 
 def command(base_path, run_path, rev):
-    """fium price compare on two exported runs, with this repo's noise file and Price: trailers since rev."""
-    cmd = [FIUM, 'price', 'compare', base_path, run_path, '--noise', NOISE, '--repo', REPO]
+    """fium compare on two exported runs, with this repo's noise file and Price: trailers since rev."""
+    cmd = [FIUM, 'compare', base_path, run_path, '--noise', NOISE, '--repo', REPO]
     if rev and subprocess.run(['git', '-C', REPO, 'cat-file', '-e', rev + '^{commit}'], capture_output=True).returncode == 0:
         cmd += ['--since', rev]
     return cmd
