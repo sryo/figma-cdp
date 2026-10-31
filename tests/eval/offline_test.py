@@ -99,6 +99,23 @@ class Scorers(StubFigma):
         self.assertEqual(r['boards'], r['bare'], 'a frame holding only masters, or only such frames, is no missed instance')
         self.assertLess(r['mixed'], r['bare'], 'a board with raw content beside its masters still counts')
 
+    def test_a_score_names_the_nodes_that_miss_each_check(self):
+        bad = self.scored('app-screens', 'app_screens_bad')
+        good = self.scored('app-screens', 'app_screens_good')
+        self.assertNotIn('misses', bad['metrics'], 'misses stay beside the metrics, not among them')
+        miss = bad['misses']
+        for check in ('autoLayoutShare', 'defaultNames', 'sizingMatch'):
+            self.assertTrue(miss.get(check), f'no node named for {check}')
+            for m in miss[check]:
+                self.assertEqual(set(m), {'name', 'id', 'path', 'want', 'got'}, m)
+                self.assertRegex(m['path'], r'^eval/app-screens/1 / ')
+        self.assertLessEqual(max(len(v) for v in miss.values()), 8, 'a check lists a few nodes, not all of them')
+        self.assertEqual(miss['autoLayoutShare'][0]['want'], 'auto layout')
+        self.assertFalse(good.get('misses', {}).get('sizingMatch'), 'a passing check names nothing')
+        rec = {}
+        run.keep_misses(rec, bad)
+        self.assertEqual(rec['misses'], miss)
+
     def test_reuse(self):
         g, b = self.check('reuse')
         self.assertEqual((g['buttonInstances'], g['inputInstances'], g['newDuplicateComponents']), (2, 2, 0))

@@ -66,7 +66,9 @@ def compose(rel, ctx):
         with open(os.path.join(HERE, m.group(1))) as f:
             return f.read()
     body = re.sub(r'^// include: (\S+)$', include, body, flags=re.M)
-    return f'(async function (EVAL) {{\n{lib}\n{body}\n}})({json.dumps(ctx)})\n'
+    # A scorer's result (it has metrics) also carries lib.js's MISSES, report only.
+    return (f'(async function (EVAL) {{\n{lib}\nvar __out = await (async function () {{\n{body}\n}})();\n'
+            f'if (__out && __out.metrics && Object.keys(MISSES).length) __out.misses = MISSES;\nreturn __out;\n}})({json.dumps(ctx)})\n')
 
 
 class FigmaError(Exception):
@@ -191,6 +193,7 @@ def run_rep(task, rep, a):
             rec.update(score['metrics'])
             rec['passed'] = bool(score['passed']) and not m.get('session_error')
             rec['lower'] = score.get('lower', [])
+            keep_misses(rec, score)
             if score.get('notes'):
                 rec['notes'] = [str(n)[:300] for n in score['notes']][:10]
         except FigmaError as e:
@@ -202,6 +205,12 @@ def run_rep(task, rep, a):
             except FigmaError as e:
                 print(f'  cleanup failed ({e}); delete pages named {prefix}* by hand', file=sys.stderr)
     return rec
+
+
+def keep_misses(rec, score):
+    """The scorer's misses, the nodes behind each check's shortfall, kept beside its metrics."""
+    if score.get('misses'):
+        rec['misses'] = score['misses']
 
 
 def summarize(reps):

@@ -74,6 +74,15 @@ function colorMatch(keys, nodes) {
   return { onPalette: share(on.length, hexes.length), tokensUsed: share(present.length, keys.length) };
 }
 
+// Report only: a few of the nodes behind each check's misses, returned beside the metrics
+// (run.py keeps them in the rep) so a miss names itself. No score reads them.
+var MISSES = {}, MISS_CAP = 8;
+function pathOf(n) { var p = []; for (var x = n; x && x.type !== 'DOCUMENT'; x = x.parent) p.unshift(x.name); return p.join(' / '); }
+function miss(check, n, want, got) {
+  var l = MISSES[check] = MISSES[check] || [];
+  if (l.length < MISS_CAP) l.push({ name: n ? n.name : null, id: n ? n.id : null, path: n ? pathOf(n) : '', want: want, got: got });
+}
+
 // Design-quality metrics over every node on the run's pages. QUALITY_LOWER names the metrics
 // where less is better; the rest are better higher.
 async function quality(pages) {
@@ -84,12 +93,15 @@ async function quality(pages) {
   });
   var auto = containers.filter(function (n) { return n.layoutMode && n.layoutMode !== 'NONE'; });
   var stacks = containers.filter(function (n) { return n.children.length >= 2 && auto.indexOf(n) === -1; });
+  containers.forEach(function (n) { if (auto.indexOf(n) === -1) miss('autoLayoutShare', n, 'auto layout', 'none'); });
+  stacks.forEach(function (n) { miss('absoluteStacks', n, 'auto layout', n.children.length + ' children, no auto layout'); });
   var flowKids = [], sized = 0, absKids = [], constrained = 0;
   auto.forEach(function (f) {
     f.children.forEach(function (c) {
       if (c.layoutPositioning === 'ABSOLUTE') {
         absKids.push(c);
         if (c.constraints && (c.constraints.horizontal !== 'MIN' || c.constraints.vertical !== 'MIN')) constrained++;
+        else miss('constrainedAbsShare', c, 'constraints other than MIN/MIN', 'MIN/MIN');
         return;
       }
       // Only raw frames: an instance's or component's size is its design (a 32x32 avatar is
@@ -97,6 +109,7 @@ async function quality(pages) {
       if (c.type !== 'FRAME') return;
       flowKids.push(c);
       if (c.layoutSizingHorizontal !== 'FIXED' || c.layoutSizingVertical !== 'FIXED') sized++;
+      else miss('sizingShare', c, 'FILL or HUG on an axis', 'FIXED/FIXED');
     });
   });
   var instances = own.filter(function (n) { return n.type === 'INSTANCE'; });
@@ -108,8 +121,14 @@ async function quality(pages) {
   comps.forEach(function (c) { var b = baseName(c.name); byBase[b] = (byBase[b] || 0) + 1; });
   var dup = 0;
   Object.keys(byBase).forEach(function (b) { dup += byBase[b] - 1; });
-  var detached = rawFrames.filter(function (f) { return byBase[baseName(f.name)]; }).length;
-  var named = own.filter(function (n) { return DEFAULT_NAME.test(n.name); }).length;
+  comps.forEach(function (c) { if (byBase[baseName(c.name)] > 1) miss('duplicateComponents', c, 'one component per name', byBase[baseName(c.name)] + ' named ' + baseName(c.name)); });
+  rawFrames.forEach(function (f) { miss('instanceRatio', f, 'an instance', 'raw FRAME'); });
+  var detachedFrames = rawFrames.filter(function (f) { return byBase[baseName(f.name)]; });
+  detachedFrames.forEach(function (f) { miss('detachedLike', f, 'an instance', 'raw FRAME named like a component'); });
+  var detached = detachedFrames.length;
+  var namedNodes = own.filter(function (n) { return DEFAULT_NAME.test(n.name); });
+  namedNodes.forEach(function (n) { miss('defaultNames', n, 'a role name', n.name); });
+  var named = namedNodes.length;
   var m = {
     autoLayoutShare: share(auto.length, containers.length),
     absoluteStacks: stacks.length,
@@ -125,7 +144,10 @@ async function quality(pages) {
     var bound = 0, hard = 0;
     own.forEach(function (n) {
       if (n.fillStyleId && typeof n.fillStyleId === 'string') { bound++; return; }
-      solidPaints(n).forEach(function (p) { if (p.boundVariables && p.boundVariables.color) bound++; else hard++; });
+      solidPaints(n).forEach(function (p) {
+        if (p.boundVariables && p.boundVariables.color) bound++;
+        else { hard++; miss('boundPaintShare', n, 'a bound color variable', 'hard-coded ' + toHex(p.color)); }
+      });
     });
     m.boundPaintShare = share(bound, bound + hard);
     m.hardcodedPaints = hard;
@@ -509,6 +531,7 @@ async function componentMetrics(read, expect, pages) {
         checked++;
         var car = r.owner ? carriers[r.owner.id] : null;
         if (car && axisValue(r, car, spec) === r.u.props[axis]) matched++;
+        else miss('variantMatch', r.inst, c + ' ' + axis + '=' + r.u.props[axis], car ? axis + '=' + axisValue(r, car, spec) : 'no ' + axis + ' axis');
       });
     });
   });
@@ -523,8 +546,8 @@ async function componentMetrics(read, expect, pages) {
     if (!want) return;
     if (r.u.sizing) want = Object.assign({}, want, r.u.sizing);  // stretched by its column parent
     var n = r.inst || r.region;
-    if (want.h) { sizeChecks++; if (n && n.layoutSizingHorizontal === want.h) sizeOk++; }
-    if (want.v) { sizeChecks++; if (n && n.layoutSizingVertical === want.v) sizeOk++; }
+    if (want.h) { sizeChecks++; if (n && n.layoutSizingHorizontal === want.h) sizeOk++; else miss('sizingMatch', n, r.u.c + ' ' + want.h + ' across', n ? n.layoutSizingHorizontal : 'not found: ' + r.u.key); }
+    if (want.v) { sizeChecks++; if (n && n.layoutSizingVertical === want.v) sizeOk++; else miss('sizingMatch', n, r.u.c + ' ' + want.v + ' down', n ? n.layoutSizingVertical : 'not found: ' + r.u.key); }
   });
   // components nothing on the run's pages instances
   var all = nodesOf(pages), usedIds = {};
