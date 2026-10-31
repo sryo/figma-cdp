@@ -294,6 +294,12 @@ export async function handle(handleCall, req, cache = null) {
     return { fatal: e.message };
   }
 
+  // A room's background tab gets no requestAnimationFrame, so Figma never renders (exportAsync to
+  // PNG never settles). Showing it inside the room takes no focus on the Mac, unlike a browser tab.
+  if (roomOf(tab.tabId)) {
+    try { await call(handleCall, "activate_tab", { target: { tabId: tab.tabId } }); } catch { /* the eval reports a gone tab */ }
+  }
+
   if (op === "screenshot") {
     try {
       const { r } = await call(handleCall, "screenshot", { target: { tabId: tab.tabId }, maxWidth: 0, format: "png" });

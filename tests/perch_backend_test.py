@@ -456,6 +456,21 @@ class PerchBackend(Harness):
         self.assertIn('timeout', r.stderr)
         self.assertNotIn('The tab is hidden', r.stderr)
 
+    def test_a_room_tab_is_shown_in_its_room_before_scripts_run(self):
+        """A room's background tab gets no requestAnimationFrame, so Figma's PNG export never settles."""
+        tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two – Figma'}]
+        r = self.run_helper('figma_batch_run.py', '--file', 'BBB222', '-e', '1', '-e', '2', PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        names = [c['name'] for c in self.calls() if c['name'] in ('activate_tab', 'eval_js')]
+        self.assertEqual(names[0], 'activate_tab')
+        self.assertEqual(self.calls('activate_tab')[0]['args']['target'], {'tabId': 'room:main:R1'})
+        self.assertEqual(len(self.calls('activate_tab')), 1, 'once per request, not per script')
+        stop_daemon(self.sock)
+        open(self.log, 'w').close()
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', '-e', '1', PERCH_STUB_TABS=json.dumps(TWO_FILES))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('activate_tab'), [], 'a browser tab is never raised: that takes the Mac\'s focus')
+
     def test_where_names_the_backend_and_the_tab(self):
         tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two – Figma'}]
         r = self.run_helper('figma_run.py', '--file', 'BBB222', '--where', PERCH_STUB_TABS=json.dumps(tabs))
