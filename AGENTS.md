@@ -50,7 +50,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── sleep/sleep.py        # the sleep pass: `mine` (transcripts + journals → signals), `digest` (clusters, ranked, known vs new vs relapse), `learn`, `replay` (lessons.jsonl), `check` (no-regression gates); AGENTS.md → Sleep pass
     ├── sleep/lessons.jsonl   # what earlier sleeps consolidated, as checks: an error text both helpers must hint, a rule a doc must keep
     ├── sleep_test.py         # `python3 tests/sleep_test.py`: sleep.py on hand-written transcripts, and the repo's lessons replayed
-    ├── judge_guard.py        # `judge_guard.py [main..HEAD]`: fails a commit that changes the skill and edits an existing judge (scorers, tasks, lib.js, compare.py, baseline.json, probe expectations) without a `Judge-Change:` line
+    ├── judge_guard.py        # `judge_guard.py [main..HEAD]`: fails a commit that changes the skill and edits an existing judge (scorers, tasks, lib.js, compare.py, gate.py, noise.json, baseline.json, probe expectations) without a `Judge-Change:` line
     ├── gates_test.py         # `python3 tests/gates_test.py`: compare.py's gate flags, process metrics, affects.json, the judge guard, and `case.py verify` end to end on stand-ins
     ├── snapshot_test.js      # `node --test tests/snapshot_test.js`: snapshot → rebuild → snapshot round-trips on the stub
     ├── ledger/               # one JSON per closed case (class, signature, fix commit, repro); read before fixing a similar signature
@@ -60,7 +60,9 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
     ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)
     └── eval/                 # behavior evals: headless sessions on a scratch Figma file, scored on the resulting state
         ├── run.py            # `run.py --file <url> [--skill-dir <worktree>] [--tasks a,b] [--reps N] [--out f]` → per-task medians
-        ├── compare.py        # `compare.py [baseline.json] <candidate.json> [--tasks] [--require t:m>=x] [--gain t:m>=x] [--flaky]` — exit 1 on any regression or unmet rule
+        ├── gate.py           # `gate.py [baseline.json] <candidate.json>`: the live-run gate. Both runs in fium's format, then `~/Documents/fium/fium price compare` with noise.json and the Price: trailers since the baseline's rev; compare.py's verdict follows as a reference
+        ├── noise.json        # fium noise: abs 1 on failed_tool_calls, unhinted_errors and lost_replies per task (a rise from 0); rel stays fium's 10% until an A/A run
+        ├── compare.py        # `compare.py [baseline.json] <candidate.json> [--tasks] [--require t:m>=x] [--gain t:m>=x] [--flaky]` — exit 1 on any regression or unmet rule; `--fium <run>` writes the run in fium's format. The reference for one more live cycle
         ├── affects.json      # which tasks a change to each skill file can move (case.py verify's gate 5)
         ├── session.py        # the headless `claude -p` command pinned to one skill copy; `session.py probe` verifies it offline
         ├── offline_test.py   # `python3 tests/eval/offline_test.py`: seeds, scorers, run.py and compare.py with no Figma and no API
@@ -181,7 +183,7 @@ Cases start from one failure someone noticed. The sleep pass starts from everyth
 3. Each pick goes through the case loop above, or straight to a test-first fix when the cause is plain: an error hint, a helper fix, a doc rule where the agent makes the call, an eval case, or a memory for a user correction. perch findings become proposals in perch's own repo.
 4. `sleep.py learn` records each fix in `tests/sleep/lessons.jsonl` with its signature and evidence; `replay` (in the offline suites) keeps every lesson true afterwards, so a trimmed doc or a rewritten helper can't forget it. `learn` refuses a lesson whose fix hasn't landed, and one that only says X doesn't work: say what to do instead, or the claim outlives the fix.
    `sleep.py digest --stale` lists the hint rows and lessons that never fired across every source, with their file and line: candidates to prune, each with a lean live check of the task it serves.
-5. `sleep.py check [--candidate <run.json>]` runs the offline suites, budget and replay, and compare.py against the baseline when there is a live run. A change that doesn't pass is dropped, not forced in.
+5. `sleep.py check [--candidate <run.json>]` runs the offline suites, budget and replay, and `tests/eval/gate.py` (fium price compare) against the baseline when there is a live run. A change that doesn't pass is dropped, not forced in.
 
 ## Rules for changes
 
@@ -196,7 +198,7 @@ Cases start from one failure someone noticed. The sleep pass starts from everyth
 - **No new references without table updates.** Any new `references/*.md` must land in `SKILL.md`'s references table with a distinct "load for" description. Orphans get pruned.
 - **No backwards-compat shims.** If a file's shape changes, update every caller. Don't ship deprecated aliases or "kept for compatibility" sections.
 - **Eval scorers are state-only.** A scorer reads the Figma state a session left (and, for read-only tasks, its final answer); don't score transcript introspection ("worker reads state before modifying"). How the skill got there shows up in the cost metrics instead.
-- **A skill change is done only when `tests/eval/compare.py` shows no regression against `tests/eval/baseline.json`.** Measure the change from a git worktree (`run.py --skill-dir <worktree>`, same file, model and reps as the baseline). Quality metrics may not drop at all; cost metrics (wall time, tokens, cost, turns, tool calls) may not grow past the noise tolerance compare.py documents. When a change improves on the baseline, refresh `baseline.json` from that run in the same change. `tests/budget_test.py` caps the always-loaded bytes the same way: lower a cap when a change frees room.
+- **A skill change is done only when `tests/eval/gate.py <run.json>` (fium price compare, fium RULES K2–K4) shows no worse metric against `tests/eval/baseline.json`.** A `worse?` is a low-rep median past the noise band and still blocks; an accepted cost is a `Price:` trailer quoting the user (K4). Measure the change from a git worktree (`run.py --skill-dir <worktree>`, same file, model and reps as the baseline). Quality metrics may not drop at all; cost metrics (wall time, tokens, turns, tool calls) may not grow past the noise band (`noise.json`, else fium's 10%). When a change improves on the baseline, refresh `baseline.json` from that run in a commit of its own (fium K5). `tests/budget_test.py` caps the always-loaded bytes the same way: lower a cap when a change frees room.
 
 ## Ceiling — what's out of scope
 

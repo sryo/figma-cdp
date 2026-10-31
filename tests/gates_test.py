@@ -149,6 +149,10 @@ class Guard(unittest.TestCase):
         git(self.repo, 'add', '-A')
         git(self.repo, 'commit', '-q', '-m', msg)
 
+    def test_the_fium_gate_and_its_noise_are_judges(self):
+        for p in ('tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/compare.py'):
+            self.assertTrue(judge_guard.JUDGE.match(p), p)
+
     def test_a_commit_that_edits_its_own_judge_fails(self):
         self.commit('loosen the scorer and patch the lib', 'figma_lib.js', 'tests/eval/scorers/effects.js')
         self.assertEqual([v[1:] for v in judge_guard.violations(self.repo)],

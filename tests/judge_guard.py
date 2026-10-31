@@ -5,7 +5,7 @@
 
 A commit violates when it touches a skill file (SKILL.md, figma-worker.md, references/, the
 figma_* helpers) and also modifies or deletes an existing judge file: the eval scorers, tasks,
-lib.js, source.py and fixtures, compare.py, baseline.json, or a probe's expected verdicts
+lib.js, source.py and fixtures, compare.py, gate.py, noise.json, baseline.json, or a probe's expected verdicts
 (tests/probes/<name>.json). Adding a judge file is allowed, so a case's red commit can bring a
 new task, scorer or probe. A commit whose message has a `Judge-Change: <why>` line passes; that
 line is for a human-reviewed change of the judges (a baseline refresh, a scorer fix).
@@ -13,7 +13,7 @@ line is for a human-reviewed change of the judges (a baseline refresh, a scorer 
 import re, subprocess, sys
 
 SKILL = re.compile(r'^(SKILL\.md|figma-worker\.md|references/|figma_[^/]+\.(js|mjs|py)$)')
-JUDGE = re.compile(r'^tests/(eval/(scorers/|tasks/|fixtures/|lib\.js$|source\.py$|compare\.py$|baseline\.json$)|probes/[^/]+\.json$)')
+JUDGE = re.compile(r'^tests/(eval/(scorers/|tasks/|fixtures/|lib\.js$|source\.py$|compare\.py$|gate\.py$|noise\.json$|baseline\.json$)|probes/[^/]+\.json$)')
 
 
 def git(repo, *args):

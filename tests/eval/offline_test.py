@@ -495,6 +495,36 @@ class Compare(unittest.TestCase):
         self.assertEqual(h['limits'], {})
 
 
+    def test_noise_file_forgives_one_more_of_the_rare_counts_on_every_task(self):
+        with open(os.path.join(HERE, 'noise.json')) as f:
+            noise = json.load(f)
+        with open(os.path.join(HERE, 'baseline.json')) as f:
+            tasks = json.load(f)['tasks']
+        for t in tasks:
+            for k in ('failed_tool_calls', 'unhinted_errors', 'lost_replies'):
+                self.assertEqual(noise['abs'].get(f'{t}.{k}'), 1, f'{t}.{k}')
+        self.assertEqual(noise.get('rel', {}), {}, 'rel stays at fium\'s 10% default until an A/A run measures it')
+
+    def test_gate_is_fium_price_compare_with_the_noise_file(self):
+        import gate
+        if not os.path.exists(gate.FIUM):
+            self.skipTest('no fium at ' + gate.FIUM)
+        def res(**kw):
+            return self.result(reuse=[dict(self.rep(), failed_tool_calls=kw.get('failed', 0), turns=10),
+                                      dict(self.rep(copy=kw.get('copy', 1.0)), failed_tool_calls=kw.get('failed', 0), turns=10)])
+        with tempfile.TemporaryDirectory() as tmp:
+            def write(name, r):
+                p = os.path.join(tmp, name)
+                with open(p, 'w') as f:
+                    json.dump(r, f)
+                return p
+            base = write('b.json', res())
+            self.assertEqual(gate.gate(base, write('same.json', res())), 0)
+            self.assertEqual(gate.gate(base, write('one.json', res(failed=1))), 0, 'one more failed call is inside the abs noise')
+            self.assertEqual(gate.gate(base, write('two.json', res(failed=2))), 1)
+            self.assertEqual(gate.gate(base, write('worse.json', res(copy=0.9))), 1, 'a quality drop blocks')
+
+
 class Stream(unittest.TestCase):
     def test_parse_counts_subagents_and_sums_models(self):
         out = subprocess.run([sys.executable, os.path.join(HERE, 'offline', 'fake_claude.py'), '-p',

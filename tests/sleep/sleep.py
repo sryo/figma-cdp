@@ -33,7 +33,7 @@ helpers must answer with a hint containing `expect`; a `doc` lesson is a regex i
 matching. `learn` refuses a lesson that doesn't hold yet (the fix hasn't landed) and one whose
 text is a bare negative claim ("X doesn't work") with no way through. `replay` checks every lesson, so trimming a doc for bytes or rewriting a helper can't
 silently drop what an earlier sleep learned. `check` is the no-regression gate for a sleep's
-changes: the offline suites, budget, replay, and compare.py on a live run when one is given.
+changes: the offline suites, budget, replay, and tests/eval/gate.py (fium price compare) on a live run when one is given.
 FIGMA_CDP_LESSONS points at another lessons file (tests).
 """
 import argparse, ast, datetime, difflib, json, os, random, re, subprocess, sys
@@ -528,7 +528,7 @@ def cmd_check(a):
     py = sys.executable
     gates = [s if s[0] == 'node' else [py] + s for s in case.OFFLINE] + [[py, 'tests/budget_test.py'], [py, __file__, 'replay']]
     if a.candidate:
-        gates.append([py, 'tests/eval/compare.py', a.baseline or 'tests/eval/baseline.json', a.candidate, '--flaky'])
+        gates.append([py, 'tests/eval/gate.py', a.baseline or 'tests/eval/baseline.json', a.candidate])
     for g in gates:
         print('$ ' + ' '.join(g), flush=True)
         if not a.dry_run and subprocess.run(g, cwd=REPO).returncode:

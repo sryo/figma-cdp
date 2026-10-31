@@ -265,9 +265,9 @@ class Sleep(unittest.TestCase):
 
     def test_check_dry_run_lists_the_gates(self):
         out = self.sleep('check', '--dry-run', '--candidate', 'cand.json')
-        for gate in ('tests/sleep_test.py', 'tests/budget_test.py', 'replay', 'compare.py', 'cand.json'):
+        for gate in ('tests/sleep_test.py', 'tests/budget_test.py', 'replay', 'tests/eval/gate.py', 'cand.json'):
             self.assertIn(gate, out)
-        self.assertNotIn('compare.py', self.sleep('check', '--dry-run'))
+        self.assertNotIn('gate.py', self.sleep('check', '--dry-run'))
 
     def test_the_repos_lessons_hold(self):
         self.sleep('replay', lessons=os.path.join(ROOT, 'tests', 'sleep', 'lessons.jsonl'))
