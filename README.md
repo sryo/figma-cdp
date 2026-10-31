@@ -9,16 +9,17 @@ No Figma MCP required. It works directly in the Figma file you have open in your
 ## Install
 
 ```bash
-git clone https://github.com/sryo/figma-cdp ~/.claude/skills/figma-cdp
+git clone https://github.com/sryo/figma-cdp ~/.agents/skills/figma-cdp
+mkdir -p ~/.claude/skills && ln -sfn ~/.agents/skills/figma-cdp ~/.claude/skills/figma-cdp
 ```
 
-That's Claude Code's skills folder. Codex and GitHub Copilot look in `~/.agents/skills`, so for those clone into `~/.agents/skills/figma-cdp` instead.
+One copy serves Codex, GitHub Copilot and Claude Code.
 
 Your agent picks up the skill when you mention a Figma URL or ask for a mockup. If it doesn't, restart it.
 
-On a Mac, also install [perch](https://github.com/sryo/perch). figma-cdp uses it automatically: it's faster, it works in Chrome, Arc or Safari, and your browser won't ask you to allow remote debugging. In Arc, keep the Figma tab showing in its window while your agent works.
+On a Mac, also install [perch](https://github.com/sryo/perch) and Node 18 or later. figma-cdp uses perch automatically: it's faster, it works in Chrome, Arc or Safari, and your browser won't ask you to allow remote debugging. In Arc, keep the Figma tab showing in its window while your agent works.
 
-Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or comments. Generate a token at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
+Optional: for image rendering or comments, give your agent a [Figma personal access token](https://www.figma.com/developers/api#access-tokens).
 
 ## Use
 
@@ -31,14 +32,14 @@ Talk to your agent:
 - *"Extract all the copy from the Screens page."*
 - *"Add a drop shadow to the hero frame."*
 
-Without perch, the first run asks you to turn on remote debugging in Chrome (the toggle at `chrome://inspect/#remote-debugging`), or opens a separate Chrome Canary for it.
+Without perch, figma-cdp needs [agent-browser](https://github.com/vercel-labs/agent-browser); your agent can install it. The first run asks you to turn on remote debugging in Chrome (the toggle at `chrome://inspect/#remote-debugging`), or opens a separate Chrome Canary for it.
 
 ## Troubleshooting
 
-If `typeof figma` returns `"undefined"`, the Plugin API isn't loaded yet. Open and close any Figma plugin once to wake it up.
+If your agent says Figma's plugin system isn't ready, open and close any Figma plugin once.
 
-If a long job in Figma stops with a timeout (a big export, a large file loading), it gets two minutes by default. Your agent can give it up to five with `--timeout 300`.
+If a long job times out, ask your agent to give it more time.
 
-If `agent-browser --cdp <port>` can't connect, see `references/connection.md` → Troubleshooting.
+If your agent can't connect to the browser, see `references/connection.md` → Troubleshooting.
 
 Working on the skill itself? AGENTS.md has the architecture, the tests and the live evals.
