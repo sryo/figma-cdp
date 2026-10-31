@@ -40,7 +40,7 @@ Name the kind of construct, not the syntax; the mapping holds for any source.
 | Children pushed apart (space-between) | `primaryAxisAlignItems = 'SPACE_BETWEEN'`, no spacer frames |
 | Cross-axis alignment (start/center/end/baseline) | `counterAxisAlignItems` `MIN` / `CENTER` / `MAX` / `BASELINE` |
 | Child that grows to fill (flex grow, weight, `1fr`, width 100%) | `layoutSizingHorizontal/Vertical = 'FILL'` after `appendChild` |
-| Child of a flex parent with no `align-items` (the default stretch), with no cross size or `align-self` of its own | FILL on the cross axis (a column's child FILL across); `align-items` or `align-self` start, center or end → HUG |
+| Child of a flex parent with no `align-items` (the default stretch), with no cross size or `align-self` of its own | FILL on the cross axis (a column's child FILL across), inline-flex and inline-block items too (a flex parent blockifies them); `align-items` or `align-self` start, center or end → HUG |
 | Content-sized element (auto width, hug) | `'HUG'` (auto-layout frames and text only) |
 | Fixed size | `resize(w, h)`, then `'FIXED'` |
 | Min / max width or height | `minWidth` / `maxWidth` / `minHeight` / `maxHeight` on an auto-layout frame or its child |

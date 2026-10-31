@@ -23,10 +23,10 @@ FILE_CAPS = {
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 27404,
+    'Build screens': 27476,
     'Copy/text edit': 15888,
     'Component/variant/design-system': 23256,
-    'Color/effects/prototype': 16126,
+    'Color/effects/prototype': 16198,
 }
 
 
@@ -165,6 +165,13 @@ class Docs(unittest.TestCase):
         row = next((l for l in conv.splitlines() if 'stretch' in l.lower() and 'align-items' in l), '')
         self.assertRegex(row, r'(?i)no `?align-items`?[^|]*\|[^|]*FILL', 'default cross-axis stretch has no mapping')
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
+        self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
+        self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_capture_inline_exception_is_for_block_parents_only(self):
+        cap = docs()['references/capture.md']
+        row = next((l for l in cap.splitlines() if 'not inline-level' in l), '')
+        self.assertIn('blockif', row, 'capture.md reads inline-level flex items as not stretching')
 
     def test_variant_axes_come_from_manifest_variants_and_states(self):
         text = docs()['references/building.md']

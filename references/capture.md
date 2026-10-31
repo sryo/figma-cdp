@@ -306,7 +306,7 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `padding` `[t,r,b,l]` | `paddingTop / Right / Bottom / Left` |
 | `overflow` hidden / clip / auto / scroll | `clipsContent = true` (else false) |
 | in-flow child of Auto Layout: `flexGrow` > 0, or `sz` `"pct"`, along the parent's primary axis | that axis `layoutSizing* = 'FILL'` |
-| in-flow child of Auto Layout: `sz` `"auto"` / `"pct"` on the counter axis AND `alignSelf` auto / normal / stretch AND parent `alignItems` normal / stretch, not inline-level (`display` starting with `inline`) | that axis `'FILL'` |
+| in-flow child of Auto Layout: `sz` `"auto"` / `"pct"` on the counter axis AND `alignSelf` auto / normal / stretch AND parent `alignItems` normal / stretch, not inline-level (computed `display` starting with `inline`: only a block parent's children, since a flex parent blockifies its items) | that axis `'FILL'` |
 | `sz` `"auto"` on an axis that doesn't FILL, node an Auto Layout frame with children (or a textbox: height, and width when single-line) | `'HUG'` — except a width outside Auto Layout flow on a non-positioned block-level box (it fills a container Figma can't express) an absolute axis with `pin` on both edges, and a wrapping row's width; those stay `'FIXED'`. A frame's HUG waits until its first in-flow child lands, so one holding only positioned children stays `'FIXED'` |
 | `sz` `"px"` / `"other"`, leaf frames, svg, iframe placeholders, category instances | `'FIXED'` at the captured rect (FILL still applies) |
 | a child FILLs an axis its parent HUGs | the parent goes `'FIXED'` at its captured size on that axis first |
