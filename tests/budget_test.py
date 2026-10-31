@@ -23,9 +23,9 @@ FILE_CAPS = {
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 26620,
+    'Build screens': 26938,
     'Copy/text edit': 15888,
-    'Component/variant/design-system': 22706,
+    'Component/variant/design-system': 23024,
     'Color/effects/prototype': 15892,
 }
 
@@ -136,6 +136,9 @@ class Docs(unittest.TestCase):
         self.assertRegex(sec, r'(?i)source names?[^.]*manifest[^.]*`?size=sm\|lg`?', 'variant values are named as the source names them')
         self.assertRegex(sec, r'(?i)part[^.]*itself a source component[^.]*instance[^.]*variant', 'nested source components stay paint overrides')
         self.assertRegex(sec, r'(?i)keep[^.]*propert[^.]*as (it is|they are)[^.]*(report|say)', 'promotion fixes what the task did not ask for')
+        use = next(l for l in sec.splitlines() if '**Use it:**' in l)
+        self.assertRegex(use, r'(?i)new screen[^.]*sizing from the source[^.]*instance override', 'new instances inherit the copy\'s sizing')
+        self.assertRegex(use, r'(?i)report[^.]*master', 'the master\'s gap goes unreported')
 
     def test_the_manifest_is_read_instead_of_the_source_files(self):
         step = next(l for l in docs()['SKILL.md'].splitlines() if l.startswith('2. **Source.'))
