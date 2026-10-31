@@ -485,10 +485,12 @@ class Compare(unittest.TestCase):
         self.assertEqual(m['reuse.wall_s'], {'dir': 'lower', 'kind': 'time', 'samples': [100.0, 120.0]})
         self.assertEqual(m['reuse.tokens_total']['kind'], 'tokens')
         self.assertEqual(m['reuse.output_tokens'], {'dir': 'lower', 'kind': 'tokens', 'samples': [7, 8]})
-        self.assertEqual(m['reuse.turns'], {'dir': 'lower', 'kind': 'count', 'samples': [10, 12]})
-        self.assertEqual(m['reuse.copy'], {'dir': 'higher', 'kind': 'quality', 'samples': [1.0, 0.9]})
+        self.assertEqual(m['reuse.turns'], {'dir': 'lower', 'kind': 'count', 'noisy': True, 'samples': [10, 12]})
+        self.assertEqual(m['reuse.copy'], {'dir': 'higher', 'kind': 'quality', 'noisy': True, 'samples': [1.0, 0.9]},
+                         'an agent-scored metric whose reps disagree is judged statistically, as --flaky does')
         self.assertEqual(m['reuse.newDuplicateComponents']['dir'], 'lower', "a scorer's lower list")
-        self.assertEqual(m['reuse.passed'], {'dir': 'higher', 'kind': 'quality', 'samples': [1, 0]})
+        self.assertEqual(m['reuse.passed'], {'dir': 'higher', 'kind': 'quality', 'samples': [1, 0]}, 'passed stays exact')
+        self.assertNotIn('noisy', m['reuse.newDuplicateComponents'], 'reps that agree stay exact')
         self.assertNotIn('reuse.cost_usd', m, 'no dollar prices')
         self.assertEqual(h['limits'], {})
 

@@ -136,11 +136,16 @@ def compare(base, cand, floor=0.10, tasks=None, flaky_metrics=None):
     return rows
 
 
+# Counts an agent's run moves every time; house judges them statistically.
+NOISY_COUNTS = {'turns', 'tool_calls', 'failed_tool_calls', 'unhinted_errors'}
+
+
 def house(run):
     """The run in house's run format (RULES K2): one metric per task and rep metric, samples per rep.
     Wall time is time and token counts are tokens (noisy kinds); the other cost metrics are counts;
-    scorer metrics and passed are quality, higher unless the scorer lists them lower. Dollars and
-    saturated metrics are left out."""
+    scorer metrics and passed are quality, higher unless the scorer lists them lower. Turns, tool calls,
+    failed calls, unhinted errors and a scorer metric whose reps disagree are noisy (judged statistically,
+    as --flaky does); passed stays exact. Dollars and saturated metrics are left out."""
     cost = set(run.get('cost_metrics') or [])
     out = {}
     for task, t in run['tasks'].items():
@@ -161,7 +166,10 @@ def house(run):
                 kind, d = 'count', 'lower'
             else:
                 kind, d = 'quality', 'lower' if k in lower else 'higher'
-            out[f'{task}.{k}'] = {'dir': d, 'kind': kind, 'samples': vals}
+            e = {'dir': d, 'kind': kind, 'samples': vals}
+            if k in NOISY_COUNTS or (kind == 'quality' and k != 'passed' and min(vals) != max(vals)):
+                e = {'dir': d, 'kind': kind, 'noisy': True, 'samples': vals}
+            out[f'{task}.{k}'] = e
     return {'metrics': out, 'limits': {}}
 
 
