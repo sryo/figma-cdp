@@ -3,6 +3,7 @@
 
   python3 tests/eval/compare.py <baseline.json> <candidate.json> [--floor 0.10] [--all] [--tasks a,b]
                                 [--require task:metric>=x ...] [--gain task:metric>=x ...] [--flaky]
+  python3 tests/eval/compare.py --house <run.json>      the run in house's format, for house price compare
 
 Per task, per metric, on the rep medians:
   quality (scorer metrics and pass_rate): any move in the worse direction is a regression;
@@ -135,6 +136,35 @@ def compare(base, cand, floor=0.10, tasks=None, flaky_metrics=None):
     return rows
 
 
+def house(run):
+    """The run in house's run format (RULES K2): one metric per task and rep metric, samples per rep.
+    Wall time is time and token counts are tokens (noisy kinds); the other cost metrics are counts;
+    scorer metrics and passed are quality, higher unless the scorer lists them lower. Dollars and
+    saturated metrics are left out."""
+    cost = set(run.get('cost_metrics') or [])
+    out = {}
+    for task, t in run['tasks'].items():
+        lower, sat = set(t.get('lower') or []), saturated(task)
+        names = []
+        for r in t.get('reps', []):
+            names += [k for k in r if k not in names]
+        for k in names:
+            vals = [int(v) if isinstance(v, bool) else v for v in (r.get(k) for r in t['reps'])]
+            vals = [v for v in vals if isinstance(v, (int, float))]
+            if not vals or k in ('rep', 'cost_usd') or k in sat:
+                continue
+            if k == 'wall_s':
+                kind, d = 'time', 'lower'
+            elif k.endswith('tokens') or k == 'tokens_total':
+                kind, d = 'tokens', 'lower'
+            elif k in cost:
+                kind, d = 'count', 'lower'
+            else:
+                kind, d = 'quality', 'lower' if k in lower else 'higher'
+            out[f'{task}.{k}'] = {'dir': d, 'kind': kind, 'samples': vals}
+    return {'metrics': out, 'limits': {}}
+
+
 def notes(run, task):
     seen = []
     for r in run['tasks'].get(task, {}).get('reps', []):
@@ -154,7 +184,12 @@ def main():
     ap.add_argument('--require', action='append', type=parse_rule, default=[], help="task:metric>=x on the candidate's median")
     ap.add_argument('--gain', action='append', type=parse_rule, default=[], help='task:metric>=x on candidate minus baseline')
     ap.add_argument('--flaky', action='store_true', help='quality metrics whose baseline reps disagree count neither way')
+    ap.add_argument('--house', action='store_true', help="print the candidate in house's run format (house price compare) and exit")
     a = ap.parse_args()
+    if a.house:
+        json.dump(house(load(a.candidate)), sys.stdout, indent=1)
+        print()
+        return
     base, cand = load(a.baseline), load(a.candidate)
     for k in ('file', 'model'):
         bk, ck = base.get('meta', {}).get(k), cand.get('meta', {}).get(k)
