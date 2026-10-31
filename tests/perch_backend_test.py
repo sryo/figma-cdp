@@ -379,6 +379,13 @@ class PerchBackend(Harness):
         self.assertIn('perch: timeout: eval_js', r.stderr)
         self.assertIn('ran past the 100s it was given', r.stderr)  # under the Bash tool's own 120 s
 
+    def test_e_given_a_js_file_runs_the_file(self):
+        path = self.js('f.js', '6 * 7')
+        for helper in ('figma_run.py', 'figma_batch_run.py'):
+            r = self.run_helper(helper, '-e', path)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('42', r.stdout)
+
     def test_missing_js_file(self):
         r = self.run_helper('figma_run.py', os.path.join(self.tmp.name, 'nope.js'))
         self.assertEqual(r.returncode, 1)

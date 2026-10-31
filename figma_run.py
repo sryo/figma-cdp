@@ -429,6 +429,9 @@ def load(scripts):
     """(label, source) per script: a file's basename, '-e[n]' for the nth inline one, 'stdin'."""
     if sum(kind == 'stdin' for kind, _ in scripts) > 1:
         usage('- (stdin) can be given once')
+    # `-e <file.js>` means the file: as JS the path is only a SyntaxError.
+    scripts = [('path', v) if kind == 'inline' and re.fullmatch(r'\S+\.m?js', v) and os.path.isfile(v) else (kind, v)
+               for kind, v in scripts]
     for kind, v in scripts:
         if kind == 'path' and not os.path.isfile(v):
             print(f'{PROG}: no such file: {v}', file=sys.stderr)
