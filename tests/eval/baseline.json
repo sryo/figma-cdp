@@ -8,7 +8,7 @@
   "case": null,
   "reps": 3,
   "date": "2026-10-30T22:03:25-0300",
-  "note": "r3 (482291d) + app-screens r5 + responsive/componentize/pattern-detect r6 (754bd72)"
+  "note": "r3 (482291d) + app-screens r5 + responsive/componentize/pattern-detect r6 (754bd72) + app-screens r13 (e7f5d98)"
  },
  "cost_metrics": [
   "wall_s",
@@ -41,22 +41,22 @@
     "unusedComponents"
    ],
    "median": {
-    "tool_calls": 77,
-    "failed_tool_calls": 0,
+    "tool_calls": 60,
+    "failed_tool_calls": 1,
     "lost_replies": 0,
     "recover_uses": 0,
     "retries": 0,
     "unhinted_errors": 0,
     "skill_listed": 1,
-    "input_tokens": 162,
-    "output_tokens": 60565,
-    "cache_read_tokens": 3154447,
-    "cache_write_tokens": 200654,
-    "tokens_total": 3415828,
-    "cost_usd": 3.1411,
-    "turns": 76,
+    "input_tokens": 119,
+    "output_tokens": 55972,
+    "cache_read_tokens": 1850310,
+    "cache_write_tokens": 178252,
+    "tokens_total": 2084666,
+    "cost_usd": 2.5421,
+    "turns": 58,
     "session_error": 0,
-    "wall_s": 606.1,
+    "wall_s": 427.65,
     "absoluteStacks": 0,
     "autoLayoutShare": 1,
     "boundPaintShare": 1,
@@ -66,7 +66,7 @@
     "detachedLike": 0,
     "duplicateComponents": 0,
     "hardcodedPaints": 0,
-    "instanceRatio": 0.733,
+    "instanceRatio": 0.756,
     "instanceShare": 1,
     "inventedCopy": 0,
     "listItemAvatarNested": 1,
@@ -85,22 +85,22 @@
     "passed": 1
    },
    "min": {
-    "tool_calls": 44,
+    "tool_calls": 46,
     "failed_tool_calls": 0,
     "lost_replies": 0,
     "recover_uses": 0,
     "retries": 0,
     "unhinted_errors": 0,
     "skill_listed": 1,
-    "input_tokens": 99,
-    "output_tokens": 46543,
-    "cache_read_tokens": 1924659,
-    "cache_write_tokens": 136432,
-    "tokens_total": 2107733,
-    "cost_usd": 2.2163787999999993,
-    "turns": 48,
+    "input_tokens": 95,
+    "output_tokens": 49591,
+    "cache_read_tokens": 1839118,
+    "cache_write_tokens": 139491,
+    "tokens_total": 2070960,
+    "cost_usd": 2.2958836,
+    "turns": 46,
     "session_error": 0,
-    "wall_s": 317.72,
+    "wall_s": 368.7,
     "absoluteStacks": 0,
     "autoLayoutShare": 1,
     "boundPaintShare": 1,
@@ -110,7 +110,7 @@
     "detachedLike": 0,
     "duplicateComponents": 0,
     "hardcodedPaints": 0,
-    "instanceRatio": 0.644,
+    "instanceRatio": 0.75,
     "instanceShare": 1,
     "inventedCopy": 0,
     "listItemAvatarNested": 1,
@@ -129,32 +129,32 @@
     "passed": 1
    },
    "max": {
-    "tool_calls": 80,
-    "failed_tool_calls": 4,
-    "lost_replies": 11,
-    "recover_uses": 9,
+    "tool_calls": 62,
+    "failed_tool_calls": 1,
+    "lost_replies": 0,
+    "recover_uses": 0,
     "retries": 0,
-    "unhinted_errors": 4,
+    "unhinted_errors": 1,
     "skill_listed": 1,
-    "input_tokens": 165,
-    "output_tokens": 76487,
-    "cache_read_tokens": 3534383,
-    "cache_write_tokens": 228820,
-    "tokens_total": 3839855,
-    "cost_usd": 3.614734600000001,
-    "turns": 80,
+    "input_tokens": 132,
+    "output_tokens": 63107,
+    "cache_read_tokens": 1881783,
+    "cache_write_tokens": 189039,
+    "tokens_total": 2091383,
+    "cost_usd": 2.7738626000000006,
+    "turns": 63,
     "session_error": 0,
-    "wall_s": 1451.55,
+    "wall_s": 513.88,
     "absoluteStacks": 0,
     "autoLayoutShare": 1,
     "boundPaintShare": 1,
     "constrainedAbsShare": 1,
     "copy": 1,
     "defaultNames": 0,
-    "detachedLike": 9,
+    "detachedLike": 0,
     "duplicateComponents": 0,
     "hardcodedPaints": 0,
-    "instanceRatio": 0.745,
+    "instanceRatio": 0.756,
     "instanceShare": 1,
     "inventedCopy": 0,
     "listItemAvatarNested": 1,
@@ -176,40 +176,28 @@
    "reps": [
     {
      "rep": 1,
-     "tool_calls": 77,
-     "failed_tool_calls": 4,
-     "lost_replies": 11,
-     "recover_uses": 9,
+     "tool_calls": 46,
+     "failed_tool_calls": 1,
+     "lost_replies": 0,
+     "recover_uses": 0,
      "retries": 0,
-     "unhinted_errors": 4,
+     "unhinted_errors": 1,
      "errors": [
       {
        "tool": "Bash",
-       "text": "Exit code 1\nperch: timeout: eval_js (world main) timed out after 120000ms; the code ran and may still be running, so check the page before running it again. The script ran past the 120s it was given (--timeout or FIGMA_TIMEOUT, in seconds, up to 300)\nIt may still finish: figma_run.py --recover cd683fa9c77d prints its result then"
-      },
-      {
-       "tool": "Monitor",
-       "text": "<tool_use_error>InputValidationError: Monitor failed due to the following issue:\nThe required parameter `description` is missing\n\nThis tool's schema was not sent to the API \u2014 it was not in the discovered-tool set derived from message history. Without the schema in your prompt, typed parameters (arrays, numbers, booleans) get emitted as strings and the client-side parser rejects them. Load the tool"
-      },
-      {
-       "tool": "Monitor",
-       "text": "Permission to use Monitor has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You"
-      },
-      {
-       "tool": "Bash",
-       "text": "<tool_use_error>Blocked: sleep 30 followed by: cat /private/tmp/claude-501/-private-var-folders-d7-59zb5yt512d47gmjlfkpjdlc0000gn-T-tmp-gk5q18q-cwd/9b32d465-4cf9-447d-a678-e618e03ce4ec/tasks/bsbybhvfb.output. To wait for a condition, use Monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps t"
+       "text": "Exit code 1\n\u2717 Evaluation error: Error: in setProperties: Could not find a component property with name: 'Initials'\n    at InstanceNode.setProperties (https://www.figma.com/webpack-artifacts/assets/27756-6af6490a46b3445f.min.js.br:820:71959)\n    at eval (eval at <anonymous> (eval at <anonymous> (:4:32)), <anonymous>:13:4)\n    at async <anonymous>:4:17"
       }
      ],
      "skill_listed": true,
-     "input_tokens": 162,
-     "output_tokens": 60565,
-     "cache_read_tokens": 3154447,
-     "cache_write_tokens": 200654,
-     "tokens_total": 3415828,
-     "cost_usd": 3.1410943999999996,
-     "turns": 76,
+     "input_tokens": 95,
+     "output_tokens": 49591,
+     "cache_read_tokens": 1881783,
+     "cache_write_tokens": 139491,
+     "tokens_total": 2070960,
+     "cost_usd": 2.2958836,
+     "turns": 46,
      "session_error": false,
-     "wall_s": 1451.55,
+     "wall_s": 368.7,
      "absoluteStacks": 0,
      "autoLayoutShare": 1,
      "boundPaintShare": 1,
@@ -219,7 +207,125 @@
      "detachedLike": 0,
      "duplicateComponents": 0,
      "hardcodedPaints": 0,
-     "instanceRatio": 0.733,
+     "instanceRatio": 0.756,
+     "instanceShare": 1,
+     "inventedCopy": 0,
+     "listItemAvatarNested": 1,
+     "missingUsages": 0,
+     "nestedShare": 1,
+     "rawUsages": 0,
+     "reusedComponentized": 1,
+     "screensFound": 1,
+     "sizingMatch": 1,
+     "sizingShare": 1,
+     "splitComponents": 0,
+     "unusedComponents": 0,
+     "usages": 81,
+     "variantCoverage": 1,
+     "variantMatch": 1,
+     "passed": true,
+     "lower": [
+      "absoluteStacks",
+      "duplicateComponents",
+      "detachedLike",
+      "defaultNames",
+      "hardcodedPaints",
+      "rawUsages",
+      "missingUsages",
+      "splitComponents",
+      "unusedComponents",
+      "inventedCopy"
+     ],
+     "misses": {
+      "instanceRatio": [
+       {
+        "got": "raw FRAME",
+        "id": "60:4847",
+        "name": "Overview",
+        "path": "eval/app-screens/1 / Overview",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4857",
+        "name": "Page",
+        "path": "eval/app-screens/1 / Overview / Page",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4868",
+        "name": "Stats",
+        "path": "eval/app-screens/1 / Overview / Page / Stats",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4887",
+        "name": "Lists",
+        "path": "eval/app-screens/1 / Overview / Page / Lists",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4848",
+        "name": "Customers",
+        "path": "eval/app-screens/1 / Customers",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4968",
+        "name": "Page",
+        "path": "eval/app-screens/1 / Customers / Page",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4969",
+        "name": "Page head",
+        "path": "eval/app-screens/1 / Customers / Page / Page head",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:4984",
+        "name": "Content",
+        "path": "eval/app-screens/1 / Customers / Page / Content",
+        "want": "an instance"
+       }
+      ]
+     }
+    },
+    {
+     "rep": 2,
+     "tool_calls": 62,
+     "failed_tool_calls": 0,
+     "lost_replies": 0,
+     "recover_uses": 0,
+     "retries": 0,
+     "unhinted_errors": 0,
+     "errors": [],
+     "skill_listed": true,
+     "input_tokens": 132,
+     "output_tokens": 55972,
+     "cache_read_tokens": 1850310,
+     "cache_write_tokens": 178252,
+     "tokens_total": 2084666,
+     "cost_usd": 2.5421019999999994,
+     "turns": 63,
+     "session_error": false,
+     "wall_s": 427.65,
+     "absoluteStacks": 0,
+     "autoLayoutShare": 1,
+     "boundPaintShare": 1,
+     "constrainedAbsShare": 1,
+     "copy": 1,
+     "defaultNames": 0,
+     "detachedLike": 0,
+     "duplicateComponents": 0,
+     "hardcodedPaints": 0,
+     "instanceRatio": 0.75,
      "instanceShare": 1,
      "inventedCopy": 0,
      "listItemAvatarNested": 1,
@@ -247,27 +353,101 @@
       "splitComponents",
       "unusedComponents",
       "inventedCopy"
-     ]
+     ],
+     "misses": {
+      "instanceRatio": [
+       {
+        "got": "raw FRAME",
+        "id": "60:5264",
+        "name": "Overview",
+        "path": "eval/app-screens/2 / Overview",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5398",
+        "name": "Page",
+        "path": "eval/app-screens/2 / Overview / Page",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5409",
+        "name": "Row",
+        "path": "eval/app-screens/2 / Overview / Page / Row",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5428",
+        "name": "Row",
+        "path": "eval/app-screens/2 / Overview / Page / Row",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5265",
+        "name": "Customers",
+        "path": "eval/app-screens/2 / Customers",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5509",
+        "name": "Page",
+        "path": "eval/app-screens/2 / Customers / Page",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5510",
+        "name": "Page head",
+        "path": "eval/app-screens/2 / Customers / Page / Page head",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5526",
+        "name": "Row",
+        "path": "eval/app-screens/2 / Customers / Page / Row",
+        "want": "an instance"
+       }
+      ],
+      "sizingMatch": [
+       {
+        "got": "HUG",
+        "id": "60:5609",
+        "name": "Badge",
+        "path": "eval/app-screens/2 / Customers / Page / Row / Card / Content / Badge",
+        "want": "Badge FILL across"
+       }
+      ]
+     }
     },
     {
-     "rep": 2,
-     "tool_calls": 44,
-     "failed_tool_calls": 0,
+     "rep": 3,
+     "tool_calls": 60,
+     "failed_tool_calls": 1,
      "lost_replies": 0,
      "recover_uses": 0,
      "retries": 0,
      "unhinted_errors": 0,
-     "errors": [],
+     "errors": [
+      {
+       "tool": "Bash",
+       "text": "Exit code 1\n\u2717 Evaluation error: Error: in get_componentPropertyDefinitions: Can only get component property definitions of a component set or non-variant component\n    at ComponentNode.get_componentPropertyDefinitions [as componentPropertyDefinitions] (https://www.figma.com/webpack-artifacts/assets/27756-6af6490a46b3445f.min.js.br:820:71959)\n    at eval (eval at <anonymous> (eval at <anonymous> (:"
+      }
+     ],
      "skill_listed": true,
-     "input_tokens": 99,
-     "output_tokens": 46543,
-     "cache_read_tokens": 1924659,
-     "cache_write_tokens": 136432,
-     "tokens_total": 2107733,
-     "cost_usd": 2.2163787999999993,
-     "turns": 48,
+     "input_tokens": 119,
+     "output_tokens": 63107,
+     "cache_read_tokens": 1839118,
+     "cache_write_tokens": 189039,
+     "tokens_total": 2091383,
+     "cost_usd": 2.7738626000000006,
+     "turns": 58,
      "session_error": false,
-     "wall_s": 317.72,
+     "wall_s": 513.88,
      "absoluteStacks": 0,
      "autoLayoutShare": 1,
      "boundPaintShare": 1,
@@ -277,7 +457,7 @@
      "detachedLike": 0,
      "duplicateComponents": 0,
      "hardcodedPaints": 0,
-     "instanceRatio": 0.745,
+     "instanceRatio": 0.756,
      "instanceShare": 1,
      "inventedCopy": 0,
      "listItemAvatarNested": 1,
@@ -305,65 +485,67 @@
       "splitComponents",
       "unusedComponents",
       "inventedCopy"
-     ]
-    },
-    {
-     "rep": 3,
-     "tool_calls": 80,
-     "failed_tool_calls": 0,
-     "lost_replies": 0,
-     "recover_uses": 0,
-     "retries": 0,
-     "unhinted_errors": 0,
-     "errors": [],
-     "skill_listed": true,
-     "input_tokens": 165,
-     "output_tokens": 76487,
-     "cache_read_tokens": 3534383,
-     "cache_write_tokens": 228820,
-     "tokens_total": 3839855,
-     "cost_usd": 3.614734600000001,
-     "turns": 80,
-     "session_error": false,
-     "wall_s": 606.1,
-     "absoluteStacks": 0,
-     "autoLayoutShare": 1,
-     "boundPaintShare": 1,
-     "constrainedAbsShare": 1,
-     "copy": 1,
-     "defaultNames": 0,
-     "detachedLike": 9,
-     "duplicateComponents": 0,
-     "hardcodedPaints": 0,
-     "instanceRatio": 0.644,
-     "instanceShare": 1,
-     "inventedCopy": 0,
-     "listItemAvatarNested": 1,
-     "missingUsages": 0,
-     "nestedShare": 1,
-     "rawUsages": 0,
-     "reusedComponentized": 1,
-     "screensFound": 1,
-     "sizingMatch": 1,
-     "sizingShare": 1,
-     "splitComponents": 0,
-     "unusedComponents": 0,
-     "usages": 81,
-     "variantCoverage": 1,
-     "variantMatch": 1,
-     "passed": true,
-     "lower": [
-      "absoluteStacks",
-      "duplicateComponents",
-      "detachedLike",
-      "defaultNames",
-      "hardcodedPaints",
-      "rawUsages",
-      "missingUsages",
-      "splitComponents",
-      "unusedComponents",
-      "inventedCopy"
-     ]
+     ],
+     "misses": {
+      "instanceRatio": [
+       {
+        "got": "raw FRAME",
+        "id": "60:5799",
+        "name": "Overview",
+        "path": "eval/app-screens/3 / Overview",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5931",
+        "name": "Page",
+        "path": "eval/app-screens/3 / Overview / Page",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5942",
+        "name": "Stats",
+        "path": "eval/app-screens/3 / Overview / Page / Stats",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5961",
+        "name": "Cards",
+        "path": "eval/app-screens/3 / Overview / Page / Cards",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:5800",
+        "name": "Customers",
+        "path": "eval/app-screens/3 / Customers",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:6040",
+        "name": "Page",
+        "path": "eval/app-screens/3 / Customers / Page",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:6041",
+        "name": "Page head",
+        "path": "eval/app-screens/3 / Customers / Page / Page head",
+        "want": "an instance"
+       },
+       {
+        "got": "raw FRAME",
+        "id": "60:6056",
+        "name": "Row",
+        "path": "eval/app-screens/3 / Customers / Page / Row",
+        "want": "an instance"
+       }
+      ]
+     }
     }
    ]
   },
