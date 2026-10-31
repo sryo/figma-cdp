@@ -13,7 +13,7 @@ One copy serves Codex, GitHub Copilot and Claude Code. Restart your agent if it 
 
 You need a Figma file open in your browser, plus one of:
 - On a Mac, [perch](https://github.com/sryo/perch) and Node 18 or later: faster, works in Chrome, Arc or Safari, and no remote-debugging prompt.
-- Otherwise [agent-browser](https://github.com/vercel-labs/agent-browser), which your agent can install. The first run asks you to turn on remote debugging in Chrome.
+- Otherwise agent-browser, which your agent can install. The first run asks you to turn on remote debugging in Chrome.
 
 Optional: for image rendering or comments, give your agent a [Figma personal access token](https://www.figma.com/developers/api#access-tokens).
 
