@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Stand-in for gh on PATH in tests/sync_test.py. Logs each call to $SYNC_STUB_LOG as a JSON line and
+keeps pull requests in $GH_STUB_STATE (a JSON list of {number, headRefName, baseRefName, url, state}):
+  gh pr list [...]            the open ones, as gh --json prints them
+  gh pr create --base B --head H [...]   adds one, prints its url
+  gh pr edit <n> [...]        prints its url
+Anything else exits 1."""
+import json, os, sys
+
+args = sys.argv[1:]
+with open(os.environ['SYNC_STUB_LOG'], 'a') as f:
+    f.write(json.dumps({'cmd': 'gh', 'args': args, 'cwd': os.getcwd()}) + '\n')
+path = os.environ['GH_STUB_STATE']
+prs = json.load(open(path)) if os.path.exists(path) else []
+opt = lambda name: args[args.index(name) + 1] if name in args else None
+if args[:2] == ['pr', 'list']:
+    print(json.dumps([p for p in prs if p['state'] == 'OPEN']))
+elif args[:2] == ['pr', 'create']:
+    n = len(prs) + 1
+    prs.append({'number': n, 'headRefName': opt('--head'), 'baseRefName': opt('--base'),
+                'url': f'https://github.com/o/r/pull/{n}', 'state': 'OPEN'})
+    json.dump(prs, open(path, 'w'))
+    print(prs[-1]['url'])
+elif args[:2] == ['pr', 'edit']:
+    print(next(p['url'] for p in prs if str(p['number']) == args[2]))
+else:
+    print(f'gh stub: unsupported {args}', file=sys.stderr)
+    sys.exit(1)

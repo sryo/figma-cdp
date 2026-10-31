@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Stand-in for git on PATH in tests/sync_test.py: logs each call to $SYNC_STUB_LOG as a JSON line
+({"cmd": "git", "args": [...], "cwd": ...}), then runs the real git ($SYNC_REAL_GIT)."""
+import json, os, sys
+
+with open(os.environ['SYNC_STUB_LOG'], 'a') as f:
+    f.write(json.dumps({'cmd': 'git', 'args': sys.argv[1:], 'cwd': os.getcwd()}) + '\n')
+os.execv(os.environ['SYNC_REAL_GIT'], [os.environ['SYNC_REAL_GIT']] + sys.argv[1:])
