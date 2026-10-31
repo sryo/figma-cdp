@@ -91,6 +91,14 @@ class Scorers(StubFigma):
         self.assertFalse(bad['passed'], json.dumps(bad['metrics']))
         return good['metrics'], bad['metrics']
 
+    def test_instance_ratio_skips_boards_of_masters_only(self):
+        task = {'id': 'responsive', 'fixture': 'harbor-pages'}
+        ctx = {'task': 'responsive', 'rep': 1, 'prefix': 'eval/responsive/1', 'expect': source.expect_for(task)}
+        ctx.update(self.figma('ops/setup.js', ctx))
+        r = self.figma('offline/quality_boards.js', ctx)
+        self.assertEqual(r['boards'], r['bare'], 'a frame holding only masters, or only such frames, is no missed instance')
+        self.assertLess(r['mixed'], r['bare'], 'a board with raw content beside its masters still counts')
+
     def test_reuse(self):
         g, b = self.check('reuse')
         self.assertEqual((g['buttonInstances'], g['inputInstances'], g['newDuplicateComponents']), (2, 2, 0))

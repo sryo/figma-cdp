@@ -30,6 +30,12 @@ function baseName(name) { var parts = String(name).split('/'); return parts[part
 
 function inInstance(n) { for (var p = n.parent; p; p = p.parent) if (p.type === 'INSTANCE') return true; return false; }
 function inComponent(n) { for (var p = n.parent; p; p = p.parent) if (p.type === 'COMPONENT' || p.type === 'COMPONENT_SET') return true; return false; }
+// A frame that only stores masters (or frames that do), the usual design-system board.
+function isBoard(n) {
+  return n.type === 'FRAME' && n.children.length > 0 && n.children.every(function (c) {
+    return c.type === 'COMPONENT' || c.type === 'COMPONENT_SET' || isBoard(c);
+  });
+}
 // What the screen shows: every node on the page except component definitions.
 function screenNodes(page) { return page.findAll(function (n) { return n.type !== 'COMPONENT_SET' && n.type !== 'COMPONENT' && !inComponent(n); }); }
 function nodesOf(pages) {
@@ -94,7 +100,7 @@ async function quality(pages) {
     });
   });
   var instances = own.filter(function (n) { return n.type === 'INSTANCE'; });
-  var rawFrames = own.filter(function (n) { return n.type === 'FRAME' && !inComponent(n); });
+  var rawFrames = own.filter(function (n) { return n.type === 'FRAME' && !inComponent(n) && !isBoard(n); });
   var comps = all.filter(function (n) {
     return n.type === 'COMPONENT_SET' || (n.type === 'COMPONENT' && !(n.parent && n.parent.type === 'COMPONENT_SET'));
   });
