@@ -18,14 +18,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 6235,
-    'figma-worker.md': 6579,
+    'figma-worker.md': 6792,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 27106,
+    'Build screens': 27113,
     'Copy/text edit': 15888,
-    'Component/variant/design-system': 23192,
+    'Component/variant/design-system': 23199,
     'Color/effects/prototype': 15892,
 }
 
@@ -136,6 +136,9 @@ class Docs(unittest.TestCase):
         self.assertRegex(sec, r'(?i)source names?[^.]*manifest[^.]*`?size=sm\|lg`?', 'variant values are named as the source names them')
         self.assertRegex(sec, r'(?i)part[^.]*itself a source component[^.]*instance[^.]*variant', 'nested source components stay paint overrides')
         self.assertRegex(sec, r'(?i)keep[^.]*propert[^.]*as (it is|they are)[^.]*(report|say)', 'promotion fixes what the task did not ask for')
+        self.assertIn('__fx.linkCopies(', sec, 'the recipe has the agent write the promote and swap by hand')
+        self.assertIn('linkCopies(', docs()['figma-worker.md'], 'the worker sheet does not list linkCopies')
+        self.assertIn('__fx.linkCopies(', docs()['references/execution.md'])
         check = next(l for l in sec.splitlines() if '**Check:**' in l)
         self.assertRegex(check, r'(?i)same eval[^.]*only the lines that (differ|changed)', 'the check returns whole trees')
         use = next(l for l in sec.splitlines() if '**Use it:**' in l)

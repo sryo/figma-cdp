@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 10, sha: '386048cd63aada87' };
+const PIN = { v: 11, sha: '3d61b1d45589f986' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -718,4 +718,64 @@ test('icon: an SVG as one auto-layout layer that keeps where its paths draw, cle
   assert.deepEqual(mixed.children.map((c) => [c.layoutPositioning, c.x, c.y, c.constraints.horizontal]),
     [['ABSOLUTE', 3, 2, 'SCALE'], ['ABSOLUTE', 3, 11, 'SCALE']], 'paths with different paints stay apart, pinned where they draw');
   assert.equal((await fx.audit(mixed.id)).text, '');
+});
+
+test('linkCopies: the best copy becomes the master in place, same-shape copies become instances that keep their differences', async () => {
+  const fx = fresh();
+  await fonts();
+  const list = mkFrame(figma.currentPage, 'List', 'VERTICAL');
+  const rows = [['Priya Raman', 'Active', '#16a34a'], ['Marco Diaz', 'Trial', '#d97706'], ['Lena Ortiz', 'Invited', '#64748b']].map(([who, st, color]) => {
+    const r = mkFrame(list, 'Row', 'HORIZONTAL', 480, 100);
+    mkText(r, who, 'Name');
+    const s = mkFrame(r, 'Status', 'HORIZONTAL');
+    s.fills = [solid(color)];
+    mkText(s, st, 'Label');
+    return r;
+  });
+  rows[2].children[1].visible = false;
+  const odd = mkFrame(list, 'Row', 'HORIZONTAL', 480, 100);
+  mkText(odd, 'Jonah Bell', 'Name');
+  const ids = rows.map((r) => r.id).concat([odd.id]);
+  const out = await fx.linkCopies(ids, { master: rows[0].id, name: 'List item' });
+
+  const master = await figma.getNodeByIdAsync(out.master);
+  assert.equal(master.type, 'COMPONENT');
+  assert.equal(master.name, 'List item');
+  assert.equal(list.children.indexOf(master), 0, 'the master stays where its copy was');
+  assert.deepEqual([master.width, master.height], [480, 100], 'nothing the task did not ask for is fixed');
+  assert.deepEqual(Object.keys(out.props), ['Name', 'Label'], 'a TEXT property for each text that differs between copies');
+
+  assert.deepEqual(out.linked.map((l) => l.copy), [rows[1].id, rows[2].id]);
+  const insts = await Promise.all(out.linked.map((l) => figma.getNodeByIdAsync(l.instance)));
+  assert.deepEqual(insts.map((i) => [i.type, i.name, list.children.indexOf(i), i.width, i.height]),
+    [['INSTANCE', 'Row', 1, 480, 100], ['INSTANCE', 'Row', 2, 480, 100]], 'each keeps its copy\'s place, size and name');
+  assert.deepEqual(insts.map((i) => i.children[0].characters), ['Marco Diaz', 'Lena Ortiz']);
+  assert.deepEqual(insts.map((i) => i.children[1].children[0].characters), ['Trial', 'Invited']);
+  assert.notDeepEqual(insts[0].children[1].fills[0].color, master.children[1].fills[0].color, 'a differing fill is an override');
+  assert.deepEqual(insts.map((i) => i.children[1].visible), [true, false], 'visibility carries over');
+  assert.ok(rows.slice(1).every((r) => r.removed), 'the swapped copies are gone');
+
+  assert.deepEqual(out.raw, [{ id: odd.id, reason: 'shape differs: FRAME:H[TEXT] vs FRAME:H[TEXT,FRAME:H[TEXT]]' }]);
+  assert.equal(list.children.indexOf(odd), 3, 'a copy of another shape is left as it is');
+});
+
+test('linkCopies: a text inside a nested instance is overridden on the instance, not given a property', async () => {
+  const fx = fresh();
+  await fonts();
+  const badge = figma.createComponent();
+  badge.name = 'Badge';
+  mkText(badge, 'Badge', 'Label');
+  const list = mkFrame(figma.currentPage, 'List', 'VERTICAL');
+  const rows = ['Active', 'Trial'].map((st) => {
+    const r = mkFrame(list, 'Row', 'HORIZONTAL');
+    mkText(r, 'Name ' + st, 'Name');
+    const b = badge.createInstance();
+    r.appendChild(b);
+    b.children[0].characters = st;
+    return r;
+  });
+  const out = await fx.linkCopies(rows.map((r) => r.id));
+  assert.deepEqual(Object.keys(out.props), ['Name'], 'only the row\'s own text becomes a property');
+  const inst = await figma.getNodeByIdAsync(out.linked[0].instance);
+  assert.deepEqual([inst.children[0].characters, inst.children[1].children[0].characters], ['Name Trial', 'Trial']);
 });

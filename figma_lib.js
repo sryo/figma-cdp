@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 10;
+  var V = 11;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -545,6 +545,89 @@
     if (o.color) for (var i = 0; i < vs.length; i++) await bindFill(vs[i], o.color, vs[i].strokes.length ? 'strokes' : 'fills');
     return f;
   }
+  // A subtree's structure at every depth: "FRAME:H[TEXT,FRAME:H[TEXT]]".
+  function fullShape(n) {
+    return n.type + (isAL(n) ? ':' + n.layoutMode.charAt(0) : '') +
+      (n.children && n.children.length ? '[' + n.children.map(fullShape).join(',') + ']' : '');
+  }
+  // [[a node, b's node at the same place]] over two subtrees of the same shape, depth first.
+  function pairsOf(a, b, out) {
+    out.push([a, b]);
+    for (var i = 0; a.children && i < a.children.length; i++) pairsOf(a.children[i], b.children[i], out);
+    return out;
+  }
+  function inNested(n, root) { for (var p = n.parent; p && p !== root; p = p.parent) if (p.type === 'INSTANCE') return true; return false; }
+  function paintsEqual(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+  // Hand-drawn copies of one structure become one component and its instances. o.master (default the
+  // first id) becomes the component in place, unchanged; a text that differs between copies gets
+  // a TEXT property. Every other copy of the same shape is swapped for an instance at its index,
+  // keeping its name, position and size, its texts, its differing fills and visibility, and its
+  // nested instances' components; a copy of another shape stays raw. Nothing else is changed.
+  async function linkCopies(ids, o) {
+    o = o || {};
+    var copies = [];
+    for (var i = 0; i < ids.length; i++) copies.push(await node(ids[i]));
+    var master = o.master ? copies.filter(function (c) { return c.id === o.master; })[0] : copies[0];
+    if (!master) throw new Error(o.master + ' is not among the copies');
+    var want = fullShape(master), same = [], raw = [];
+    copies.forEach(function (c) {
+      if (c === master) return;
+      var s = fullShape(c);
+      if (s === want) same.push(c);
+      else raw.push({ id: c.id, reason: 'shape differs: ' + s + ' vs ' + want });
+    });
+    var all = [master].concat(same);
+    for (var a = 0; a < all.length; a++) {
+      var ts = all[a].type === 'TEXT' ? [all[a]] : all[a].findAll(function (n) { return n.type === 'TEXT'; });
+      for (var t = 0; t < ts.length; t++) if (ts[t].fontName !== figma.mixed) await loadFont(ts[t].fontName);
+    }
+    var name = o.name || master.name;
+    var comp = figma.createComponentFromNode(master);
+    comp.name = name;
+    var compNodes = pairsOf(comp, comp, []).map(function (p) { return p[0]; });
+    var srcPairs = same.map(function (c) { return pairsOf(comp, c, []); });
+    var props = {}, keyAt = {};
+    compNodes.forEach(function (m, k) {
+      if (m.type !== 'TEXT' || inNested(m, comp) || !srcPairs.some(function (ps) { return ps[k][1].characters !== m.characters; })) return;
+      var pname = m.name, n = 2;
+      while (props[pname]) pname = m.name + ' ' + n++;
+      props[pname] = keyAt[k] = comp.addComponentProperty(pname, 'TEXT', m.characters);
+      m.componentPropertyReferences = { characters: keyAt[k] };
+    });
+    var linked = [];
+    for (var c = 0; c < same.length; c++) {
+      var copy = same[c], parent = copy.parent, inst = comp.createInstance();
+      parent.insertChild(parent.children.indexOf(copy), inst);
+      inst.name = copy.name;
+      inst.resize(copy.width, copy.height);
+      if (isAL(parent)) {
+        if (copy.layoutPositioning === 'ABSOLUTE') { inst.layoutPositioning = 'ABSOLUTE'; inst.x = copy.x; inst.y = copy.y; }
+        inst.layoutSizingHorizontal = copy.layoutSizingHorizontal;
+        inst.layoutSizingVertical = copy.layoutSizingVertical;
+      } else { inst.x = copy.x; inst.y = copy.y; }
+      // Nested swaps first: a swap rebuilds the sublayers below it, so the rest reads them after.
+      var instNodes = pairsOf(comp, inst, []).map(function (p) { return p[1]; }), set = {}, any = false;
+      for (var k = 0; k < compNodes.length; k++) {
+        var m = compNodes[k], src = srcPairs[c][k][1], dst = instNodes[k];
+        if (m.type === 'INSTANCE' && src.type === 'INSTANCE' && dst.swapComponent) {
+          var want2 = await src.getMainComponentAsync(), has = await dst.getMainComponentAsync();
+          if (want2 && has && want2.id !== has.id) dst.swapComponent(want2);
+        }
+      }
+      instNodes = pairsOf(comp, inst, []).map(function (p) { return p[1]; });
+      for (k = 0; k < compNodes.length; k++) {
+        m = compNodes[k]; src = srcPairs[c][k][1]; dst = instNodes[k];
+        if (keyAt[k]) { set[keyAt[k]] = src.characters; any = true; }
+        else if (m.type === 'TEXT' && src.characters !== m.characters) dst.characters = src.characters;
+        if (src.fills !== figma.mixed && !paintsEqual(src.fills, m.fills)) dst.fills = JSON.parse(JSON.stringify(src.fills));
+        if (src.visible !== m.visible) dst.visible = src.visible;
+      }
+      if (any) inst.setProperties(set);
+      linked.push({ copy: copy.id, instance: inst.id });
+      copy.remove();
+    }
+    return { master: comp.id, props: props, linked: linked, raw: raw };
+  }
   async function loadFont(f) {
     try { await figma.loadFontAsync(f); } catch (e) {
       throw new Error('font ' + f.family + ' ' + f.style + ' is not available; pick one from figma.listAvailableFontsAsync()');
@@ -975,7 +1058,7 @@
   }
 
   window.__fx = {
-    v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, autoLayout: autoLayout, text: text, instance: instance,
+    v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, linkCopies: linkCopies, autoLayout: autoLayout, text: text, instance: instance,
     bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
     presence: presence, stale: stale,
