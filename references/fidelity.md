@@ -77,3 +77,17 @@ python3 <skill-dir>/figma_fidelity.py --elements /tmp/figma_capture_<slug>.json 
 
 The subtree is exported as PNG and compared with the screenshot on an 8 px grid, text masked out. Differing regions that overlap no row's element come back as `unexplained [x, y, w, h]` with a source and a Figma crop each. It is a pointer for a person to look at, not a pass/fail.
 
+
+## DESIGN.md: drift and sync
+
+A repo's DESIGN.md (Google's format: YAML tokens in front matter or ```yaml blocks, `{colors.x}` refs) is the source when present: build from it and check against it. Pass it to `figma_source.py` like any source; its tokens cite `DESIGN.md:<line>` and carry the Figma `collection` and `variable` they mirror, and the manifest's `design` entry lists broken refs.
+
+Themes: `themes: [light, dark]` names them, the first the base; a key ending `-dark` overrides its base key (`canvas`, `canvas-dark`). Free Figma has one mode per collection, so each theme is a collection `<name>/<theme>` holding every token. `omitted:` lists code properties DESIGN.md leaves out on purpose, by name or glob (`"--a-*"`).
+
+```bash
+python3 <skill-dir>/figma_source.py --check DESIGN.md <code files>      # broken, omitted, missing, different, undocumented
+python3 <skill-dir>/figma_fidelity.py --variables /tmp/figma_source_<slug>.json --file <figma-url>   # missing, different, unused
+python3 <skill-dir>/figma_sync.py report --repo <repo> --file <figma-url> [<code files>]   # both, read-only
+```
+
+"check design drift" is `figma_sync.py report`. "sync <project>'s design to Figma" is `figma_sync.py propose --to figma`: Proposed `<date>` collections and page behind a version checkpoint, plus one comment; the live collections are not touched. `propose --to code` turns Figma's values into a DESIGN.md PR from its own `design-sync/<date>` branch, or updates the open one. Each exits 1 on drift; `fix:` on stderr names what a signed-out room or an unready plugin system needs.

@@ -17,7 +17,7 @@ import os, re, sys, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6792,
+    'SKILL.md': 6634,
     'figma-worker.md': 7444,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -117,13 +117,16 @@ class Docs(unittest.TestCase):
 
     def test_design_md_is_the_source_when_present(self):
         text = docs()['SKILL.md']
-        line = next((l for l in text.splitlines() if 'DESIGN.md, it is the source' in l), '')
-        self.assertRegex(line, r'build from it and check against it')
-        self.assertRegex(line, r'figma_sync\.py report`[^;.]*drift')
-        self.assertRegex(line, r'`propose[^`]*`[^.]*PR[^.]*Proposed page')
-        for phrase in ('check design drift', "sync <project>'s design to Figma"):
-            self.assertIn(phrase, line)
+        self.assertRegex(text, r'DESIGN\.md[^.\n]*is the source[^\n]*`references/fidelity\.md` → DESIGN\.md')
         self.assertIn('DESIGN.md', text.split('---')[1], 'the description triggers on DESIGN.md sync')
+        fid = docs()['references/fidelity.md']
+        sec = fid[fid.index('## DESIGN.md'):].split('\n## ')[0]
+        self.assertRegex(sec, r'build from it and check against it')
+        self.assertRegex(sec, r'figma_sync\.py report')
+        self.assertRegex(sec, r'propose --to code[^\n]*PR')
+        self.assertRegex(sec, r'propose --to figma[^\n]*Proposed')
+        for phrase in ('check design drift', "sync <project>'s design to Figma", 'themes: [light, dark]', 'omitted:'):
+            self.assertIn(phrase, sec)
 
     def test_section_pointers_resolve(self):
         for rel, text in docs().items():
