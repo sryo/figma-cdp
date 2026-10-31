@@ -10,7 +10,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 .
 ├── SKILL.md              # runtime entry — Claude reads this when the skill triggers
 ├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
-├── bench/inert           # files no eval run reads (fium's defaults plus docs/): a change to only these carries a kept run
+├── bench/inert           # files no eval run reads beyond fium's defaults (docs/, bench/inert): a change to only these carries a kept run
 ├── figma_run.py          # one eval (-e inline, file or stdin; --lib; --screenshot) → perch or agent-browser eval
 ├── figma_batch_run.py    # N evals in order in one call → one perch request or one agent-browser batch
 ├── figma_lib.js          # resident helpers the helpers' --lib prepends: window.__fx (recon, inventory, frame/text/instance/bindFill, audit), once per tab, version-stamped
@@ -150,7 +150,8 @@ Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means 
 - **Choosing a live run** (fium RULES L1–L4). Live runs cost millions of tokens, so:
   - `run.py` without `--tasks` runs only what `fium scope <baseline refresh>..HEAD --affects tests/eval/affects.json` says the change can move, and prints the tasks and the expected tokens at baseline medians before it starts (L1). An explicit `--tasks` wins.
   - SKILL.md and figma-worker.md move the trio (recon, effects, fidelity-edit); app-screens runs only when a case targets it. A file no rule matches runs everything.
-  - Tooling, tests and project docs map to `none` (`bench/inert` lists the files no run reads). Re-judge such a change offline: `reparse.py` on kept transcripts, then `gate.py` on the runs you have. `run.py` refuses to start a run for it.
+  - A task's own judge files (its tasks/, scorers/ and seeds/ file and the fixture it reads) move only the tasks that use them, since reparse can't re-score a tree it never kept; a scorer change also refreshes that task's baseline, in its own commit, with a `Judge-Change:` line. Shared eval code (lib.js, source.py, run.py, fixtures/expect.json) moves every task.
+  - Other tooling, tests and project docs map to `none` (`bench/inert` lists the files no run reads). Re-judge such a change offline: `reparse.py` on kept transcripts, then `gate.py` on the runs you have. `run.py` refuses to start a run for it.
   - 2 reps, a third only when they disagree; 3 to refresh a baseline (L2). Batch fixes into one run, read kept transcripts first, and give a routing-only change one smoke rep (L3). After 5 runs in a row with no keep, stop or change approach (L4).
   - `tests/token_estimate.py [<rev>]` prices a docs change before any run: always-loaded bytes / 4 x median turns over the mapped tasks.
   - State each run's expected tokens when asking for it, and never in dollars.

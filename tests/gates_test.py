@@ -123,6 +123,27 @@ class Affects(unittest.TestCase):
         self.assertEqual(sorted(hit('some/new_helper.py')), every, 'an unmatched file could move anything')
 
 
+    def test_each_tasks_own_judge_files_move_only_the_tasks_that_use_them(self):
+        """A task's definition, seed, scorer and fixture change what it measures, and reparse can't re-score
+        them (final trees aren't kept), so they get a live run of the tasks that read them; shared code all."""
+        sys.path.insert(0, os.path.join(ROOT, 'tests', 'cases'))
+        import case
+        tasks = {f[:-5]: read(os.path.join(EVAL, 'tasks', f)) for f in os.listdir(os.path.join(EVAL, 'tasks'))}
+        every = sorted(t for t, d in tasks.items() if d.get('default', True))
+        users = {}
+        for t, d in tasks.items():
+            for f in (f'tests/eval/tasks/{t}.json', f'tests/eval/scorers/{t.replace("-", "_")}.js',
+                      *([f"tests/eval/{d['seed']}"] if d.get('seed') else []),
+                      f"tests/eval/fixtures/{d.get('fixture', 'app')}/components.css"):
+                users.setdefault(f, set()).add(t)
+        for f, ts in users.items():
+            if os.path.exists(os.path.join(ROOT, f)):
+                self.assertEqual(set(case.affected([f], ROOT)), ts, f)
+        self.assertEqual(sorted(case.affected(['tests/eval/lib.js'], ROOT)), every, 'shared scorer code moves everything')
+        self.assertEqual(case.affected(['tests/eval/gate.py', 'tests/eval/session.py', 'tests/eval/offline/app_screens_good.js'], ROOT), [],
+                         'transcript reading and offline states are re-judged offline')
+
+
 def read(path):
     with open(path) as f:
         return json.load(f)
