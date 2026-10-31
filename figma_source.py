@@ -13,9 +13,11 @@ or a sheet @imports), and writes JSON with:
                                              prose string literals, string tables
   variants      [{component, prop, values, src}]  prop unions, enums, boolean props, class modifiers
   states        [{component, state, src}]    pseudo-classes, state-named props and modifiers
-  components    [{component, uses, nests, src}]  style blocks with a paint or type rule and capitalized
-                                             code tags, with how often the markup uses each and the
-                                             components used directly inside it, most used first
+  components    [{component, uses, nests, src, css?}]  style blocks with a paint or type rule and
+                                             capitalized code tags, with how often the markup uses each
+                                             and the components used directly inside it, most used
+                                             first; a style block's css is its rules (modifiers and
+                                             elements too) as {selector: declarations}, about 1.6 KB
 src is `file:line` relative to the inputs' common directory. Without -o the JSON goes to
 stdout; with -o a one-line summary does. figma_fidelity.py diffs a Figma subtree against it.
 """
@@ -72,6 +74,7 @@ LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'|`([^`$\n]*
 VISUAL = re.compile(r'(?<![\w-])(?:background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-color|-width|-style)?|'
                     r'color|box-shadow|font(?:-size|-weight|-family)?|outline|fill|stroke|text-decoration)\s*:', re.I)
 RULE = re.compile(r'([^{}]+)\{([^{}]*)\}')
+CSS_CAP = 1600  # bytes of rules per component in the manifest
 TAG_OR_CLOSE = re.compile(r'<(/?)([A-Za-z][\w.:-]*)((?:\{(?:[^{}]|\{[^{}]*\})*\}|"[^"]*"|\'[^\']*\'|[^<>{}"\'])*)>')
 CLASS_ATTR = re.compile(r'(?<![\w-])class(?:Name)?\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|\{((?:[^{}]|\{[^{}]*\})*)\})')
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
@@ -208,6 +211,7 @@ class Source:
         self.fams = {}
         self.variants = []
         self.blocks = {}  # style block -> [src, visual]
+        self.rules = {}   # style block -> [(selector, declarations, file)]
         self.comps = {}   # component -> {component, uses, nests, src}
 
     # ---- reading
@@ -447,8 +451,12 @@ class Source:
         text = re.sub(r'/\*[\s\S]*?\*/', lambda m: re.sub(r'[^\n]', ' ', m.group(0)), f[2])
         for m in RULE.finditer(text):
             visual = bool(VISUAL.search(m.group(2)))
+            rule = (re.sub(r'\s*,\s*', ', ', ' '.join(m.group(1).split())), ' '.join(m.group(2).split()).rstrip(';') + ';', f[0])
             for c in re.finditer(r'\.(-?[A-Za-z_][\w-]*)', m.group(1)):
                 block = re.split(r'__|--', c.group(1))[0]
+                rules = self.rules.setdefault(block, [])
+                if rule not in rules and rule[1] != ';':
+                    rules.append(rule)
                 b = self.blocks.setdefault(block, [self.src(f, m.start(1) + len(m.group(1)) - len(m.group(1).lstrip())), False])
                 b[1] = b[1] or visual
 
@@ -597,6 +605,18 @@ class Source:
                 out.append(dict(g, values=list(g['values'])))
         return out
 
+    def component_css(self, name):
+        """A style component's rules as {selector: declarations}, about CSS_CAP bytes at most."""
+        css, left = {}, []
+        for sel, decls, rel in self.rules.get(name, []):
+            if left or len(json.dumps(css)) + len(sel) + len(decls) + 8 > CSS_CAP - 60:
+                left.append(rel)
+            else:
+                css[sel] = decls
+        if left:
+            css['…'] = f"{len(left)} more rules in {', '.join(dict.fromkeys(left))}"
+        return css
+
     def manifest(self):
         def by_value(d):
             return sorted(d.values(), key=lambda e: e['value'])
@@ -613,7 +633,8 @@ class Source:
             'copy': list(self.copy.values()),
             'variants': self.merged_variants(),
             'states': list(self.states.values()),
-            'components': sorted(self.comps.values(), key=lambda e: -e['uses']),
+            'components': [dict(e, css=self.component_css(e['component'])) if self.rules.get(e['component']) else e
+                           for e in sorted(self.comps.values(), key=lambda e: -e['uses'])],
         }
 
 

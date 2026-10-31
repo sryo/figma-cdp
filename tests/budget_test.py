@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6120,
+    'SKILL.md': 6235,
     'figma-worker.md': 6181,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -134,6 +134,13 @@ class Docs(unittest.TestCase):
         self.assertRegex(sec, r'(?i)leave it raw[^.]*(say|report)', 'a copy that does not match stays and is reported')
         self.assertRegex(sec, r'(?i)re-?read|fidelity', 'the screen is checked after the swap')
 
+    def test_the_manifest_is_read_instead_of_the_source_files(self):
+        step = next(l for l in docs()['SKILL.md'].splitlines() if l.startswith('2. **Source.'))
+        self.assertRegex(step, r'(?i)read the manifest[^.]*not the source files', 'the source is cat whole beside its manifest')
+        self.assertRegex(step, r'(?i)markup', 'a screen\'s markup is still read from its file')
+        fid = docs()['references/fidelity.md']
+        self.assertRegex(fid, r'`css`[^.]*selector[^.]*declarations', 'the manifest docs do not say what css holds')
+
     def test_component_plan_covers_the_manifest_components_and_containers(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
         self.assertRegex(plan, r'manifest `components` entry', 'the plan does not start from the manifest components')
@@ -147,7 +154,7 @@ class Docs(unittest.TestCase):
         self.assertRegex(reuse.group(0), r'(?i)per-use[^.;]*instance overrides', 'per-use differences are not overrides')
         self.assertRegex(reuse.group(0), r'(?i)never[^.;]*renam[^.;]*variant[^.;]*set[^.;]*unless',
                          'nothing stops a reused component from being renamed, given variants or made a set')
-        self.assertIn('`components` `[{component, uses, nests, src}]`', docs()['references/fidelity.md'])
+        self.assertIn('`components` `[{component, uses, nests, src, css?}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):
         gate = next(l for l in docs()['SKILL.md'].splitlines() if 'Final gate' in l)

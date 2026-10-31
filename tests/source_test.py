@@ -253,6 +253,31 @@ class Generic(unittest.TestCase):
         self.assertIn('scales: spacing 2 4 8 12 16 24 32 · radii 6 10 999 · font sizes 12 14 16 20 28 · '
                       'weights 400 500 700 · families Inter, system-ui, sans-serif', lines)
 
+    def test_a_style_component_carries_its_rules(self):
+        page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor-pages', 'notes.html')
+        comps = {c['component']: c for c in manifest(page)['components']}
+        css = comps['button']['css']
+        self.assertEqual(list(css), ['.button', '.button--primary', '.button--secondary'])
+        self.assertEqual(css['.button'], 'display: inline-flex; align-items: center; gap: var(--space-2); flex: none; '
+                         'padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); border: 1px solid transparent; '
+                         'font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: none;')
+        self.assertEqual(css['.button--primary'], 'background: var(--color-primary); color: var(--color-on-primary);')
+        self.assertIn('.avatar--lg', comps['avatar']['css'])
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'a.html'), 'w') as f:
+                f.write('<div class="card"><span class="card__title">Hello there friend</span></div>')
+            with open(os.path.join(tmp, 'a.css'), 'w') as f:
+                f.write('/* .card { color: red; } */\n.card { color: #123456; }\n.card:hover,\n.card--on { background: #fff; }\n'
+                        + ''.join(f'.card__p{i} {{ padding: {i}px {i}px {i}px {i}px; margin: {i}px; }}\n' for i in range(200)))
+            with open(os.path.join(tmp, 'Row.jsx'), 'w') as f:
+                f.write('export function App() { return <Row label="Hello there friend" /> }\n')
+            comps = {c['component']: c for c in manifest(tmp)['components']}
+            css = comps['card']['css']
+            self.assertEqual(list(css)[:2], ['.card', '.card:hover, .card--on'], 'comments skipped, selector lists kept whole')
+            self.assertLessEqual(len(json.dumps(css)), 1600, 'a component\'s rules stay bounded')
+            self.assertRegex(css['…'], r'^\d+ more rules in a\.css$')
+            self.assertNotIn('css', comps['Row'], 'a code component has no style rules')
+
     def test_a_page_brings_its_linked_and_imported_style_sheets(self):
         page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor-pages', 'notes.html')
         m = manifest(page)
