@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 6235,
-    'figma-worker.md': 6368,
+    'figma-worker.md': 6579,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -146,6 +146,14 @@ class Docs(unittest.TestCase):
         self.assertRegex(step, r'(?i)markup', 'a screen\'s markup is still read from its file')
         fid = docs()['references/fidelity.md']
         self.assertRegex(fid, r'`css`[^.]*selector[^.]*declarations', 'the manifest docs do not say what css holds')
+
+    def test_worker_names_variants_from_the_source_and_reads_async(self):
+        worker = docs()['figma-worker.md']
+        line = next(l for l in worker.splitlines() if l.startswith('Variants:'))
+        self.assertNotIn('Size=Md', line, 'the example invents variant values')
+        self.assertRegex(line, r"(?i)source's names", 'clones are not named from the source')
+        for call in ('getNodeByIdAsync', 'getMainComponentAsync', 'figma.variables.getLocalVariablesAsync'):
+            self.assertIn(call, worker, f'the worker sheet does not name {call} for dynamic-page reads')
 
     def test_component_plan_covers_the_manifest_components_and_containers(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)

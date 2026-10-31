@@ -39,7 +39,7 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 - `react(ref, [{on: 'click'|'hover'|'press'|{key: 27}|{after: ms}, do: 'back'|'close'|{to, nav: navigate|overlay|swap|change|scroll, anim, ms}}], {append})`, `overlayFrame({base, name, items})`, `flow(page, frame, name)`: `references/prototyping.md`. An instance's own reactions drop its main's hover
 - `autoLayout(ref, opts)`, `inventory({match})`, `audit(rootId)`
 
-Variants: hugging auto-layout base component; clones named `Size=Md, State=Hover`; `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set: auto layout + HUG. Slot (per-use content): `const s = comp.createSlot()` adds a SLOT layer and its SLOT property; give it a name and auto layout; per use, `appendChild` into the instance's SLOT layer.
+Variants: hugging auto-layout base component; clones named with the source's names (`Size=sm, State=hover`); `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set: auto layout + HUG. Slot (per-use content): `const s = comp.createSlot()` adds a SLOT layer and its SLOT property; give it a name and auto layout; per use, `appendChild` into the instance's SLOT layer.
 
 Gotchas:
 1. FILL/HUG after `appendChild`; `resize()` before sizing modes (it resets them).
@@ -48,6 +48,7 @@ Gotchas:
 4. Return `{error}`, don't throw; one `figma.commitUndo()` per unit; never `figma.closePlugin()`; no `?.` or `??`.
 5. Find before create (by name under its parent) so re-runs don't duplicate; keep ids, not node objects, in `__batchState`.
 6. Ids starting with `I` are instance sublayers: `setProperties` or a swap (yours or another worker's) rebuilds them, so don't reuse one in a later eval; find it again from the instance.
+7. Reads are async (dynamic-page): `figma.getNodeByIdAsync`, `inst.getMainComponentAsync()`, `figma.variables.getLocalVariablesAsync()`; the sync `getNodeById`, `.mainComponent` throw.
 
 ## Your Loop
 For each section (or the whole task):
