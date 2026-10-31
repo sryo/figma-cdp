@@ -244,7 +244,7 @@ class Sleep(unittest.TestCase):
             use('h2', '2026-10-30T11:00:02Z', 'Read', {'file_path': '/x/figma_run.py'}),
             result('h2', '2026-10-30T11:00:03Z', "(r'must be in the same page as the parent', 'nodes on two pages')"),
             # A batch whose call exited 0 still reports one item's error.
-            use('h3', '2026-10-30T11:00:04Z', 'Bash', {'command': 'python3 figma_batch_run.py a.js b.js'}),
+            use('h3', '2026-10-30T11:00:04Z', 'Bash', {'command': 'python3 figma_run.py a.js b.js'}),
             result('h3', '2026-10-30T11:00:05Z', 'a.js ok\n\t✗ Evaluation error: Error: in set_layoutSizingVertical: HUG can only be set on auto-layout frames')])
         path = self.lessons([
             {'id': 'font', 'kind': 'hint', 'error': 'unloaded font "X"', 'expect': 'loadFontAsync',
@@ -256,7 +256,6 @@ class Sleep(unittest.TestCase):
                          lessons=path)
         never = out.split('## Never fired', 1)[1].split('##', 1)[0]
         self.assertRegex(never, r'figma_run\.py:\d+ .*must be in the same page')
-        self.assertRegex(never, r'figma_batch_run\.py:\d+ .*must be in the same page')
         self.assertRegex(never, r'lessons\.jsonl:2 .*never')
         self.assertRegex(never, r'figma_perch\.mjs:\d+ .*UNDEFINED_HINT')
         for fired in ('unloaded font', 'FILL can only', 'HUG can only', 'HIDDEN_HINT', 'lessons.jsonl:1 '):

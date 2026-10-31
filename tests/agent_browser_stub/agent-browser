@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Stand-in for the agent-browser CLI, put first on PATH so figma_run.py /
-// figma_batch_run.py take their cdp branch offline. It answers the two
-// subcommands those use, printing as the helpers' perch branch assumes
+// Stand-in for the agent-browser CLI, put first on PATH so figma_run.py
+// takes its cdp branch offline. It answers the two subcommands it
+// uses, printing as the helper's perch branch assumes
 // agent-browser prints:
 //   --cdp <port> eval -b <base64>          the result as indented JSON, keys sorted;
 //                                          a throw is "✗ Evaluation error: ..." on stderr, exit 1

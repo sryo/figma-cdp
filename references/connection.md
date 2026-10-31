@@ -48,7 +48,7 @@ Coordinator-facing setup: how the helpers reach Figma's Plugin API, through perc
       ```bash
       export FIGMA_CDP_PORT=54321
       ```
-      Both `figma_run.py` and `figma_batch_run.py` read `FIGMA_CDP_PORT` when set; when unset they fall back to reading `DevToolsActivePort` themselves (then 9222). So the export is optional for the helpers — but raw `agent-browser` one-liners don't do the fallback, so they still need the env var (or an explicit `--cdp <port>`).
+      `figma_run.py` reads `FIGMA_CDP_PORT` when set; when unset it falls back to reading `DevToolsActivePort` themselves (then 9222). So the export is optional for the helpers — but raw `agent-browser` one-liners don't do the fallback, so they still need the env var (or an explicit `--cdp <port>`).
    5. The first time the agent touches a tab, Chrome may show an "Allow debugging?" prompt. Accept once per tab.
 
    Trade-offs: requires the one-time toggle; the port changes between Chrome restarts (the helpers re-read `DevToolsActivePort` on their own; raw `agent-browser` one-liners need the new port re-read and re-exported). If you can't enable the toggle (managed Chrome, etc.), use Mode B.

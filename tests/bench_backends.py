@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Time figma_run.py / figma_batch_run.py on the cdp and perch backends against one open file.
+"""Time figma_run.py with one script and with several on the cdp and perch backends against one open file.
 
 Every script is read-only: no node creation, edits, selection or page changes.
 
@@ -23,7 +23,6 @@ import argparse, hashlib, json, os, socket, statistics, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE) if os.path.basename(HERE) == 'tests' else os.environ.get('FIGMA_CDP_DIR', HERE)
 RUN = os.path.join(ROOT, 'figma_run.py')
-BATCH = os.path.join(ROOT, 'figma_batch_run.py')
 
 def scripts(small, large):
     return {
@@ -137,7 +136,7 @@ def main():
 
     def argv(op):
         if op == 'batch4':
-            return [sys.executable, BATCH, '--file', a.file, *[paths[o] for o in BATCH_OPS]]
+            return [sys.executable, RUN, '--file', a.file, *[paths[o] for o in BATCH_OPS]]
         return [sys.executable, RUN, '--file', a.file, paths[op]]
 
     backends = BACKENDS

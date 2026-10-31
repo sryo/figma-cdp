@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Offline tests for the perch backend of figma_run.py / figma_batch_run.py / figma_capture.py.
+"""Offline tests for the perch backend of figma_run.py / figma_capture.py.
 
 No browser and no perch: PERCH_DIR points at tests/perch_stub, whose server.js
 runs each script in Node against a stub `figma` global.
 
   python3 tests/perch_backend_test.py
 """
-import ast, json, os, re, shutil, socket, stat, subprocess, sys, tempfile, threading, time, unittest
+import json, os, re, shutil, socket, stat, subprocess, sys, tempfile, threading, time, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STUB = os.path.join(ROOT, 'tests', 'perch_stub')
@@ -118,9 +118,9 @@ class PerchBackend(Harness):
                          '"huge":1.2345678901234567e+19,"s":"ñ 😀","tiny":1e-7,"z":1}\n')
 
     def test_batch_output_matches_agent_browser_print(self):
-        r = self.run_helper('figma_batch_run.py', self.js('a.js', '({ z: 1, a: ["ñ", 1e-7] })'))
+        r = self.run_helper('figma_run.py', '-e', '1', self.js('a.js', '({ z: 1, a: ["ñ", 1e-7] })'))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.splitlines()[1], '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
+        self.assertEqual(r.stdout.splitlines()[3], '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
                          '"result": {"a": ["\\u00f1", 1e-07], "z": 1}}')
 
     def test_undefined_completion_is_null(self):
@@ -151,7 +151,7 @@ class PerchBackend(Harness):
             self.assertTrue(r.stderr.splitlines()[-1].startswith('hint: ' + fix), r.stderr)
 
     def test_batch_prints_the_fix_under_the_error(self):
-        r = self.run_helper('figma_batch_run.py', '-e', 'throw new Error("Cannot write to node with unloaded font")')
+        r = self.run_helper('figma_run.py', '-e', '1', '-e', 'throw new Error("Cannot write to node with unloaded font")')
         self.assertEqual(r.returncode, 1)
         self.assertTrue(r.stdout.splitlines()[-1].startswith('hint: await figma.loadFontAsync'), r.stdout)
 
@@ -214,7 +214,7 @@ class PerchBackend(Harness):
         self.assertIn('SyntaxError', r.stderr)
 
     def test_a_syntax_error_the_script_threw_is_not_rerun(self):
-        r = self.run_helper('figma_batch_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
+        r = self.run_helper('figma_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
         self.assertEqual(r.returncode, 1)
         lines = r.stdout.splitlines()
         self.assertTrue(lines[3].startswith('Evaluation error: SyntaxError'), lines)
@@ -224,7 +224,7 @@ class PerchBackend(Harness):
     def test_a_parenthesized_top_level_await_runs_as_an_async_function(self):
         # `await (x)` also parses as a call to a function named await; run as a script it would
         # run the lines above it, then fail with "await is not defined".
-        r = self.run_helper('figma_batch_run.py', '-e', 'globalThis.__m = (globalThis.__m || 0) + 1;\n'
+        r = self.run_helper('figma_run.py', '-e', 'globalThis.__m = (globalThis.__m || 0) + 1;\n'
                             'const r = await (Promise.resolve(3));\nr', '-e', '__m')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual([json.loads(l)['result'] for l in r.stdout.splitlines()[1::2]], [None, 1])
@@ -244,17 +244,17 @@ class PerchBackend(Harness):
         self.assertNotIn('await', r.stderr.splitlines()[0])
 
     def test_a_syntax_error_the_script_threw_leaves_its_declarations_alone(self):
-        r = self.run_helper('figma_batch_run.py', '-e', 'function g() {}\nglobalThis.g0 = g;\nJSON.parse("{")',
+        r = self.run_helper('figma_run.py', '-e', 'function g() {}\nglobalThis.g0 = g;\nJSON.parse("{")',
                             '-e', 'g === g0')
         self.assertEqual(r.stdout.splitlines()[-1], '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
                                                     '"result": true}', r.stdout)
 
     def test_top_level_declarations_stay_in_their_script(self):
-        r = self.run_helper('figma_batch_run.py', '-e', 'const a = 1; a', '-e', 'let a = 2; a')
+        r = self.run_helper('figma_run.py', '-e', 'const a = 1; a', '-e', 'let a = 2; a')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_batch_runs_files_inline_and_stdin_in_order(self):
-        r = self.run_helper('figma_batch_run.py', '-e', 'window.__batchState = { n: 1 }; "set"',
+        r = self.run_helper('figma_run.py', '-e', 'window.__batchState = { n: 1 }; "set"',
                             self.js('b.js', '__batchState.n + 1'), '-', stdin='await 0;\nreturn __batchState.n + 2')
         self.assertEqual(r.returncode, 0, r.stderr)
         url = 'https://www.figma.com/design/AAA111/Stub?node-id=0-1'
@@ -263,18 +263,16 @@ class PerchBackend(Harness):
                                                  '== stdin ==', '{"origin": "%s", "result": 3}' % url])
 
     def test_bad_script_arguments_run_nothing(self):
-        for script, args in (('figma_run.py', ['-e', '1', self.js('a.js', '1')]), ('figma_run.py', []),
-                             ('figma_run.py', ['-e']), ('figma_run.py', ['-e', '1', '--screenshot', 'x.png']),
-                             ('figma_batch_run.py', ['-', '-']), ('figma_batch_run.py', ['-e']),
-                             ('figma_batch_run.py', ['--bogus', self.js('a.js', '1')]), ('figma_batch_run.py', []),
-                             ('figma_batch_run.py', [os.path.join(self.tmp.name, 'nope.js')])):
-            r = self.run_helper(script, *args, stdin='1')
-            self.assertNotEqual(r.returncode, 0, (script, args))
-            self.assertTrue(r.stderr.strip(), (script, args))
+        for args in ([], ['-e'], ['-e', '1', '--screenshot', 'x.png'], ['-e', '1', '--recover', 'abc'],
+                     ['--screenshot', 'x.png', '--recover', 'abc'], ['-', '-'], ['--bogus', self.js('a.js', '1')],
+                     ['-e', '1', os.path.join(self.tmp.name, 'nope.js')]):
+            r = self.run_helper('figma_run.py', *args, stdin='1')
+            self.assertNotEqual(r.returncode, 0, args)
+            self.assertTrue(r.stderr.strip(), args)
         self.assertEqual(self.calls(), [])
 
     def test_file_env_is_the_default_and_the_flag_wins(self):
-        r = self.run_helper('figma_batch_run.py', '-e', '1', PERCH_STUB_TABS=json.dumps(TWO_FILES), FIGMA_FILE='AAA111')
+        r = self.run_helper('figma_run.py', '-e', '1', PERCH_STUB_TABS=json.dumps(TWO_FILES), FIGMA_FILE='AAA111')
         self.assertEqual(r.returncode, 0, r.stderr)
         r = self.run_helper('figma_run.py', '--file', 'BBB222', '-e', '1',
                             PERCH_STUB_TABS=json.dumps(TWO_FILES), FIGMA_FILE='AAA111')
@@ -284,9 +282,9 @@ class PerchBackend(Harness):
     def test_runs_from_anywhere_through_a_symlink(self):
         bin_dir = os.path.join(self.tmp.name, 'bin')
         os.makedirs(bin_dir)
-        for name in ('figma_run.py', 'figma_batch_run.py'):
-            os.symlink(os.path.join(ROOT, name), os.path.join(bin_dir, name))
-            r = subprocess.run([sys.executable, os.path.join(bin_dir, name), '-e', '"linked"'], cwd=bin_dir,
+        os.symlink(os.path.join(ROOT, 'figma_run.py'), os.path.join(bin_dir, 'figma_run.py'))
+        for args in (['-e', '"linked"'], ['-e', '1', '-e', '"linked"']):
+            r = subprocess.run([sys.executable, os.path.join(bin_dir, 'figma_run.py'), *args], cwd=bin_dir,
                                capture_output=True, text=True, env=self.helper_env({}))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('"linked"', r.stdout)
@@ -295,7 +293,7 @@ class PerchBackend(Harness):
         # A skill directory reached through a symlink, as ~/.claude/skills linked to a checkout.
         real = os.path.join(self.tmp.name, 'real')
         os.makedirs(real)
-        for name in ('figma_run.py', 'figma_perch.mjs'):
+        for name in ('figma_run.py', 'figma_backend.py', 'figma_perch.mjs'):
             shutil.copy(os.path.join(ROOT, name), real)
         link = os.path.join(self.tmp.name, 'link')
         os.symlink(real, link)
@@ -310,8 +308,8 @@ class PerchBackend(Harness):
         return [c['args'].get('timeout') for c in self.calls('eval_js') if 'visibilityState' not in c['args'].get('script', '')]
 
     def test_default_timeout_is_under_the_bash_tools_two_minutes(self):
-        for helper in ('figma_run.py', 'figma_batch_run.py'):
-            r = self.run_helper(helper, self.js('a.js', '1'))
+        for many in ([], ['-e', '1']):
+            r = self.run_helper('figma_run.py', *many, self.js('a.js', '1'))
             self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.eval_timeouts()[-2:], [100000, 100000])
 
@@ -334,7 +332,7 @@ class PerchBackend(Harness):
     def test_timeout_from_env_and_flag_wins(self):
         self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_TIMEOUT='45')
         self.run_helper('figma_run.py', '--timeout', '2.5', self.js('a.js', '1'), FIGMA_TIMEOUT='45')
-        self.run_helper('figma_batch_run.py', '--timeout', '7', self.js('a.js', '1'), self.js('b.js', '2'))
+        self.run_helper('figma_run.py', '--timeout', '7', self.js('a.js', '1'), self.js('b.js', '2'))
         self.assertEqual(self.eval_timeouts(), [45000, 2500, 7000, 7000])
 
     def test_timeout_is_clamped_to_1_to_300_seconds(self):
@@ -348,7 +346,7 @@ class PerchBackend(Harness):
             r = self.run_helper('figma_run.py', *flag, self.js('a.js', '1'), **env)
             self.assertEqual(r.returncode, 1)
             self.assertIn('--timeout / FIGMA_TIMEOUT is seconds, 1 to 300', r.stderr)
-        r = self.run_helper('figma_batch_run.py', '--timeout', 'soon', self.js('a.js', '1'))
+        r = self.run_helper('figma_run.py', '--timeout', 'soon', self.js('a.js', '1'))
         self.assertEqual(r.returncode, 1)
         self.assertEqual(self.calls('eval_js'), [])
 
@@ -382,8 +380,8 @@ class PerchBackend(Harness):
 
     def test_e_given_a_js_file_runs_the_file(self):
         path = self.js('f.js', '6 * 7')
-        for helper in ('figma_run.py', 'figma_batch_run.py'):
-            r = self.run_helper(helper, '-e', path)
+        for many in ([], ['-e', '1']):
+            r = self.run_helper('figma_run.py', *many, '-e', path)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('42', r.stdout)
 
@@ -422,12 +420,12 @@ class PerchBackend(Harness):
     def test_a_room_tab_on_the_file_is_preferred(self):
         """A room runs minimized or locked, so it wins over the browser tab its window shows."""
         tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two – Figma'}]
-        for helper in ('figma_run.py', 'figma_batch_run.py'):
+        for many in ([], ['-e', '1']):
             stop_daemon(self.sock)
             open(self.log, 'w').close()
-            r = self.run_helper(helper, '--file', 'BBB222', '-e', '1', PERCH_STUB_TABS=json.dumps(tabs))
+            r = self.run_helper('figma_run.py', '--file', 'BBB222', *many, '-e', '1', PERCH_STUB_TABS=json.dumps(tabs))
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertEqual(self.calls('eval_js')[-1]['args']['target'], {'tabId': 'room:main:R1'}, helper)
+            self.assertEqual(self.calls('eval_js')[-1]['args']['target'], {'tabId': 'room:main:R1'}, many)
 
     def test_a_signed_out_room_stops_the_run(self):
         """No fallback to the browser tab: the room is where an unattended run expects to be."""
@@ -459,7 +457,7 @@ class PerchBackend(Harness):
     def test_a_room_tab_is_shown_in_its_room_before_scripts_run(self):
         """A room's background tab gets no requestAnimationFrame, so Figma's PNG export never settles."""
         tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two – Figma'}]
-        r = self.run_helper('figma_batch_run.py', '--file', 'BBB222', '-e', '1', '-e', '2', PERCH_STUB_TABS=json.dumps(tabs))
+        r = self.run_helper('figma_run.py', '--file', 'BBB222', '-e', '1', '-e', '2', PERCH_STUB_TABS=json.dumps(tabs))
         self.assertEqual(r.returncode, 0, r.stderr)
         names = [c['name'] for c in self.calls() if c['name'] in ('activate_tab', 'eval_js')]
         self.assertEqual(names[0], 'activate_tab')
@@ -496,13 +494,13 @@ class PerchBackend(Harness):
             self.assertEqual(f.read(8), b'\x89PNG\r\n\x1a\n')
         self.assertEqual(self.calls('screenshot')[0]['args']['target'], {'tabId': 'chrome:1'})
 
-    # ---- figma_batch_run.py
+    # ---- figma_run.py, several scripts
 
     def test_batch_runs_in_order_sharing_state(self):
         paths = [self.js('1.js', 'window.__batchState = { n: 1 }; "set"'),
                  self.js('2.js', 'throw new Error("mid")'),
                  self.js('3.js', '({ n: window.__batchState.n + 1 })')]
-        r = self.run_helper('figma_batch_run.py', *paths)
+        r = self.run_helper('figma_run.py', *paths)
         self.assertEqual(r.returncode, 1)
         lines = r.stdout.splitlines()
         url = 'https://www.figma.com/design/AAA111/Stub?node-id=0-1'
@@ -515,23 +513,23 @@ class PerchBackend(Harness):
     def test_batch_stop_ends_at_a_failed_or_error_result(self):
         for second in ('throw new Error("mid")', '({ error: "no parent" })', 'void 0'):
             open(self.log, 'w').close()
-            r = self.run_helper('figma_batch_run.py', '--stop', '-e', '1', '-e', second, '-e', '3')
+            r = self.run_helper('figma_run.py', '--stop', '-e', '1', '-e', second, '-e', '3')
             self.assertEqual(r.returncode, 1, second)
             self.assertIn('--stop: script 2 of 3', r.stderr)
             self.assertNotIn('== -e[3] ==', r.stdout)
             self.assertEqual(len(self.calls('eval_js')), 2, second)
 
     def test_batch_stop_runs_everything_when_all_succeed(self):
-        r = self.run_helper('figma_batch_run.py', '--stop', '-e', '1', '-e', '2')
+        r = self.run_helper('figma_run.py', '--stop', '-e', '1', '-e', '2')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(self.calls('eval_js')), 2)
 
     def test_batch_all_ok_exits_zero(self):
-        r = self.run_helper('figma_batch_run.py', self.js('1.js', '1'), self.js('2.js', '2'))
+        r = self.run_helper('figma_run.py', self.js('1.js', '1'), self.js('2.js', '2'))
         self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_batch_perch_failure_stops_and_says_where(self):
-        r = self.run_helper('figma_batch_run.py', self.js('1.js', '1'), self.js('2.js', '2'),
+        r = self.run_helper('figma_run.py', self.js('1.js', '1'), self.js('2.js', '2'),
                             PERCH_STUB_ERROR='stale_tab: the tab closed')
         self.assertEqual(r.returncode, 1)
         self.assertIn('perch: stale_tab', r.stderr)
@@ -566,14 +564,14 @@ class PerchBackend(Harness):
                 self.assertEqual(plain.stdout, out, plain.stderr)
 
     def test_lib_installs_even_when_the_script_does_not_parse(self):
-        r = self.run_helper('figma_batch_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
+        r = self.run_helper('figma_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
         lines = r.stdout.splitlines()
         self.assertTrue(lines[1].startswith('Evaluation error: SyntaxError'), lines)
         self.assertEqual(lines[-2], '== -e[2] ==')
         self.assertIn('"result": "function"', lines[-1])
 
     def test_batch_lib_goes_in_front_of_the_first_script_only(self):
-        r = self.run_helper('figma_batch_run.py', '--lib', self.js('1.js', '1'), self.js('2.js', 'typeof __fx.recon'))
+        r = self.run_helper('figma_run.py', '--lib', self.js('1.js', '1'), self.js('2.js', 'typeof __fx.recon'))
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = r.stdout.splitlines()
         self.assertEqual((lines[0], lines[2]), ('== 1.js ==', '== 2.js =='))
@@ -583,14 +581,12 @@ class PerchBackend(Harness):
         self.assertNotIn('window.__fx', second)
 
     def test_lib_missing_next_to_the_helper(self):
-        for script in ('figma_run.py', 'figma_batch_run.py'):
-            lone = os.path.join(self.tmp.name, script)
-            with open(os.path.join(ROOT, script)) as f, open(lone, 'w') as g:
-                g.write(f.read())
-            r = subprocess.run([sys.executable, lone, '--lib', self.js('a.js', '1')], capture_output=True, text=True,
-                               env=self.helper_env({}))
-            self.assertEqual(r.returncode, 1)
-            self.assertIn(f'figma_lib.js not found next to {script}', r.stderr)
+        for name in ('figma_run.py', 'figma_backend.py'):
+            shutil.copy(os.path.join(ROOT, name), self.tmp.name)
+        r = subprocess.run([sys.executable, os.path.join(self.tmp.name, 'figma_run.py'), '--lib', self.js('a.js', '1')],
+                           capture_output=True, text=True, env=self.helper_env({}))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('figma_lib.js not found next to figma_run.py', r.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_lib_sends_the_same_source_over_cdp(self):
@@ -598,7 +594,7 @@ class PerchBackend(Harness):
         cdp = {'FIGMA_BACKEND': 'cdp', 'FIGMA_CDP_PORT': '9', 'AGENT_BROWSER_STUB_LOG': log,
                'PATH': AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH']}
         a, b = self.js('a.js', 'figma.currentPage.name'), self.js('b.js', '2')
-        for args in (('figma_run.py', '--lib', a), ('figma_batch_run.py', '--lib', a, b)):
+        for args in (('figma_run.py', '--lib', a), ('figma_run.py', '--lib', a, b)):
             self.assertEqual(self.run_helper(*args).returncode, 0)
             self.assertEqual(self.run_helper(*args, **cdp).returncode, 0)
         # Each call picks its own request id; the rest of the source is the same.
@@ -652,11 +648,12 @@ class PerchBackend(Harness):
                         f'export function {marker}() {{}}\n')
             with open(os.path.join(d, 'package.json'), 'w') as f:
                 f.write('{"type":"module"}')
-            for script in ('figma_run.py', 'figma_batch_run.py'):
-                r = self.run_helper(script, self.js('a.js', '1'), FIGMA_BACKEND='', PERCH_DIR=d,
-                                    FIGMA_PERCH_SOCK=os.path.join(d, script + '.sock'))
-                self.assertEqual(r.returncode, 0, f'{marker} {script}: {r.stderr}')
-                stop_daemon(os.path.join(d, script + '.sock'))
+            for many in ([], ['-e', '1']):
+                sock = os.path.join(d, f'{len(many)}.sock')
+                r = self.run_helper('figma_run.py', *many, self.js('a.js', '1'), FIGMA_BACKEND='', PERCH_DIR=d,
+                                    FIGMA_PERCH_SOCK=sock)
+                self.assertEqual(r.returncode, 0, f'{marker} {many}: {r.stderr}')
+                stop_daemon(sock)
 
 
 class PerchBackendOneShot(PerchBackend):
@@ -675,27 +672,6 @@ class SameOutputOnBothBackends(Harness):
         self.assertEqual((cdp.returncode, strip(cdp.stdout)), (perch.returncode, strip(perch.stdout)),
                          f'{script} {args}\ncdp stderr: {cdp.stderr}\nperch stderr: {perch.stderr}')
         self.assertEqual(strip(cdp.stderr).splitlines()[:1], strip(perch.stderr).splitlines()[:1])
-
-    def test_both_helpers_wrap_scripts_alike(self):
-        def wrapper(name):
-            with open(os.path.join(ROOT, name)) as f:
-                return re.search(r"AUTO_ASYNC = r'''(.*?)'''", f.read(), re.S).group(1)
-        self.assertEqual(wrapper('figma_run.py'), wrapper('figma_batch_run.py'))
-
-    def test_both_helpers_share_the_ledger_and_hints(self):
-        def defs(name):
-            with open(os.path.join(ROOT, name)) as f:
-                tree = ast.parse(f.read())
-            out = {}
-            for d in tree.body:
-                if isinstance(d, ast.FunctionDef):
-                    out[d.name] = ast.dump(d)
-                elif isinstance(d, ast.Assign) and isinstance(d.targets[0], ast.Name):
-                    out[d.targets[0].id] = ast.dump(d.value)
-            return out
-        run, batch = defs('figma_run.py'), defs('figma_batch_run.py')
-        for name in ('RUN', 'HINTS', 'hint', 'journal', 'program', 'recover', 'ledger_error', 'timeout_note', 'perch', 'parse_args'):
-            self.assertEqual(run[name], batch[name], name)
 
     def test_figma_run(self):
         self.both('figma_run.py', '-e', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", tiny: 1e-7, big: 1e21, f: 0.5 })')
@@ -716,10 +692,10 @@ class SameOutputOnBothBackends(Harness):
             env = dict(FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9', PATH=AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH']) if backend == 'cdp' else {}
             self.run_helper('figma_run.py', '-e', '1 + 1', **env)
             self.run_helper('figma_run.py', '-e', 'throw new Error("unloaded font Inter")', **env)
-            self.run_helper('figma_batch_run.py', '-e', '"a"', '-e', 'throw new Error("odd")', **env)
+            self.run_helper('figma_run.py', '-e', '"a"', '-e', 'throw new Error("odd")', **env)
             got = [(e['tool'], e['label'], e['ok'], e.get('result') or e['error'][:40], e.get('hint') is not None) for e in self.journal()]
             self.assertEqual([g[:3] for g in got], [('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[1]', False),
-                                                   ('figma_batch_run.py', '-e[1]', True), ('figma_batch_run.py', '-e[2]', False)], backend)
+                                                   ('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[2]', False)], backend)
             self.assertEqual(got[0][3], '2', backend)
             self.assertIn('unloaded font', got[1][3], backend)
             self.assertEqual([g[4] for g in got if not g[2]], [True, False], backend)
@@ -741,17 +717,17 @@ class SameOutputOnBothBackends(Harness):
 
     def test_lib(self):
         self.both('figma_run.py', '--lib', '-e', '[typeof __fx.audit, __fx.v > 0]')
-        self.both('figma_batch_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
+        self.both('figma_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
 
-    def test_figma_batch_run(self):
-        self.both('figma_batch_run.py', '-e', 'window.__batchState = { n: 1 }; "ñ"', self.js('b.js', 'const a = 1; a'),
+    def test_figma_run_many_scripts(self):
+        self.both('figma_run.py', '-e', 'window.__batchState = { n: 1 }; "ñ"', self.js('b.js', 'const a = 1; a'),
                   '-e', 'const a = 2;\nreturn __batchState.n + a', '-', stdin='await 0;\nreturn [1e-7, null]')
-        self.both('figma_batch_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
-        self.both('figma_batch_run.py', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
-        self.both('figma_batch_run.py', '-e', '1', '-e', 'throw new Error("Cannot read properties of null")')
-        self.both('figma_batch_run.py', '--stop', '-e', '1', '-e', '({ error: "x" })', '-e', '3')
-        self.both('figma_batch_run.py', '--stop', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
-        self.both('figma_batch_run.py', '-e', 'globalThis.__m = 1;\nawait (Promise.resolve());\n__m', '-e', '__m',
+        self.both('figma_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
+        self.both('figma_run.py', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
+        self.both('figma_run.py', '-e', '1', '-e', 'throw new Error("Cannot read properties of null")')
+        self.both('figma_run.py', '--stop', '-e', '1', '-e', '({ error: "x" })', '-e', '3')
+        self.both('figma_run.py', '--stop', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
+        self.both('figma_run.py', '-e', 'globalThis.__m = 1;\nawait (Promise.resolve());\n__m', '-e', '__m',
                   '-e', 'await 0;\nreturn )', '-e', 'const x = )')
 
 
@@ -940,7 +916,7 @@ class PerchDaemon(Harness):
         moved = json.dumps([{'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two'}])
         go = self.js('1.js', '(async () => { (await import("node:fs")).writeFileSync(%s, %s); return "moved"; })()'
                      % (json.dumps(tabs), json.dumps(moved)))
-        r = self.run_helper('figma_batch_run.py', '--file', 'AAA111', go, self.js('2.js', 'globalThis.__ran2 = 1'),
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', go, self.js('2.js', 'globalThis.__ran2 = 1'),
                             PERCH_STUB_TABS_FILE=tabs)
         self.assertEqual(r.returncode, 1)
         self.assertIn('stale_tab: tab chrome:1 no longer shows file AAA111', r.stderr)
@@ -1134,7 +1110,7 @@ class Ledger(Harness):
         self.assertEqual(again.stdout, '2\n')
 
     def test_batch_ns_and_ledger(self):
-        r = self.run_helper('figma_batch_run.py', '--lib', '--ns', 'a_', '-e', self.COUNT, '-e', '__ran')
+        r = self.run_helper('figma_run.py', '--lib', '--ns', 'a_', '-e', self.COUNT, '-e', '__ran')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('"result": {"ran": 1}', r.stdout)
 
@@ -1176,7 +1152,7 @@ class CapturePerch(Harness):
         # walk runs the figma_walker.js next to figma_capture.py, so this copy gets the DOM-free one.
         self.app = os.path.join(self.tmp.name, 'app')
         os.makedirs(self.app)
-        for name in ('figma_capture.py', 'figma_perch.mjs', 'figma_importer.js'):
+        for name in ('figma_capture.py', 'figma_backend.py', 'figma_perch.mjs', 'figma_importer.js'):
             shutil.copy(os.path.join(ROOT, name), self.app)
         with open(os.path.join(self.app, 'figma_walker.js'), 'w') as f:
             f.write(FAKE_WALKER)
@@ -1428,21 +1404,6 @@ class CapturePerch(Harness):
         self.assertEqual(self.calls(), [])
         _, _, r = self.walk('auto', '0', FIGMA_BACKEND='')
         self.assertEqual(r.returncode, 0, r.stderr)
-
-    def test_perch_client_matches_the_helpers(self):
-        """figma_capture.py carries its own copy of the helpers' perch client; the copies stay identical."""
-        shared = ('perch_dir', 'perch_ready', 'backend', 'js_int', 'Dropped', 'daemon_sock', 'daemon_exchange',
-                  'start_daemon', 'timeout_seconds')
-
-        def defs(name):
-            with open(os.path.join(ROOT, name)) as f:
-                tree = ast.parse(f.read())
-            return {d.name: ast.dump(d) for d in tree.body if isinstance(d, (ast.FunctionDef, ast.ClassDef))}
-
-        cap, run, batch = defs('figma_capture.py'), defs('figma_run.py'), defs('figma_batch_run.py')
-        for name in shared:
-            self.assertEqual(cap.get(name), batch[name], name)
-            self.assertEqual(run[name], batch[name], name)
 
 
 class CapturePerchOneShot(CapturePerch):

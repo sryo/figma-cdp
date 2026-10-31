@@ -111,7 +111,7 @@ def parse_stream(lines):
             for c in content if isinstance(content, list) else []:
                 if c.get('type') == 'tool_result':
                     body = result_text(c)
-                    if 'figma_run.py --recover' in body or 'figma_batch_run.py --recover' in body:
+                    if 'figma_run.py --recover' in body:
                         proc['lost_replies'] += 1
                 if c.get('type') == 'tool_result' and c.get('is_error'):
                     failed += 1

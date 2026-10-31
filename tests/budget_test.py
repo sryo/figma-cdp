@@ -93,7 +93,7 @@ class Docs(unittest.TestCase):
 
     def test_helpers_run_from_the_skill_dir(self):
         for rel, text in docs().items():
-            self.assertIsNone(re.search(r'/tmp/figma_(run|batch_run|capture|perch|lib|source|fidelity)\b', text),
+            self.assertIsNone(re.search(r'/tmp/figma_(run|capture|perch|lib|source|fidelity)\b', text),
                               f'{rel} still runs or copies a helper in /tmp')
 
     def test_one_rule_for_when_variant_properties_are_added(self):
