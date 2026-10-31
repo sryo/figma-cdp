@@ -39,7 +39,7 @@
 //
 // PERCH_DIR: the perch checkout to import (default ~/.perch, then ~/Documents/perch).
 // A request's `tab` is a perch tabId to use as is, skipping tab lookup; its
-// `timeout` is how long eval_js awaits a script, 1000 to 300000 ms (default 120000).
+// `timeout` is how long eval_js awaits a script, 1000 to 300000 ms (default 100000).
 import { chmodSync, existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
@@ -51,7 +51,7 @@ import { pathToFileURL } from "node:url";
 console.log = console.info = console.error;
 
 const FIGMA_PATH = /figma\.com\/(?:design|file|proto)\/([A-Za-z0-9]+)/;
-export const TIMEOUT_MS = { def: 120000, min: 1000, max: 300000 };
+export const TIMEOUT_MS = { def: 100000, min: 1000, max: 300000 };
 // Set by loadPerch: a perch that takes eval_js {timeout} exports AWAIT_MAX_MS; an
 // older one awaits 30s whatever it is asked.
 let takesTimeout = false;
@@ -172,6 +172,15 @@ async function runEval(handleCall, tab, src, ms, page = false) {
   return { ok: true, value: out.v === undefined ? null : out.v, href: out.h };
 }
 
+// A timeout in a hidden tab is usually Chrome throttling its timers, not a slow script: say so.
+const HIDDEN_HINT = "The tab is hidden (document.visibilityState is hidden), and Chrome throttles a hidden tab's timers, so awaits in the page crawl: show the tab in its window, then --recover";
+async function tabHidden(handleCall, tab) {
+  const args = { target: { tabId: tab.tabId }, world: "main", awaitPromise: true,
+    script: 'return typeof document === "object" && document ? String(document.visibilityState) : ""' };
+  if (takesTimeout) args.timeout = 3000;
+  try { return /hidden/.test((await call(handleCall, "eval_js", args)).text); } catch { return false; }
+}
+
 const perchFatal = (e, ms, src = "") => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms, src)}` : e.message;
 
 // The page op: a tab of its own, shown only when Arc needs it and the caller asked, closed whatever the scripts do.
@@ -267,7 +276,10 @@ export async function handle(handleCall, req, cache = null) {
       if (i === 0 && !retried && tab.cached && /^stale_tab: /.test(e.message)) res = { miss: null };
       // A perch-level failure (stale tab, timeout, browser gone) would fail every
       // later script the same way, so it ends the run.
-      else return { ...headOf(tab), results, fatal: perchFatal(e, ms, sources[i]) };
+      else {
+        const hidden = /^timeout: /.test(e.message) && await tabHidden(handleCall, tab);
+        return { ...headOf(tab), results, fatal: perchFatal(e, ms, sources[i]) + (hidden ? `. ${HIDDEN_HINT}` : "") };
+      }
     }
     if ("miss" in res) {
       if (cache && want) cache.delete(want);

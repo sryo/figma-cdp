@@ -305,7 +305,8 @@ class PerchBackend(Harness):
     # ---- await timeout
 
     def eval_timeouts(self):
-        return [c['args'].get('timeout') for c in self.calls('eval_js')]
+        # The scripts' own evals, not the visibility check a timeout adds.
+        return [c['args'].get('timeout') for c in self.calls('eval_js') if 'visibilityState' not in c['args'].get('script', '')]
 
     def test_default_timeout_is_under_the_bash_tools_two_minutes(self):
         for helper in ('figma_run.py', 'figma_batch_run.py'):
@@ -359,6 +360,17 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', self.js('a.js', '1'), PERCH_STUB_OLD='1',
                             PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 30000ms')
         self.assertIn('This perch awaits at most 30s; update perch', r.stderr)
+
+    def test_a_timeout_in_a_hidden_tab_says_so(self):
+        slow = self.js('a.js', 'new Promise(r => setTimeout(() => r("late"), 1500))')
+        r = self.run_helper('figma_run.py', '--timeout', '1', slow)
+        self.assertNotIn('hidden', r.stderr)
+        stop_daemon(self.sock)  # a daemon keeps the environment it started with
+        r = self.run_helper('figma_run.py', '--timeout', '1', slow, PERCH_STUB_HIDDEN='1')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('The tab is hidden', r.stderr)
+        self.assertIn('show the tab', r.stderr)
+        stop_daemon(self.sock)
 
     def test_perch_error_code_passes_through(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '1'),

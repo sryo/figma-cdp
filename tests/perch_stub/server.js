@@ -11,6 +11,7 @@
 //                     (tabs that navigate or close); eval_js on a tab not in it is stale_tab
 //   PERCH_STUB_DELAY  ms each eval_js waits before running (concurrency tests)
 //   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
+//   PERCH_STUB_HIDDEN "1" gives scripts a `document` whose visibilityState is "hidden"
 //   PERCH_STUB_FRONT  the browser new_tab opens in when the call names none (default Google Chrome)
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
 // new_tab adds a tab (http(s), file or about:blank, as perch takes) that wait, eval_js and
@@ -64,6 +65,7 @@ export async function handleCall(name, args = {}) {
     }
     const ms = args.timeout ?? 30000;
     globalThis.location = new URL(tab ? tab.url : DEFAULT_TABS[0].url);
+    if (process.env.PERCH_STUB_HIDDEN === "1") globalThis.document = { visibilityState: "hidden" };
     try {
       const run = new (Object.getPrototypeOf(async function () {}).constructor)(args.script)();
       const LATE = {};
