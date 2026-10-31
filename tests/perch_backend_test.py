@@ -6,7 +6,7 @@ runs each script in Node against a stub `figma` global.
 
   python3 tests/perch_backend_test.py
 """
-import ast, json, os, re, shutil, socket, stat, subprocess, sys, tempfile, threading, time, unittest
+import json, os, re, shutil, socket, stat, subprocess, sys, tempfile, threading, time, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STUB = os.path.join(ROOT, 'tests', 'perch_stub')
@@ -293,7 +293,7 @@ class PerchBackend(Harness):
         # A skill directory reached through a symlink, as ~/.claude/skills linked to a checkout.
         real = os.path.join(self.tmp.name, 'real')
         os.makedirs(real)
-        for name in ('figma_run.py', 'figma_perch.mjs'):
+        for name in ('figma_run.py', 'figma_backend.py', 'figma_perch.mjs'):
             shutil.copy(os.path.join(ROOT, name), real)
         link = os.path.join(self.tmp.name, 'link')
         os.symlink(real, link)
@@ -581,14 +581,12 @@ class PerchBackend(Harness):
         self.assertNotIn('window.__fx', second)
 
     def test_lib_missing_next_to_the_helper(self):
-        for script in ('figma_run.py',):
-            lone = os.path.join(self.tmp.name, script)
-            with open(os.path.join(ROOT, script)) as f, open(lone, 'w') as g:
-                g.write(f.read())
-            r = subprocess.run([sys.executable, lone, '--lib', self.js('a.js', '1')], capture_output=True, text=True,
-                               env=self.helper_env({}))
-            self.assertEqual(r.returncode, 1)
-            self.assertIn(f'figma_lib.js not found next to {script}', r.stderr)
+        for name in ('figma_run.py', 'figma_backend.py'):
+            shutil.copy(os.path.join(ROOT, name), self.tmp.name)
+        r = subprocess.run([sys.executable, os.path.join(self.tmp.name, 'figma_run.py'), '--lib', self.js('a.js', '1')],
+                           capture_output=True, text=True, env=self.helper_env({}))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('figma_lib.js not found next to figma_run.py', r.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_lib_sends_the_same_source_over_cdp(self):
@@ -1154,7 +1152,7 @@ class CapturePerch(Harness):
         # walk runs the figma_walker.js next to figma_capture.py, so this copy gets the DOM-free one.
         self.app = os.path.join(self.tmp.name, 'app')
         os.makedirs(self.app)
-        for name in ('figma_capture.py', 'figma_perch.mjs', 'figma_importer.js'):
+        for name in ('figma_capture.py', 'figma_backend.py', 'figma_perch.mjs', 'figma_importer.js'):
             shutil.copy(os.path.join(ROOT, name), self.app)
         with open(os.path.join(self.app, 'figma_walker.js'), 'w') as f:
             f.write(FAKE_WALKER)
@@ -1406,21 +1404,6 @@ class CapturePerch(Harness):
         self.assertEqual(self.calls(), [])
         _, _, r = self.walk('auto', '0', FIGMA_BACKEND='')
         self.assertEqual(r.returncode, 0, r.stderr)
-
-    def test_perch_client_matches_the_helpers(self):
-        """figma_capture.py carries its own copy of the helpers' perch client; the copies stay identical."""
-        shared = ('perch_dir', 'perch_ready', 'backend', 'js_int', 'Dropped', 'daemon_sock', 'daemon_exchange',
-                  'start_daemon', 'timeout_seconds')
-
-        def defs(name):
-            with open(os.path.join(ROOT, name)) as f:
-                tree = ast.parse(f.read())
-            return {d.name: ast.dump(d) for d in tree.body if isinstance(d, (ast.FunctionDef, ast.ClassDef))}
-
-        cap, run, batch = defs('figma_capture.py'), defs('figma_run.py'), defs('figma_run.py')
-        for name in shared:
-            self.assertEqual(cap.get(name), batch[name], name)
-            self.assertEqual(run[name], batch[name], name)
 
 
 class CapturePerchOneShot(CapturePerch):
