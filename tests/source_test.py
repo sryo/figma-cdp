@@ -504,5 +504,61 @@ class Check(unittest.TestCase):
         self.assertIn('broken colors.on-primary DESIGN.md:10 {colors.paper}', r.stdout)
 
 
+class OmittedAndAlpha(unittest.TestCase):
+    """DESIGN.md's omitted: names code properties left out on purpose; colors keep their alpha."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(DESIGN, 'DESIGN.md')) as f:
+            self.design = f.read()
+        with open(os.path.join(DESIGN, 'tokens.css')) as f:
+            self.css = f.read()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, name, text):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, 'w') as f:
+            f.write(text)
+        return path
+
+    def check(self, design, css):
+        return run_source('--check', self.write('DESIGN.md', design), self.write('tokens.css', css))
+
+    def test_omitted_parses(self):
+        d = self.design.replace('themes: [light, dark]\n', 'themes: [light, dark]\nomitted:\n  - "--a-*"\n  - --extra\n')
+        m = manifest(self.write('DESIGN.md', d))
+        self.assertEqual(m['design']['omitted'], ['--a-*', '--extra'])
+
+    def test_check_skips_omitted_code_names(self):
+        d = self.design.replace('themes: [light, dark]\n', 'themes: [light, dark]\nomitted: ["--a-*", "--extra"]\n')
+        css = self.css.replace('  --gap:16px;\n', '  --gap:16px;\n  --a-rest:50%; --a-pale:16%;\n  --extra:#ABCDEF;\n  --other:1px;\n')
+        r = self.check(d, css)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertEqual(r.stdout.splitlines()[1:], [l for l in r.stdout.splitlines()[1:] if '--other' in l])
+        self.assertEqual(len(r.stdout.splitlines()), 2, r.stdout)
+
+    def test_an_omitted_name_that_is_a_token_is_reported(self):
+        d = self.design.replace('themes: [light, dark]\n', 'themes: [light, dark]\nomitted: ["--ink"]\n')
+        r = self.check(d, self.css)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        rows = r.stdout.splitlines()[1:]
+        self.assertEqual(len(rows), 1, r.stdout)
+        self.assertRegex(rows[0], r'^omitted colors\.ink DESIGN\.md:10 is also omitted by --ink \(DESIGN\.md:6\)$')
+
+    def test_colors_keep_alpha(self):
+        d = self.design.replace('  ink-dark: "#EDEEF3"\n', '  ink-dark: "#EDEEF3"\n  veil: "#1A1D2E80"\n  solid: "#FFFFFFFF"\n')
+        t = {e['name']: e for e in manifest(self.write('DESIGN.md', d))['tokens']}
+        self.assertEqual((t['colors.veil']['value'], t['colors.solid']['value']), ('#1a1d2e80', '#ffffff'))
+
+    def test_alpha_only_difference_is_drift(self):
+        r = self.check(self.design, self.css.replace('--ink:#1A1D2E;', '--ink:#1A1D2E80;'))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertRegex(r.stdout.splitlines()[1], r'^different colors\.ink DESIGN\.md:9 #1a1d2e, \S+ --ink #1a1d2e80$')
+        r = self.check(self.design, self.css.replace('--ink:#1A1D2E;', '--ink:rgba(26, 29, 46, 1);'))
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

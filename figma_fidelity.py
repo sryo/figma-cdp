@@ -44,7 +44,7 @@ or its JSON) against the tokens of the DESIGN.md the manifest read. Each DESIGN.
 collection (free Figma has one mode per collection), holding every token, the theme's -<theme>
 overrides in place of the base value. One line per finding, per collection missing first:
   missing    a token whose variable the collection lacks (or the whole collection)
-  different  the variable holds another value (colors as #rrggbb, numbers within 0.01)
+  different  the variable holds another value (colors as #rrggbb[aa], numbers within 0.01)
   unused     a variable in a DESIGN.md collection no token mirrors
 Collections DESIGN.md doesn't name are not read. Exit 1 on drift, 0 without, 2 when it could not run.
 
@@ -973,7 +973,8 @@ def parse_vars(text):
 def same_value(t, fig):
     src = t['value']
     if t.get('kind') == 'color' or (isinstance(src, str) and src.startswith('#')):
-        return isinstance(fig, str) and fig.lower()[:7] == str(src).lower()[:7]
+        opaque = lambda h: h.lower()[:7] if h.lower()[7:9] in ('', 'ff') else h.lower()[:9]
+        return isinstance(fig, str) and opaque(fig) == opaque(str(src))
     if isinstance(src, (int, float)) and not isinstance(src, bool):
         return isinstance(fig, (int, float)) and abs(fig - src) < 0.01
     return str(fig).strip() == str(src).strip()

@@ -487,5 +487,19 @@ class Variables(unittest.TestCase):
         self.assertIn('DESIGN.md', r.stderr)
 
 
+    def test_alpha_only_difference_is_drift(self):
+        design = os.path.join(self.tmp.name, 'DESIGN.md')
+        with open(design, 'w') as f:
+            f.write('---\nname: A\ncolors:\n  veil: "#1A1D2E80"\n---\n')
+        manifest = os.path.join(self.tmp.name, 'a.json')
+        subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '-o', manifest, design], check=True, capture_output=True)
+        inv = os.path.join(self.tmp.name, 'inv.txt')
+        for value, code in (('#1a1d2e', 1), ('#1a1d2e80', 0)):
+            with open(inv, 'w') as f:
+                f.write(f'VARS A [VariableCollectionId:1] modes: Mode 1\n  colors/veil [VariableID:2] {value}\n')
+            r = self.variables(manifest, '--inventory', inv)
+            self.assertEqual(r.returncode, code, r.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

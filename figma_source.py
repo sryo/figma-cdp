@@ -36,14 +36,16 @@ Code against DESIGN.md, one line per finding, cited file:line (code relative to 
   broken        a {ref} in DESIGN.md that names no token
   missing       a DESIGN.md token no code custom property ($var, @var) defines
   different     the code defines it with another value
-  undocumented  a code custom property no DESIGN.md token names
+  undocumented  a code custom property no DESIGN.md token names, unless DESIGN.md's omitted: lists it
+                (a name or glob, "--a-*")
+  omitted       a DESIGN.md token whose code name omitted: also lists
 A code name matches a token as its key (colors.ink: --ink), <group>-<key> (--color-ink, --spacing-md,
 --rounded-sm; also colors-, space-, radius-), or for typography <key>-<prop> (--body-font-size), or <key>
 when the typography token has one property. Definitions inside a block whose prelude names a theme
-(prefers-color-scheme: dark, [data-theme=dark], .dark) match that theme's -<theme> tokens. Markup is
-read for its <style> blocks only. Exit 1 on drift, 0 without, 2 when it could not run.
+(prefers-color-scheme: dark, [data-theme=dark], .dark) match that theme's -<theme> tokens. Colors compare with
+their alpha. Markup is read for its <style> blocks only. Exit 1 on drift, 0 without, 2 when it could not run.
 """
-import argparse, bisect, colorsys, html, json, os, re, sys
+import argparse, bisect, colorsys, fnmatch, html, json, os, re, sys
 
 SKIP_DIRS = {'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', 'vendor', 'Pods', 'DerivedData',
              'coverage', '__pycache__', '.venv', 'venv', '.gradle', 'target', '.turbo', '.cache'}
@@ -67,8 +69,9 @@ CODE_KEYS = re.compile(r'(class|style|href|src|path|url|^id$|^key$|^name$|type|k
                        r'direction|^aria-|^data-|locale|event|^on[A-Z])', re.I)
 
 HEX = re.compile(r'(?<![&\w#])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])')
-RGB = re.compile(r'\brgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)')
-HSL = re.compile(r'\bhsla?\(\s*(\d+(?:\.\d+)?)(?:deg)?[\s,]+(\d+(?:\.\d+)?)%[\s,]+(\d+(?:\.\d+)?)%')
+ALPHA = r'(?:\s*[,/]\s*(\d*\.?\d+)(%)?)?'
+RGB = re.compile(r'\brgba?\(\s*(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)' + ALPHA)
+HSL = re.compile(r'\bhsla?\(\s*(\d+(?:\.\d+)?)(?:deg)?[\s,]+(\d+(?:\.\d+)?)%[\s,]+(\d+(?:\.\d+)?)%' + ALPHA)
 HEX0X = re.compile(r'\b0x([0-9a-fA-F]{8}|[0-9a-fA-F]{6})\b')
 URL_ATTR = re.compile(r'(?:href|src|to|action|id|for|name|target|xlink:href)\s*=\s*["\']?$', re.I)
 NUM = re.compile(r'(?<![\w#.$-])(-?\d*\.?\d+)(px|pt|dp|sp|rem|em)?(?![\w%.])')
@@ -115,22 +118,31 @@ def hex6(r, g, b):
     return '#%02x%02x%02x' % tuple(max(0, min(255, round(float(v)))) for v in (r, g, b))
 
 
-def colors_in(text, line=''):
-    """[(offset, #rrggbb)] for every literal color in text."""
+def with_alpha(hexv, a, pct=None):
+    """#rrggbb plus an alpha byte when a (0-1, or 0-100 with pct) is below opaque."""
+    if a is None:
+        return hexv
+    a = max(0.0, min(1.0, float(a) / (100 if pct else 1)))
+    return hexv + ('%02x' % round(a * 255) if round(a * 255) < 255 else '')
+
+
+def colors_in(text, line='', alpha=False):
+    """[(offset, #rrggbb)] for every literal color in text; with alpha, #rrggbbaa when not opaque."""
     out = []
     for m in HEX.finditer(text):
         if URL_ATTR.search(text[:m.start()][-40:]):
             continue
         h = m.group(1)
         if len(h) in (3, 4):
-            h = ''.join(c * 2 for c in h[:3])
-        out.append((m.start(), '#' + h[:6].lower()))
+            h = ''.join(c * 2 for c in h)
+        a = h[6:8].lower() if alpha and len(h) == 8 and h[6:8].lower() != 'ff' else ''
+        out.append((m.start(), '#' + h[:6].lower() + a))
     for m in RGB.finditer(text):
-        out.append((m.start(), hex6(*m.groups())))
+        out.append((m.start(), with_alpha(hex6(*m.groups()[:3]), m.group(4) if alpha else None, m.group(5))))
     for m in HSL.finditer(text):
         h, s, l = float(m.group(1)) / 360, float(m.group(2)) / 100, float(m.group(3)) / 100
         r, g, b = colorsys.hls_to_rgb(h % 1, l, s)
-        out.append((m.start(), hex6(r * 255, g * 255, b * 255)))
+        out.append((m.start(), with_alpha(hex6(r * 255, g * 255, b * 255), m.group(4) if alpha else None, m.group(5))))
     if re.search(r'colou?r', line or text, re.I):
         for m in HEX0X.finditer(text):
             h = m.group(1)
@@ -395,7 +407,10 @@ class Source:
         themes = [str(t) for t in val('themes', [])] if isinstance(val('themes'), list) else []
         name = str(val('name', 'DESIGN'))
         coll = lambda t: f'{name}/{t}' if themes else name
+        omitted = [str(x) for x in val('omitted', [])] if isinstance(val('omitted'), list) else []
         self.design = {'src': rel, 'name': name, 'themes': themes, 'collections': [coll(t) for t in themes] or [name],
+                       'omitted': [x for x in omitted if x.startswith(('--', '$', '@'))],
+                       'omittedSrc': f"{rel}:{tree['omitted'][1]}" if 'omitted' in tree else None,
                        'brokenRefs': [], 'errors': [{'message': e['message'], 'src': f"{rel}:{e['line']}"} for e in errors]}
         for group in DESIGN_GROUPS:
             node = val(group)
@@ -471,7 +486,7 @@ class Source:
             value = re.sub(r'(?<![\w-])(\$[\w-]+)', lambda m: str((self.resolve(m.group(1), seen) or {}).get('value', m.group(0))), value)
         entry = {'name': name, 'value': value, 'kind': None, 'src': src}
         self.tokens[name] = entry
-        found = colors_in(str(value))
+        found = colors_in(str(value), alpha=bool(self.design) and src.startswith(self.design['src'] + ':'))
         if found and (len(found) == 1 or not isinstance(value, str) or str(value).strip().startswith(('#', 'rgb', 'hsl'))):
             entry.update(value=found[0][1], kind='color')
             return entry
@@ -1048,7 +1063,7 @@ def same_code_value(t, raw):
     """(equal?, the code value as compared)"""
     kind, v = t['kind'], t['value']
     if kind == 'color':
-        found = colors_in(raw)
+        found = colors_in(raw, alpha=True)
         return bool(found) and found[0][1] == v, found[0][1] if found else raw
     if kind == 'fontFamily':
         a, b = [x.lower() for x in families(raw)], [x.lower() for x in families(str(v))]
@@ -1106,17 +1121,25 @@ def check(design, code_paths):
         if not ok:
             found['different'].append({'kind': 'different', 'token': t['name'], 'src': t['src'], 'source': t['value'],
                                        'code': c['name'], 'theme': c['theme'], 'codeSrc': c['src'], 'codeValue': code})
+    omitted = d['omitted']
+    left_out = lambda name: any(fnmatch.fnmatchcase(name, g) for g in omitted)
+    flagged = set()
+    for t in toks:
+        g = next((g for n in token_names(t) for sig in ('--', '$', '@') for g in omitted if fnmatch.fnmatchcase(sig + n, g)), None)
+        if g and t['variable'] not in flagged:
+            flagged.add(t['variable'])
+            rows.append({'kind': 'omitted', 'token': t['name'], 'src': t['src'], 'glob': g, 'omittedSrc': d['omittedSrc']})
     rows += found['missing'] + found['different']
     seen = set()
     for c in defs:
         key = (css_name(c['name'].lstrip('-$@')), c['theme'])
-        if id(c) not in used and key not in seen and by_key.get(key) is c:
+        if id(c) not in used and key not in seen and by_key.get(key) is c and not left_out(c['name']):
             rows.append({'kind': 'undocumented', 'code': c['name'], 'theme': c['theme'], 'codeSrc': c['src'], 'codeValue': c['raw']})
         seen.add(key)
     return {'design': d['src'], 'codeTokens': len(by_key), 'findings': rows}
 
 
-CHECK_KINDS = ('broken', 'missing', 'different', 'undocumented')
+CHECK_KINDS = ('broken', 'omitted', 'missing', 'different', 'undocumented')
 
 
 def render_check(rep):
@@ -1128,6 +1151,8 @@ def render_check(rep):
     for r in rows:
         if r['kind'] == 'broken':
             lines.append(f"broken {r['token']} {r['src']} {r['ref']}")
+        elif r['kind'] == 'omitted':
+            lines.append(f"omitted {r['token']} {r['src']} is also omitted by {r['glob']} ({r['omittedSrc']})")
         elif r['kind'] == 'missing':
             lines.append(f"missing {r['token']} {r['src']} = {r['source']}")
         elif r['kind'] == 'different':

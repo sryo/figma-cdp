@@ -339,9 +339,9 @@ PROPOSE = r'''
 
 def figma_value(t):
     v = t['value']
-    if t.get('kind') == 'color' or (isinstance(v, str) and re.fullmatch(r'#[0-9a-f]{6}', v)):
+    if t.get('kind') == 'color' or (isinstance(v, str) and re.fullmatch(r'#[0-9a-f]{6}(?:[0-9a-f]{2})?', v)):
         r, g, b = fidelity.rgb(v)
-        return 'COLOR', {'r': r / 255, 'g': g / 255, 'b': b / 255, 'a': 1}
+        return 'COLOR', {'r': r / 255, 'g': g / 255, 'b': b / 255, 'a': int(v[7:9], 16) / 255 if len(v) == 9 else 1}
     if isinstance(v, (int, float)) and not isinstance(v, bool):
         return 'FLOAT', v
     return 'STRING', str(v)

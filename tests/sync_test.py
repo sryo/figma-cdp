@@ -230,5 +230,13 @@ class Sync(unittest.TestCase):
         self.assertIn('comment: skipped (no FIGMA_TOKEN)', r.stdout)
 
 
+class Values(unittest.TestCase):
+    def test_a_translucent_color_is_proposed_with_its_alpha(self):
+        sys.path.insert(0, ROOT)
+        import figma_sync
+        typ, v = figma_sync.figma_value({'kind': 'color', 'value': '#00000080'})
+        self.assertEqual((typ, round(v['a'], 3)), ('COLOR', 0.502))
+
+
 if __name__ == '__main__':
     unittest.main()
