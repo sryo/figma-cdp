@@ -179,7 +179,8 @@ Cases start from one failure someone noticed. The sleep pass starts from everyth
 1. `python3 tests/sleep/sleep.py mine` reads the Claude Code transcripts of figma-cdp, perch and avis (main sessions and subagents) and the eval journal since the last pass; `--source <run.py --transcripts dir>` mines one eval run instead.
 2. `sleep.py digest --mark` clusters the signals and picks the top clusters by impact plus a few random new ones. `relapse` (a lesson's signature came back after it was learned) ranks first: the consolidated fix isn't working, so move it to the point of use.
 3. Each pick goes through the case loop above, or straight to a test-first fix when the cause is plain: an error hint, a helper fix, a doc rule where the agent makes the call, an eval case, or a memory for a user correction. perch findings become proposals in perch's own repo.
-4. `sleep.py learn` records each fix in `tests/sleep/lessons.jsonl` with its signature and evidence; `replay` (in the offline suites) keeps every lesson true afterwards, so a trimmed doc or a rewritten helper can't forget it.
+4. `sleep.py learn` records each fix in `tests/sleep/lessons.jsonl` with its signature and evidence; `replay` (in the offline suites) keeps every lesson true afterwards, so a trimmed doc or a rewritten helper can't forget it. `learn` refuses a lesson whose fix hasn't landed, and one that only says X doesn't work: say what to do instead, or the claim outlives the fix.
+   `sleep.py digest --stale` lists the hint rows and lessons that never fired across every source, with their file and line: candidates to prune, each with a lean live check of the task it serves.
 5. `sleep.py check [--candidate <run.json>]` runs the offline suites, budget and replay, and compare.py against the baseline when there is a live run. A change that doesn't pass is dropped, not forced in.
 
 ## Rules for changes

@@ -203,6 +203,66 @@ class Sleep(unittest.TestCase):
         self.assertIn('already', self.sleep('learn', '--id', 'font', '--kind', 'hint', '--error', 'e', '--expect', 'y', code=2, lessons=path))
         self.assertIn('1 lessons hold', self.sleep('replay', lessons=path))
 
+    def test_learn_refuses_a_lesson_whose_fix_has_not_landed(self):
+        path = self.lessons([])
+        out = self.sleep('learn', '--id', 'x', '--kind', 'hint', '--error', 'Error: something nobody hints', '--expect', 'anything',
+                         code=2, lessons=path)
+        self.assertIn('no fix in place', out)
+        doc = os.path.join(self.tmp, 'doc.md')
+        with open(doc, 'w') as f:
+            f.write('# Rules\n- Load every font before writing text.\n')
+        self.assertIn('no fix in place', self.sleep('learn', '--id', 'y', '--kind', 'doc', '--file', doc, '--expect', 'a rule nobody wrote',
+                                                    code=2, lessons=path))
+        self.assertIn('learned', self.sleep('learn', '--id', 'z', '--kind', 'doc', '--file', doc, '--expect', 'Load every font', lessons=path))
+
+    def test_learn_refuses_a_negative_claim_and_accepts_one_that_names_the_way_through(self):
+        path = self.lessons([])
+        doc = os.path.join(self.tmp, 'doc.md')
+        with open(doc, 'w') as f:
+            f.write('- Screenshots in Arc don\'t work.\n'
+                    '- figma.getVariableById is broken.\n'
+                    '- The sync API doesn\'t work on dynamic pages; use getNodeByIdAsync instead.\n')
+        for i, expect in enumerate(('Screenshots in Arc', 'getVariableById is broken')):
+            out = self.sleep('learn', '--id', f'neg{i}', '--kind', 'doc', '--file', doc, '--expect', expect, code=2, lessons=path)
+            self.assertIn('negative claim', out)
+        self.assertIn('learned', self.sleep('learn', '--id', 'ok', '--kind', 'doc', '--file', doc, '--expect', 'sync API', lessons=path))
+
+    def test_the_repos_lessons_pass_learn(self):
+        with open(os.path.join(ROOT, 'tests', 'sleep', 'lessons.jsonl')) as f:
+            rows = [json.loads(l) for l in f if l.strip()]
+        path = self.lessons([])
+        for r in rows:
+            args = [a for k in ('error', 'file', 'signature') if r.get(k) for a in (f'--{k}', r[k])]
+            self.sleep('learn', '--id', r['id'], '--kind', r['kind'], '--expect', r['expect'], *args, lessons=path)
+
+    def test_digest_stale_lists_hints_and_lessons_that_never_fired_with_their_place(self):
+        # The transcript's font errors fire the unloaded-font row, the journal fires the FILL row and
+        # the perch hidden-tab hint shows in a tool result; the rest of the table never fired.
+        self.write(os.path.join(self.src, 'S2.jsonl'), [
+            use('h1', '2026-10-30T11:00:00Z', 'Bash', {'command': 'python3 figma_run.py -e x'}),
+            result('h1', '2026-10-30T11:00:01Z', 'Exit code 1\nThe tab is hidden (document.visibilityState is hidden), and Chrome throttles', True),
+            use('h2', '2026-10-30T11:00:02Z', 'Read', {'file_path': '/x/figma_run.py'}),
+            result('h2', '2026-10-30T11:00:03Z', "(r'must be in the same page as the parent', 'nodes on two pages')"),
+            # A batch whose call exited 0 still reports one item's error.
+            use('h3', '2026-10-30T11:00:04Z', 'Bash', {'command': 'python3 figma_batch_run.py a.js b.js'}),
+            result('h3', '2026-10-30T11:00:05Z', 'a.js ok\n\t✗ Evaluation error: Error: in set_layoutSizingVertical: HUG can only be set on auto-layout frames')])
+        path = self.lessons([
+            {'id': 'font', 'kind': 'hint', 'error': 'unloaded font "X"', 'expect': 'loadFontAsync',
+             'signature': 'in set_characters: cannot write to node with unloaded font <s>'},
+            {'id': 'never', 'kind': 'hint', 'error': 'must be in the same page as the parent', 'expect': 'two pages',
+             'signature': 'error: must be in the same page as the parent'},
+            {'id': 'nosig', 'kind': 'doc', 'file': 'SKILL.md', 'expect': 'figma'}])
+        out = self.sleep('digest', '--stale', '--source', os.path.join(self.tmp, 'projects'), '--source', os.path.join(self.home, 'journal'),
+                         lessons=path)
+        never = out.split('## Never fired', 1)[1].split('##', 1)[0]
+        self.assertRegex(never, r'figma_run\.py:\d+ .*must be in the same page')
+        self.assertRegex(never, r'figma_batch_run\.py:\d+ .*must be in the same page')
+        self.assertRegex(never, r'lessons\.jsonl:2 .*never')
+        self.assertRegex(never, r'figma_perch\.mjs:\d+ .*UNDEFINED_HINT')
+        for fired in ('unloaded font', 'FILL can only', 'HUG can only', 'HIDDEN_HINT', 'lessons.jsonl:1 '):
+            self.assertNotIn(fired, never)
+        self.assertRegex(out.split('## Unmeasured', 1)[1], r'lessons\.jsonl:3 .*nosig')
+
     def test_check_dry_run_lists_the_gates(self):
         out = self.sleep('check', '--dry-run', '--candidate', 'cand.json')
         for gate in ('tests/sleep_test.py', 'tests/budget_test.py', 'replay', 'compare.py', 'cand.json'):

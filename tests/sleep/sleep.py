@@ -3,6 +3,7 @@
 
   python3 tests/sleep/sleep.py mine [--since <date>|--all] [--source <dir> ...] [--out <signals.jsonl>]
   python3 tests/sleep/sleep.py digest [<signals.jsonl>] [--top 12] [--explore 3] [--seed N] [--json <out>] [--mark]
+  python3 tests/sleep/sleep.py digest --stale [--source <dir> ...]
   python3 tests/sleep/sleep.py learn --id <slug> --kind hint|doc --expect <text> [--error <text>] [--file <doc>] [--signature <sig>] [--evidence "<session ts>"]
   python3 tests/sleep/sleep.py replay
   python3 tests/sleep/sleep.py check [--candidate <run.json>] [--baseline <run.json>] [--dry-run]
@@ -21,12 +22,16 @@ working; these rank first), `consolidated` when it is a lesson's and didn't recu
 closed case has it, `hinted` when a HINTS row of the helpers already fires on it, else `new`. The
 picks are the top N by impact plus a few random `new` clusters (--explore), so a rare kind of
 failure gets looked at too. Each cluster names a consolidation target: an error hint, a helper
-fix, a doc rule at the point of use, an eval case, or a memory.
+fix, a doc rule at the point of use, an eval case, or a memory. `digest --stale` turns it around:
+over every source (all time), how often each hint row and each lesson's signature fired, listing
+the ones that never did with their file and line. It only flags; pruning one is a change like any
+other, with a lean live check.
 
 Each fix lands test-first (AGENTS.md → Improving the skill), and `learn` records it in
 tests/sleep/lessons.jsonl as an executable expectation: a `hint` lesson is an error text both
 helpers must answer with a hint containing `expect`; a `doc` lesson is a regex its file must keep
-matching. `replay` checks every lesson, so trimming a doc for bytes or rewriting a helper can't
+matching. `learn` refuses a lesson that doesn't hold yet (the fix hasn't landed) and one whose
+text is a bare negative claim ("X doesn't work") with no way through. `replay` checks every lesson, so trimming a doc for bytes or rewriting a helper can't
 silently drop what an earlier sleep learned. `check` is the no-regression gate for a sleep's
 changes: the offline suites, budget, replay, and compare.py on a live run when one is given.
 FIGMA_CDP_LESSONS points at another lessons file (tests).
@@ -55,6 +60,12 @@ TARGET = {
     'retry': 'doc rule at the point of use, or a validating helper that refuses the bad call',
     'correction': 'memory (feedback, with why) or an AGENTS.md rule',
 }
+READS = {'Read', 'Grep', 'Glob', 'NotebookRead'}
+ERROR_LINE = re.compile(r'✗ |Evaluation error|^\s*(Error|TypeError|ReferenceError): ')
+# A lesson's text saying X doesn't work, with nothing that says what to do instead.
+NEGATIVE = re.compile(r"\b(doesn'?t|does not|don'?t|do not|won'?t|will not|can'?t|cannot|can not|never)\s+(work|run|load|support)|"
+                      r"\bis (broken|unsupported|not supported)\b|\bnot (supported|possible)\b|\bno way to\b", re.I)
+WAY_THROUGH = re.compile(r"\b(use|instead|try|run|call|ask|pass|set|switch|retry|prefer|fall back|show|load|await|find|collect)\b|→", re.I)
 
 
 def parse_ts(s):
@@ -306,6 +317,8 @@ def cluster(signals, known):
 
 
 def cmd_digest(a):
+    if a.stale:
+        return cmd_stale(a)
     path = a.signals or os.path.join(HOME, 'sleep', datetime.date.today().isoformat(), 'signals.jsonl')
     with open(path) as f:
         signals = [json.loads(l) for l in f if l.strip()]
@@ -337,6 +350,106 @@ def cmd_digest(a):
             json.dump(st, f, indent=2)
 
 
+def hint_rows():
+    """Every hint the helpers give, with its place: (file, line, label, matcher), where a matcher takes
+    an error line (the HINTS patterns) or a whole tool result (figma_perch.mjs's *_HINT messages)."""
+    rows = []
+    for h in ('figma_run.py', 'figma_batch_run.py'):
+        with open(os.path.join(REPO, h)) as f:
+            tree = ast.parse(f.read())
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(getattr(t, 'id', None) == 'HINTS' for t in node.targets):
+                rows += [(h, e.lineno, ast.literal_eval(e.elts[0]), 'pattern') for e in node.value.elts]
+    with open(os.path.join(REPO, 'figma_perch.mjs')) as f:
+        for i, line in enumerate(f, 1):
+            m = re.match(r'const (\w+_HINT)\s*=\s*["\'`](.{20,}?)[(:,.]', line)
+            if m:
+                rows.append(('figma_perch.mjs', i, m.group(1), m.group(2)))
+    return rows
+
+
+def failed_results(sources):
+    """The error text of every call in sources: a failed transcript tool result whole (is_error, or an
+    exit code, ✗ or Error: up front), the error lines of any other result (a batch that exited 0 still
+    reports a failed item), and kept journal errors with the hint they got. Results of file reads and
+    searches are skipped: a helper's source or a doc quotes its errors."""
+    for p in transcripts(sources, None):
+        names = {}
+        with open(p, encoding='utf-8', errors='replace') as f:
+            for line in f:
+                if '"rid"' in line and '"ok": false' in line:
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    yield (e.get('error') or '') + '\n' + (e.get('hint') or '')
+                elif '"tool_use"' in line or '"tool_result"' in line:
+                    try:
+                        content = (json.loads(line).get('message') or {}).get('content')
+                    except ValueError:
+                        continue
+                    for c in content if isinstance(content, list) else []:
+                        if not isinstance(c, dict):
+                            continue
+                        if c.get('type') == 'tool_use':
+                            names[c.get('id')] = c.get('name', '')
+                        elif c.get('type') == 'tool_result' and names.get(c.get('tool_use_id')) not in READS:
+                            body = text_of(c.get('content'))
+                            if c.get('is_error') or re.match(r'\s*(Exit code [1-9]|✗ |Error: )', body):
+                                yield body
+                            else:
+                                errors = [l for l in body.split('\n') if ERROR_LINE.search(l)]
+                                if errors:
+                                    yield '\n'.join(errors)
+
+
+def cmd_stale(a):
+    sources = a.source or ([os.path.join(PROJECTS, d) for d in sorted(os.listdir(PROJECTS)) if re.search(r'figma-cdp|perch|avis', d)]
+                           if os.path.isdir(PROJECTS) else []) + [case.JOURNAL]
+    hints, rows = hint_rows(), lessons()
+    fired = {(f, n): 0 for f, n, _, _ in hints}
+    seen = {l['signature']: 0 for l in rows if l.get('signature')}
+    # A helper answers with its first matching row, so that row is the one that fired.
+    ordered = {h: [(f, n, pat) for f, n, pat, kind in hints if f == h and kind == 'pattern'] for h in ('figma_run.py', 'figma_batch_run.py')}
+    calls = 0
+    for text in failed_results(sources):
+        calls += 1
+        hit = set()
+        for line in (l for l in text.split('\n') if 0 < len(l) < 2000):
+            for table in ordered.values():
+                first = next(((f, n) for f, n, pat in table if re.search(pat, line)), None)
+                if first:
+                    hit.add(first)
+            if signature(line) in seen:
+                seen[signature(line)] += 1
+        hit |= {(f, n) for f, n, _, msg in hints if msg != 'pattern' and msg in text}
+        for k in hit:
+            fired[k] += 1
+    rel = os.path.relpath(LESSONS, REPO) if os.path.abspath(LESSONS).startswith(REPO + os.sep) else LESSONS
+    never, counts = [], []
+    for f, n, label, kind in hints:
+        (never if not fired[(f, n)] else counts).append((f'{f}:{n}', 'hint', label, fired[(f, n)]))
+    unmeasured = []
+    for i, l in enumerate(rows, 1):
+        if not l.get('signature'):
+            unmeasured.append((f'{rel}:{i}', l['kind'], l['id'], l.get('file', '')))
+        else:
+            (never if not seen[l['signature']] else counts).append((f'{rel}:{i}', 'lesson', l['id'], seen[l['signature']]))
+    measurable = sum(1 for l in rows if l.get('signature'))
+    print(f"# Stale: {sum(k == 'hint' for _, k, _, _ in never)} of {len(hints)} hints and {sum(k == 'lesson' for _, k, _, _ in never)} of "
+          f'{measurable} measurable lessons never fired, over {calls} failed calls in {len(sources)} sources\n')
+    print('Candidates only: a rule that never fired may still prevent its error. Prune one with a lean live check of the task it serves.\n')
+    print('## Never fired\n')
+    for place, kind, label, _ in never:
+        print(f'- {place} {kind} `{label}`')
+    print('\n## Fired\n')
+    for place, kind, label, n in sorted(counts, key=lambda c: -c[3]):
+        print(f'- {place} {kind} `{label}`: {n}')
+    print('\n## Unmeasured (doc lessons with no signature)\n')
+    for place, kind, lid, file in unmeasured:
+        print(f'- {place} {kind} {lid} ({file})')
+
+
 def cmd_learn(a):
     if a.kind not in ('hint', 'doc'):
         case.die(f'unknown kind {a.kind}: hint or doc', 2)
@@ -347,29 +460,59 @@ def cmd_learn(a):
         case.die('a hint lesson needs --error, a doc lesson --file', 2)
     row = {'id': a.id, 'kind': a.kind, 'expect': a.expect, 'added': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')}
     row.update({k: v for k, v in (('error', a.error), ('file', a.file), ('signature', a.signature), ('evidence', a.evidence)) if v})
+    # A lesson records a fix that already landed, so it must hold now; and what it guards must not
+    # be a bare "X doesn't work", which hardens into a refusal long after X is fixed.
+    tables = helper_tables()
+    failure = forgotten(row, tables)
+    if failure:
+        case.die(f'no fix in place: {failure}; land the fix (test first), then learn it', 2)
+    for text in guarded(row, tables):
+        if NEGATIVE.search(text) and not WAY_THROUGH.search(text):
+            case.die(f'negative claim with no way through: {text.strip()!r}; say what to do instead', 2)
     with open(LESSONS, 'a') as f:
         f.write(json.dumps(row, ensure_ascii=False) + '\n')
     print(f'learned {a.id}')
 
 
+def helper_tables():
+    return {h: helper_hints(h) for h in ('figma_run.py', 'figma_batch_run.py')}
+
+
+def doc_body(l):
+    try:
+        with open(os.path.join(REPO, l['file'])) as f:
+            return f.read()
+    except OSError:
+        return ''
+
+
+def forgotten(l, tables):
+    """Why lesson l no longer holds, or None."""
+    if l['kind'] == 'hint':
+        for h, table in tables.items():
+            got = hint_for(table, l['error'])
+            if not got or l['expect'] not in got:
+                return f"{h} answers {l['error']!r} with {got!r}, not one containing {l['expect']!r}"
+    elif l['kind'] == 'doc' and not re.search(l['expect'], doc_body(l)):
+        return f"{l['file']} no longer matches /{l['expect']}/"
+    return None
+
+
+def guarded(l, tables):
+    """The text a lesson keeps in place: the hints both helpers give, or the doc lines its pattern matches."""
+    if l['kind'] == 'hint':
+        return [hint_for(t, l['error']) or '' for t in tables.values()]
+    body = doc_body(l)
+    m = re.search(l['expect'], body)
+    if not m:
+        return []
+    end = body.find('\n', m.end())
+    return [body[body.rfind('\n', 0, m.start()) + 1:end if end >= 0 else len(body)]]
+
+
 def replay():
-    tables = {h: helper_hints(h) for h in ('figma_run.py', 'figma_batch_run.py')}
-    failures, rows = [], lessons()
-    for l in rows:
-        if l['kind'] == 'hint':
-            for h, table in tables.items():
-                got = hint_for(table, l['error'])
-                if not got or l['expect'] not in got:
-                    failures.append(f"{l['id']}: {h} answers {l['error']!r} with {got!r}, not one containing {l['expect']!r}")
-        elif l['kind'] == 'doc':
-            try:
-                with open(os.path.join(REPO, l['file'])) as f:
-                    body = f.read()
-            except OSError:
-                body = ''
-            if not re.search(l['expect'], body):
-                failures.append(f"{l['id']}: {l['file']} no longer matches /{l['expect']}/")
-    return rows, failures
+    tables, rows = helper_tables(), lessons()
+    return rows, [f"{l['id']}: {f}" for l in rows for f in [forgotten(l, tables)] if f]
 
 
 def cmd_replay(a):
@@ -403,6 +546,7 @@ def main():
     p = sub.add_parser('digest')
     p.add_argument('signals', nargs='?'); p.add_argument('--top', type=int, default=12); p.add_argument('--explore', type=int, default=3)
     p.add_argument('--seed', type=int, default=0); p.add_argument('--json'); p.add_argument('--mark', action='store_true')
+    p.add_argument('--stale', action='store_true'); p.add_argument('--source', action='append')
     p = sub.add_parser('learn')
     p.add_argument('--id', required=True); p.add_argument('--kind', required=True); p.add_argument('--expect', required=True)
     for k in ('--error', '--file', '--signature', '--evidence'):
