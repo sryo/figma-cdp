@@ -13,7 +13,7 @@ import json, os, re, shutil, socket, subprocess, sys, tempfile, types, unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import gate, run, session, source  # noqa: E402
+import gate, plan, run, session, source  # noqa: E402
 
 FILE = 'https://www.figma.com/design/AAA111/Stub'
 RECON_ANSWER = ('Onboarding / Step 1 is 375x812 with 3 text layers, Onboarding / Step 2 is 375x812 with 2, '
@@ -485,14 +485,14 @@ class Scope(unittest.TestCase):
     """run.py's default --tasks: what fium scope says the change since the baseline can move."""
 
     def test_scope_picks_the_tasks_and_prices_them(self):
-        every = [t['id'] for t in run.load_tasks([])]
-        self.assertEqual(run.scoped({'tasks': '*'}), every)
-        self.assertEqual(run.scoped({'tasks': ['recon', 'effects']}), ['recon', 'effects'])
-        self.assertEqual(run.scoped({'tasks': []}), [])
+        every = [t['id'] for t in plan.load_tasks([])]
+        self.assertEqual(plan.scoped({'tasks': '*'}), every)
+        self.assertEqual(plan.scoped({'tasks': ['recon', 'effects']}), ['recon', 'effects'])
+        self.assertEqual(plan.scoped({'tasks': []}), [])
         base = {'tasks': {'recon': {'median': {'tokens_total': 44000, 'turns': 2}},
                           'effects': {'median': {'tokens_total': 90000, 'turns': 4}}}}
-        self.assertEqual(run.expected_tokens(['recon', 'effects'], 2, base), 268000)
-        self.assertEqual(run.expected_tokens(['recon', 'new-task'], 2, base), 88000, 'a task the baseline lacks adds nothing it can price')
+        self.assertEqual(plan.expected_tokens(['recon', 'effects'], 2, base), 268000)
+        self.assertEqual(plan.expected_tokens(['recon', 'new-task'], 2, base), 88000, 'a task the baseline lacks adds nothing it can price')
 
     def test_gate_scopes_a_stamped_run_to_what_its_commit_can_move(self):
         import gate
@@ -500,8 +500,19 @@ class Scope(unittest.TestCase):
         cmd = gate.scope_command('aaa1111', 'bbb2222')
         self.assertEqual(cmd[1:3], ['scope', 'aaa1111..bbb2222'])
 
+    def test_run_selection_is_tooling_and_run_py_is_the_harness(self):
+        """plan.py chooses and prices runs; run.py seeds pages and wraps scorers, so only it moves every task."""
+        sys.path.insert(0, os.path.join(ROOT, 'tests', 'cases'))
+        import case
+        self.assertEqual(case.affected(['tests/eval/plan.py'], ROOT), [])
+        self.assertEqual(len(case.affected(['tests/eval/run.py'], ROOT)), len(plan.load_tasks([])))
+        for name in ('main', 'load_tasks', 'scoped', 'tab_problem', 'file_tabs'):
+            self.assertFalse(hasattr(run, name), f'run.py still has {name}')
+        for name in ('compose', 'run_rep', 'summarize', 'COST'):
+            self.assertTrue(hasattr(run, name), f'run.py lost {name}')
+
     def test_scope_asks_fium_for_the_change_since_the_baseline_was_refreshed(self):
-        cmd = run.scope_command('abc1234')
+        cmd = plan.scope_command('abc1234')
         self.assertEqual(cmd[1:3], ['scope', 'abc1234..HEAD'])
         self.assertEqual(cmd[cmd.index('--affects') + 1], os.path.join(HERE, 'affects.json'))
         self.assertIn('--json', cmd)
@@ -590,22 +601,22 @@ class Stream(unittest.TestCase):
     def test_two_tabs_on_the_file_need_an_explicit_tab(self):
         """Setup and the session could each land on a different tab, one of them out of date."""
         two = [{'tabId': 'arc:1'}, {'tabId': 'canary:2'}]
-        self.assertIn('--tab', run.tab_problem(two, None))
-        self.assertIsNone(run.tab_problem(two, 'arc:1'))
-        self.assertIn('not open', run.tab_problem(two, 'arc:9'))
-        self.assertIsNone(run.tab_problem([{'tabId': 'arc:1'}], None))
-        self.assertIn('no tab', run.tab_problem([], None))
+        self.assertIn('--tab', plan.tab_problem(two, None))
+        self.assertIsNone(plan.tab_problem(two, 'arc:1'))
+        self.assertIn('not open', plan.tab_problem(two, 'arc:9'))
+        self.assertIsNone(plan.tab_problem([{'tabId': 'arc:1'}], None))
+        self.assertIn('no tab', plan.tab_problem([], None))
 
     def test_a_lone_room_tab_on_the_file_is_the_default(self):
         """A room runs locked, so an unattended run takes it over the browser tab without --tab."""
         tabs = [{'tabId': 'canary:2'}, {'tabId': 'room:main:AB12'}]
-        self.assertEqual(run.default_tab(tabs, None), 'room:main:AB12')
-        self.assertIsNone(run.tab_problem(tabs, run.default_tab(tabs, None)))
-        self.assertEqual(run.default_tab(tabs, 'canary:2'), 'canary:2', 'an explicit --tab wins')
+        self.assertEqual(plan.default_tab(tabs, None), 'room:main:AB12')
+        self.assertIsNone(plan.tab_problem(tabs, plan.default_tab(tabs, None)))
+        self.assertEqual(plan.default_tab(tabs, 'canary:2'), 'canary:2', 'an explicit --tab wins')
         two = tabs + [{'tabId': 'room:main:CD34'}]
-        self.assertIsNone(run.default_tab(two, None), 'two room tabs: still ambiguous')
-        self.assertIn('--tab', run.tab_problem(two, run.default_tab(two, None)))
-        self.assertIsNone(run.default_tab([{'tabId': 'canary:2'}], None))
+        self.assertIsNone(plan.default_tab(two, None), 'two room tabs: still ambiguous')
+        self.assertIn('--tab', plan.tab_problem(two, plan.default_tab(two, None)))
+        self.assertIsNone(plan.default_tab([{'tabId': 'canary:2'}], None))
 
     def test_clean_env_drops_host_session_vars(self):
         saved = dict(os.environ)
