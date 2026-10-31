@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check a Figma subtree against a source manifest from figma_source.py.
 
-  python3 figma_fidelity.py <manifest.json> <rootId> [--file <figma-url-or-key>] [--timeout <s>] [--json]
+  python3 figma_fidelity.py <manifest.json> <rootId> [--file <figma-url-or-key>] [--timeout <s>] [--json] [--scope <screen.html>]
 
 One eval through figma_run.py (next to this script, so CDP or perch as it picks) collects the
 subtree's text, resolved solid colors, fonts, auto-layout spacing, radii and the component
@@ -17,6 +17,8 @@ sets behind it. The report lists, per kind, what differs from the manifest:
                                     its slot's instance) holds a word of the source parent's classes
 A boolean variant or a state counts as present on a component whose instances override it per use
 (a nested instance's variant or a hidden layer that differs from the main component).
+--scope <file> checks one screen: missing copy, missing components and stretched usages only from that
+markup file (the manifest's src and files), while every source string still vouches for a layer.
 A kind the manifest has no entries for is not checked. The first line counts the gaps; exit 0
 when the check ran, gaps or not, 2 when it could not run.
 
@@ -274,10 +276,32 @@ def vouched(text, copy):
     return False
 
 
-def diff(m, c):
+def in_scope(src, scopes):
+    f = str(src).rsplit(':', 1)[0] if re.search(r':\d+$', str(src)) else str(src)
+    return any(f == s or f.endswith('/' + s) or s.endswith('/' + f) for s in scopes)
+
+
+def scoped(m, scopes):
+    """The manifest as one screen's: its copy, the components its markup uses (or that say no files),
+    and their stretched usages there. Value lists (colors, spacing, fonts) stay whole."""
+    scopes = [s.strip().lstrip('./') for s in scopes if s.strip()]
+    out = dict(m, copy=[e for e in m.get('copy', []) if in_scope(e['src'], scopes)])
+    comps = []
+    for e in m.get('components', []):
+        if e.get('files') and not any(in_scope(f, scopes) for f in e['files']):
+            continue
+        if e.get('fillAcross') or e.get('fill'):
+            e = dict(e, fillAcross=[u for u in e.get('fillAcross') or e.get('fill') if in_scope(u.split(' in ', 1)[0], scopes)])
+            e.pop('fill', None)
+        comps.append(e)
+    out['components'] = comps
+    return out
+
+
+def diff(m, c, vouch=None):
     gaps = {k: [] for k in KINDS}
     texts = [{'full': norm(t['t']), 'lines': lines(t['t'])} for t in c['texts']]
-    copy = [(norm(e['text']), pattern(e['text'])) for e in m.get('copy', [])]
+    copy = [(norm(e['text']), pattern(e['text'])) for e in (vouch or m).get('copy', [])]
     if copy:
         gaps['missing copy'] = [{'text': e['text'], 'src': e['src']} for e in m['copy'] if not shows(e['text'], texts)]
         seen = set()
@@ -905,6 +929,7 @@ def main():
     ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
     ap.add_argument('--timeout', help='seconds the eval may await (passed to figma_run.py)')
     ap.add_argument('--json', action='store_true', help='print the full report as JSON')
+    ap.add_argument('--scope', action='append', default=[], help="one screen's markup file (repeat or comma-separate): only its copy, components and stretched usages count as missing")
     ap.add_argument('--elements', action='store_true', help='per element: the first argument is a figma_capture.py walk spec')
     ap.add_argument('--waive', help='with --elements: known_losses.json; rows under an element flagged for a listed loss are counted, not listed')
     ap.add_argument('--pixels', help='with --elements: a full-page screenshot of the walked page; adds the regions no row explains')
@@ -947,7 +972,8 @@ def main():
             m = json.load(f)
     except (OSError, ValueError) as e:
         fail(f'cannot read manifest {a.manifest}: {e}')
-    rep = diff(m, collect(a.root, a))
+    scopes = [s for v in a.scope for s in v.split(',')]
+    rep = diff(scoped(m, scopes), collect(a.root, a), vouch=m) if scopes else diff(m, collect(a.root, a))
     print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else render(rep))
     # Gaps are the report: exit 0 whenever the check ran, so a shell doesn't read them as a failed call.
     sys.exit(0)

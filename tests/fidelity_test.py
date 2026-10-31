@@ -281,6 +281,28 @@ class Diff(unittest.TestCase):
                          'a manifest from before the rename still reads')
 
 
+    def test_scope_keeps_one_screens_copy_components_and_stretched_usages(self):
+        """r16: per-screen runs on a whole-app manifest reported 73 other screens' strings as missing copy."""
+        sys.path.insert(0, ROOT)
+        import figma_fidelity
+        m = {'copy': [{'text': 'Customers', 'src': 'harbor/customers.html:12'}, {'text': 'Overview', 'src': 'harbor/dashboard.html:12'},
+                      {'text': 'Badge', 'src': 'harbor/components.html:19'}],
+             'colors': [{'value': '#2563eb', 'src': 'harbor/tokens.css:3'}],
+             'components': [{'component': 'stat-card', 'uses': 4, 'nests': [], 'src': 'harbor/components.css:82', 'files': ['harbor/dashboard.html', 'harbor/components.html']},
+                            {'component': 'badge', 'uses': 22, 'nests': [], 'src': 'harbor/components.css:24', 'files': ['harbor/customers.html'],
+                             'fillAcross': ['harbor/customers.html:69 in .card.grow', 'harbor/dashboard.html:40 in .card']},
+                            {'component': 'legacy', 'uses': 2, 'nests': [], 'src': 'x.css:1'}]}
+        s = figma_fidelity.scoped(m, ['customers.html'])
+        self.assertEqual([e['text'] for e in s['copy']], ['Customers'])
+        self.assertEqual(s['colors'], m['colors'], 'value lists stay whole: they say what is allowed, not what is missing')
+        self.assertEqual([e['component'] for e in s['components']], ['badge', 'legacy'], 'a component with no files list stays')
+        self.assertEqual(s['components'][0]['fillAcross'], ['harbor/customers.html:69 in .card.grow'])
+        self.assertEqual(figma_fidelity.scoped(m, ['harbor/dashboard.html'])['components'][0]['component'], 'stat-card')
+        self.assertEqual(len(figma_fidelity.scoped(m, ['customers.html', 'dashboard.html'])['copy']), 2)
+        c = self.collected(texts=['Customers', 'Badge'])
+        self.assertEqual(self.diff(s, c, vouch=m)['gaps']['invented copy'], [], 'other screens\' copy still vouches for a layer')
+
+
 class Collect(unittest.TestCase):
     """The eval itself, on the stub through the perch daemon path."""
 
@@ -369,6 +391,18 @@ class Collect(unittest.TestCase):
         self.assertIn("→ layoutSizingHorizontal = 'FILL'", r.stdout)
         rep = json.loads(self.fidelity(root, '--json', manifest=m).stdout)
         self.assertEqual(len(rep['gaps']['stretched usages hug']), 1, 'a row child and a badge inside another instance are not column children of the build')
+
+    def test_scope_flag_reports_only_that_screens_copy(self):
+        root = self.seed("var s = figma.createFrame(); s.name = 'Customers'; return s.id;")
+        m = os.path.join(self.tmp.name, 'm.json')
+        with open(m, 'w') as f:
+            json.dump({'copy': [{'text': 'Customers', 'src': 'customers.html:3'}, {'text': 'Overview', 'src': 'dashboard.html:3'}]}, f)
+        whole = json.loads(self.fidelity(root, '--json', manifest=m).stdout)
+        self.assertEqual(len(whole['gaps']['missing copy']), 2)
+        one = self.fidelity(root, '--scope', 'customers.html', manifest=m)
+        self.assertEqual(one.returncode, 0, one.stderr)
+        self.assertIn('missing copy (1): "Customers" customers.html:3', one.stdout)
+        self.assertNotIn('Overview', one.stdout)
 
     fidelity = Fidelity.fidelity
 

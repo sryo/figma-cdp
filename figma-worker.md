@@ -75,7 +75,8 @@ const check = (what, want, got) => { if (want !== got) f.push({what, want, got})
 check('root.layoutMode', 'VERTICAL', n.layoutMode); // one per assertion
 return {failures: f, audit: (await __fx.audit(n.id)).text};
 ```
-Fix ONLY the failures and audit lines on nodes you created, with targeted edits, never a rebuild, then re-verify. If the same check fails twice, re-read the node before the third try. **Max 3 retries per section**, then BLOCKED.
+A screen you built from a manifest file: also `python3 <skill-dir>/figma_fidelity.py <manifest> <rootId> --scope <screen.html> --file <url>`.
+Fix ONLY the failures and the audit lines on nodes you created (fidelity gaps too), with targeted edits, never a rebuild, then re-verify. If the same check fails twice, re-read the node before the third try. **Max 3 retries per section**, then BLOCKED.
 
 Do what an `fxNote` or `{applied: false}` result says; a stale refusal isn't a retry.
 

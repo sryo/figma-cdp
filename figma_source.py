@@ -13,12 +13,13 @@ or a sheet @imports), and writes JSON with:
                                              prose string literals, string tables
   variants      [{component, prop, values, src}]  prop unions, enums, boolean props, class modifiers
   states        [{component, state, src}]    pseudo-classes, state-named props and modifiers
-  components    [{component, uses, nests, src, css?, fillAcross?}]  style blocks with a paint or type rule and
+  components    [{component, uses, nests, src, files?, css?, fillAcross?}]  style blocks with a paint or type rule and
                                              capitalized code tags, with how often the markup uses each
                                              and the components used directly inside it, most used
                                              first; a style block's css is its rules (modifiers and
                                              elements too) as {selector: declarations}, about 1.6 KB;
-                                             fillAcross: the usages a column flex parent stretches across
+                                             fillAcross: the usages a column flex parent stretches across;
+                                             files: the markup files that use it
 src is `file:line` relative to the inputs' common directory. Without -o the JSON goes to
 stdout; with -o a one-line summary does. figma_fidelity.py diffs a Figma subtree against it.
 """
@@ -563,6 +564,8 @@ class Source:
                 e = self.comps.setdefault(key, {'component': name, 'uses': 0, 'nests': [],
                                                 'src': self.blocks[name][0] if name in self.blocks else self.src(f, m.start())})
                 e['uses'] += 1
+                if markup and rel not in e.setdefault('files', []):
+                    e['files'].append(rel)
                 if stack and markup and name in self.blocks:
                     ups = [c for _, _, c, _ in reversed(stack)]
                     pstyle = self.style_of(ups[0], stack[-1][3], ups[1:])
@@ -693,6 +696,8 @@ class Source:
         return css
 
     def capped(self, e):
+        if e.get('files'):
+            e = dict(e, files=sorted(e['files']))
         if len(e.get('fillAcross', [])) > FILL_CAP:
             e = dict(e, fillAcross=e['fillAcross'][:FILL_CAP] + [f"{len(e['fillAcross']) - FILL_CAP} more"])
         return e

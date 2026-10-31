@@ -17,8 +17,8 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6514,
-    'figma-worker.md': 7097,
+    'SKILL.md': 6548,
+    'figma-worker.md': 7263,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -167,6 +167,12 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_fidelity_runs_per_screen_with_scope(self):
+        d = docs()
+        self.assertRegex(d['SKILL.md'], r'figma_fidelity\.py[^\n]*--scope', 'SKILL.md step 8 does not scope fidelity to a screen')
+        self.assertRegex(d['figma-worker.md'], r'figma_fidelity\.py[^\n]*--scope', 'the worker sheet does not scope fidelity to its screen')
+        self.assertIn('--scope', d['references/fidelity.md'])
 
     def test_helpers_bind_numbers_and_gather_icons_in_a_set(self):
         d = docs()

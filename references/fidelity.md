@@ -22,8 +22,10 @@ Pass the files behind the screen being built: its markup or UI code, the style s
 ## 2. Check after workers report DONE
 
 ```bash
-python3 <skill-dir>/figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --file <figma-url>
+python3 <skill-dir>/figma_fidelity.py /tmp/figma_source_<slug>.json <rootId> --scope <screen.html> --file <figma-url>
 ```
+
+`--scope` (repeat it or comma-separate) checks one screen of a many-screen manifest: missing copy, missing components and stretched usages come only from that markup file (entries' `src` and `files`), while any source string still vouches for a layer and the value lists stay whole. Without it, other screens' copy shows up as missing.
 
 One eval collects the subtree's text, solid colors (bound variables resolved to their value), fonts, auto-layout padding and gaps, radii, and the component sets its instances come from. Output, one line per kind with gaps:
 

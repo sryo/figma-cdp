@@ -304,6 +304,9 @@ class Generic(unittest.TestCase):
             self.assertEqual(comps['badge']['fillAcross'], ['a.html:1 in .col', 'a.html:10 in .col.tight'],
                              'only a column parent with default or stretch align-items, and a child with no width or align-self')
             self.assertNotIn('fillAcross', comps['stat'], 'a component nothing stretches has no fill list')
+        harbor = {c['component']: c for c in manifest(os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor'))['components']}
+        self.assertEqual(harbor['stat-card']['files'], ['components.html', 'dashboard.html'], 'the markup files that use it, sorted')
+        self.assertIn('customers.html', harbor['badge']['files'])
         page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor', 'customers.html')
         fill = {c['component']: c.get('fillAcross', []) for c in manifest(page)['components']}
         self.assertIn('customers.html:69 in .card.grow', fill['badge'], 'the Customer details badge stretches')
