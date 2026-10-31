@@ -6,6 +6,15 @@ How to create and modify design nodes via the Plugin API.
 
 See `references/conventions.md` for value precedence, the source → auto layout mapping and naming. Always prefer `component.createInstance()` over recreating structures, and `instance.swapComponent(target)` over rebuilding nested components. Verify visually with `node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}})`.
 
+## Repeated patterns
+
+An inventory `PATTERN xN <shape> ids: ...` line is the same structure drawn N times by hand. Link the copies before building anything new with it:
+
+1. **Master:** `figma.createComponentFromNode(copy)` on the copy that is the best match for the source (its copy, tokens and parts); it stays in place, looking the same. Expose what varies: TEXT properties for its text, BOOLEAN for parts some copies hide, VARIANT axes for states the source names.
+2. **Swap a copy** only when it has the same structure (the same `shape` on its PATTERN line): `master.createInstance()`, inserted at the copy's index in its parent, then set every difference as an instance override (text through its TEXT property or `characters`, fills, visibility), give it the copy's position and size (`x`, `y`, `layoutSizingHorizontal/Vertical` or `resize`) and name, and `copy.remove()`.
+3. **Check:** re-read the screen (`figma_fidelity.py` against its source, or `recon({nodeId, props: true})` before and after) to confirm it looks the same. A copy that doesn't match the structure stays: leave it raw and say so in the report.
+4. **Use it:** the new screen instances the master like any REUSE entry.
+
 ## Constraints and sizing
 
 ### Auto Layout components (preferred)

@@ -17,15 +17,15 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6098,
+    'SKILL.md': 6120,
     'figma-worker.md': 6181,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 25027,
+    'Build screens': 26222,
     'Copy/text edit': 15888,
-    'Component/variant/design-system': 21113,
+    'Component/variant/design-system': 22308,
     'Color/effects/prototype': 15892,
 }
 
@@ -114,6 +114,25 @@ class Docs(unittest.TestCase):
         edit = next(l for l in text.splitlines() if '"make it match"' in l)
         self.assertRegex(edit, r'recon\(\{nodeId[^)]*props: true\}\)', 'an edit reads its target without layout, paints and effects')
         self.assertRegex(edit, r'(?i)step 3.s call', 'the props read is a second call instead of part of recon')
+
+    def test_section_pointers_resolve(self):
+        for rel, text in docs().items():
+            for ref, sec in re.findall(r'`references/([a-z-]+\.md)` → ([A-Z][\w-]*(?: [\w-]+)*)', text):
+                heads = [h.strip().lower() for h in re.findall(r'^#+ (.+)$', docs()['references/' + ref], re.M)]
+                self.assertTrue(any(h.startswith(sec.lower()) or sec.lower().startswith(h) for h in heads), f'{rel} points at {ref} → {sec}, no such section')
+
+    def test_a_repeated_pattern_has_a_recipe_that_links_the_copies(self):
+        plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
+        self.assertIn('PATTERN the task touches becomes a component first. Recipe: `references/building.md` → Repeated patterns', plan)
+        text = docs()['references/building.md']
+        sec = text[text.index('## Repeated patterns'):].split('\n## ')[0]
+        self.assertIn('createComponentFromNode', sec)
+        self.assertRegex(sec, r'(?i)best match[^.]*source', 'which copy becomes the master')
+        self.assertRegex(sec, r'(?i)same structure[^.]*swap|swap[^.]*same structure', 'copies swap only when their structure matches')
+        self.assertRegex(sec, r'(?i)override[^.]*(text|characters)[^.]*fill[^.]*visib', 'a copy keeps its differences as overrides')
+        self.assertRegex(sec, r'(?i)position and size', 'a swapped copy keeps its place')
+        self.assertRegex(sec, r'(?i)leave it raw[^.]*(say|report)', 'a copy that does not match stays and is reported')
+        self.assertRegex(sec, r'(?i)re-?read|fidelity', 'the screen is checked after the swap')
 
     def test_component_plan_covers_the_manifest_components_and_containers(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
