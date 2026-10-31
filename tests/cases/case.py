@@ -326,8 +326,8 @@ def gate_plan(c, wt, a):
         ('affected tasks, 1 rep', [run(wt, 1, 'gate5.json')], live if tasks else 'no task is affected'),
         ('paired base/candidate, 3 reps', [['git', 'worktree', 'add', '--detach', base, 'main'],
                                            run(base, 3, 'base.json'), run(wt, 3, 'candidate.json'),
-                                           [py, 'tests/eval/compare.py', os.path.join(d, 'base.json'), os.path.join(d, 'candidate.json'),
-                                            '--tasks', ','.join(tasks), '--flaky'] + rules],
+                                           [py, 'tests/eval/gate.py', os.path.join(d, 'base.json'), os.path.join(d, 'candidate.json'),
+                                            '--tasks', ','.join(tasks)] + rules],
          live if tasks else 'no task is affected'),
     ]
 

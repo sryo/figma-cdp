@@ -13,7 +13,7 @@ import json, os, re, shutil, socket, subprocess, sys, tempfile, types, unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import compare, run, session, source  # noqa: E402
+import gate, run, session, source  # noqa: E402
 
 FILE = 'https://www.figma.com/design/AAA111/Stub'
 RECON_ANSWER = ('Onboarding / Step 1 is 375x812 with 3 text layers, Onboarding / Step 2 is 375x812 with 2, '
@@ -407,7 +407,8 @@ class HarborFixture(unittest.TestCase):
         self.assertEqual(roles, set(source.ROLES) - {'paragraph'})
 
 
-class Compare(unittest.TestCase):
+class Gate(unittest.TestCase):
+    """tests/eval/gate.py: the run in fium's format, the noise file, and fium price compare."""
     def result(self, **tasks):
         out = {'meta': {'file': 'K', 'model': ''}, 'cost_metrics': run.COST, 'tasks': {}}
         for t, reps in tasks.items():
@@ -418,69 +419,12 @@ class Compare(unittest.TestCase):
         return {'passed': passed, 'wall_s': wall, 'tokens_total': tokens, 'copy': copy,
                 'newDuplicateComponents': dupes, 'lower': ['newDuplicateComponents']}
 
-    def verdicts(self, base, cand, floor=0.10):
-        return {(t, m): v for t, m, _, _, _, v in compare.compare(base, cand, floor)}
-
-    def test_same_results_are_not_a_regression(self):
-        b = self.result(reuse=[self.rep(), self.rep()])
-        self.assertFalse([v for v in self.verdicts(b, b).values() if v != 'ok'])
-
-    def test_quality_drop_of_any_size_regresses(self):
-        b = self.result(reuse=[self.rep()])
-        c = self.result(reuse=[self.rep(copy=0.99)])
-        self.assertEqual(self.verdicts(b, c)[('reuse', 'copy')], 'worse')
-
-    def test_lower_is_better_metrics_flip_direction(self):
-        b = self.result(reuse=[self.rep()])
-        self.assertEqual(self.verdicts(b, self.result(reuse=[self.rep(dupes=1)]))[('reuse', 'newDuplicateComponents')], 'worse')
-        self.assertEqual(self.verdicts(self.result(reuse=[self.rep(dupes=1)]), b)[('reuse', 'newDuplicateComponents')], 'better')
-
-    def test_cost_noise_within_floor_is_ok(self):
-        b = self.result(reuse=[self.rep(wall=100)])
-        self.assertEqual(self.verdicts(b, self.result(reuse=[self.rep(wall=109)]))[('reuse', 'wall_s')], 'ok')
-        self.assertEqual(self.verdicts(b, self.result(reuse=[self.rep(wall=111)]))[('reuse', 'wall_s')], 'worse')
-        self.assertEqual(self.verdicts(b, self.result(reuse=[self.rep(wall=80)]))[('reuse', 'wall_s')], 'better')
-
-    def test_cost_tolerance_widens_with_rep_spread(self):
-        b = self.result(reuse=[self.rep(wall=60), self.rep(wall=100), self.rep(wall=140)])
-        c = self.result(reuse=[self.rep(wall=135)])
-        self.assertEqual(self.verdicts(b, c)[('reuse', 'wall_s')], 'ok', 'baseline spread 80 → tolerance 40')
-        c = self.result(reuse=[self.rep(wall=141)])
-        self.assertEqual(self.verdicts(b, c)[('reuse', 'wall_s')], 'worse')
-
-    def test_saturated_metrics_are_info_not_regressions(self):
-        b = {'passed': True, 'sizingShare': 0.9}
-        c = {'passed': True, 'sizingShare': 0.7}
-        v = self.verdicts(self.result(componentize=[b]), self.result(componentize=[c]))
-        self.assertEqual(v[('componentize', 'sizingShare')], 'info')
-
-    def test_pass_rate_drop_and_missing_task_regress(self):
-        b = self.result(reuse=[self.rep(), self.rep()], recon=[self.rep()])
-        c = self.result(reuse=[self.rep(), self.rep(passed=False)])
-        v = self.verdicts(b, c)
-        self.assertEqual(v[('reuse', 'pass_rate')], 'worse')
-        self.assertEqual(v[('recon', '*')], 'missing')
-
-    def test_cli_exit_codes(self):
-        with tempfile.TemporaryDirectory() as d:
-            b, c = os.path.join(d, 'b.json'), os.path.join(d, 'c.json')
-            with open(b, 'w') as f:
-                json.dump(self.result(reuse=[self.rep()]), f)
-            with open(c, 'w') as f:
-                json.dump(self.result(reuse=[self.rep(tokens=2000)]), f)
-            cmd = [sys.executable, os.path.join(HERE, 'compare.py')]
-            self.assertEqual(subprocess.run(cmd + [b, b], capture_output=True).returncode, 0)
-            r = subprocess.run(cmd + [b, c], capture_output=True, text=True)
-            self.assertEqual(r.returncode, 1)
-            self.assertIn('tokens_total', r.stdout)
-            self.assertEqual(subprocess.run(cmd + [b, os.path.join(d, 'nope.json')], capture_output=True).returncode, 2)
-
-
     def test_fium_export_writes_each_task_metric_in_the_run_format(self):
         """fium RULES K2: {metrics: {name: {dir, kind, samples}}}; prices in tokens and time, never dollars."""
         r = self.result(reuse=[dict(self.rep(), cost_usd=0.5, turns=10, output_tokens=7),
                                dict(self.rep(passed=False, wall=120.0, copy=0.9), cost_usd=0.6, turns=12, output_tokens=8)])
-        h = compare.fium(r)
+        import gate
+        h = gate.fium(r)
         m = h['metrics']
         self.assertEqual(m['reuse.wall_s'], {'dir': 'lower', 'kind': 'time', 'samples': [100.0, 120.0]})
         self.assertEqual(m['reuse.tokens_total']['kind'], 'tokens')
@@ -494,7 +438,7 @@ class Compare(unittest.TestCase):
         self.assertNotIn('reuse.cost_usd', m, 'no dollar prices')
         self.assertEqual(h['limits'], {})
         r['meta'].update(rev='abc1234', dirty=True)
-        self.assertEqual({k: compare.fium(r)[k] for k in ('commit', 'dirty')}, {'commit': 'abc1234', 'dirty': True}, 'fium stamps a run with its commit')
+        self.assertEqual({k: gate.fium(r)[k] for k in ('commit', 'dirty')}, {'commit': 'abc1234', 'dirty': True}, 'fium stamps a run with its commit')
 
 
     def test_noise_file_forgives_one_more_of_the_rare_counts_on_every_task(self):

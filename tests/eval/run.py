@@ -12,8 +12,8 @@ Per task rep, holding a per-file lock (parallel callers on one file queue):
      failed tool calls come from its stream-json transcript, subagents included, with the process
      metrics (lost replies, --recover uses, retries, unhinted errors) and the failed calls' text
   4. the task's scorer against the page ({metrics, lower, passed, notes}; notes say why, and
-     compare.py prints them beside a regression), then the rep's pages are deleted unless --keep
-The output holds every rep plus per-task medians, min and max; compare.py diffs two outputs.
+     gate.py prints them beside a regression), then the rep's pages are deleted unless --keep
+The output holds every rep plus per-task medians, min and max; gate.py judges two outputs with fium.
 
 The session runs unattended: dontAsk mode with Bash/Read/Write/Edit/Glob/Grep/Agent/Skill
 allowed, so point it only at a scratch Figma file. --skill-dir defaults to this repo; use a

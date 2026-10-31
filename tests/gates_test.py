@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The gates a case's fix passes, offline: compare.py's --require/--gain/--flaky/--tasks and notes,
+"""The gates a case's fix passes, offline: gate.py's fium verdict, --require/--gain/--tasks and notes,
 session.py's process metrics, affects.json, the judge guard, and case.py verify end to end on a
 throwaway repo whose suites, probe runner and run.py are stand-ins.
 
@@ -15,66 +15,61 @@ import session  # noqa: E402
 import judge_guard  # noqa: E402
 
 
-def run_json(task_rates, metrics=None, spread=None, notes=None, cost=()):
+def run_json(task_rates, metrics=None, notes=None, reps=3):
+    """A run.py output: per task, reps passing at the rate given, each scoring metrics."""
+    import run
     tasks = {}
     for t, rate in task_rates.items():
-        med = dict(metrics or {})
-        lo = {k: v - (spread or {}).get(k, 0) for k, v in med.items()}
-        tasks[t] = {'lower': [], 'median': med, 'min': lo, 'max': dict(med), 'pass_rate': rate,
-                    'reps': [{'rep': 1, 'notes': notes}] if notes else []}
-    return {'meta': {'file': 'K', 'model': 'm'}, 'cost_metrics': list(cost), 'tasks': tasks}
+        passing = round(rate * reps)
+        tasks[t] = run.summarize([dict(metrics or {}, rep=i + 1, passed=i < passing, **({'notes': notes} if notes else {}))
+                                  for i in range(reps)])
+    return {'meta': {'file': 'K', 'model': 'm'}, 'cost_metrics': [], 'tasks': tasks}
 
 
-class Compare(unittest.TestCase):
+class Gate(unittest.TestCase):
+    """tests/eval/gate.py: fium price compare for regressions, plus a case's --require/--gain rules."""
+
     def setUp(self):
+        import gate
+        if not os.path.exists(gate.FIUM):
+            self.skipTest('no fium at ' + gate.FIUM)
         self.tmp = tempfile.mkdtemp()
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
 
-    def compare(self, base, cand, *args):
+    def gate(self, base, cand, *args):
         paths = []
         for name, run in (('b', base), ('c', cand)):
             paths.append(os.path.join(self.tmp, name + '.json'))
             with open(paths[-1], 'w') as f:
                 json.dump(run, f)
-        p = subprocess.run([sys.executable, os.path.join(EVAL, 'compare.py'), *paths, *args], capture_output=True, text=True)
-        return p.returncode, p.stdout
+        p = subprocess.run([sys.executable, os.path.join(EVAL, 'gate.py'), *paths, *args], capture_output=True, text=True)
+        return p.returncode, p.stdout + p.stderr
 
     def test_require_gates_a_task_the_baseline_lacks(self):
-        base, cand = run_json({'recon': 1}), run_json({'recon': 1, 'overlay': 0.67})
-        self.assertEqual(self.compare(base, cand)[0], 0)
-        code, out = self.compare(base, cand, '--require', 'overlay:pass_rate>=0.67')
+        base, cand = run_json({'recon': 1}), run_json({'recon': 1, 'overlay': 1})
+        self.assertEqual(self.gate(base, cand)[0], 0)
+        code, out = self.gate(base, cand, '--require', 'overlay:pass_rate>=0.67')
         self.assertEqual(code, 0, out)
-        code, out = self.compare(base, cand, '--require', 'overlay:pass_rate>0.67')
+        code, out = self.gate(base, cand, '--require', 'overlay:pass_rate>1')
         self.assertEqual(code, 1)
-        self.assertIn('unmet: overlay:pass_rate > 0.67', out)
-        self.assertEqual(self.compare(base, cand, '--require', 'nope:pass_rate>=0')[0], 1)
+        self.assertIn('unmet: overlay:pass_rate > 1', out)
+        self.assertEqual(self.gate(base, cand, '--require', 'nope:pass_rate>=0')[0], 1)
 
     def test_gain_needs_the_candidate_ahead_by_the_margin(self):
         # 3 reps: one more passing rep (1/3) is not enough; two are.
         base = run_json({'t': 0.3333})
-        self.assertEqual(self.compare(base, run_json({'t': 1}), '--gain', 't:pass_rate>=0.34')[0], 0)
-        self.assertEqual(self.compare(base, run_json({'t': 0.6667}), '--gain', 't:pass_rate>=0.34')[0], 1)
-
-    def test_flaky_metrics_count_neither_way(self):
-        base = run_json({'t': 1}, {'share': 0.8, 'steady': 1}, spread={'share': 0.2})
-        worse = run_json({'t': 1}, {'share': 0.7, 'steady': 1})
-        self.assertEqual(self.compare(base, worse)[0], 1)
-        code, out = self.compare(base, worse, '--flaky')
-        self.assertEqual(code, 0, out)
-        self.assertIn('flaky (baseline reps disagree): t: share', out)
-        self.assertIn('flaky', out.split('\n')[-4])
-        better = run_json({'t': 1}, {'share': 0.9, 'steady': 1})
-        self.assertIn('0 improvement(s)', self.compare(base, better, '--flaky')[1])
+        self.assertEqual(self.gate(base, run_json({'t': 1}), '--gain', 't:pass_rate>=0.34')[0], 0)
+        self.assertEqual(self.gate(base, run_json({'t': 0.6667}), '--gain', 't:pass_rate>=0.34')[0], 1)
 
     def test_tasks_limits_the_comparison(self):
         base = run_json({'a': 1, 'b': 1})
-        self.assertEqual(self.compare(base, run_json({'a': 1}))[0], 1)
-        self.assertEqual(self.compare(base, run_json({'a': 1}), '--tasks', 'a')[0], 0)
+        self.assertEqual(self.gate(base, run_json({'a': 1}))[0], 1, 'a task the candidate lacks is missing')
+        self.assertEqual(self.gate(base, run_json({'a': 1}), '--tasks', 'a')[0], 0)
 
     def test_a_regression_prints_the_scorer_notes(self):
-        code, out = self.compare(run_json({'t': 1}), run_json({'t': 0}, notes=['no drop shadow on "Main"']))
+        code, out = self.gate(run_json({'t': 1}, {'copy': 1}), run_json({'t': 1}, {'copy': 0.5}, notes=['no drop shadow on "Main"']))
         self.assertEqual(code, 1)
         self.assertIn('t note: no drop shadow on "Main"', out)
 
@@ -150,7 +145,7 @@ class Guard(unittest.TestCase):
         git(self.repo, 'commit', '-q', '-m', msg)
 
     def test_the_fium_gate_and_its_noise_are_judges(self):
-        for p in ('tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/compare.py'):
+        for p in ('tests/eval/gate.py', 'tests/eval/noise.json'):
             self.assertTrue(judge_guard.JUDGE.match(p), p)
 
     def test_a_commit_that_edits_its_own_judge_fails(self):
@@ -185,7 +180,7 @@ with open(out + '.argv', 'w') as f:
 
 
 class Verify(unittest.TestCase):
-    """case.py verify on a repo whose suites pass trivially: the real judge guard and compare.py,
+    """case.py verify on a repo whose suites pass trivially: the real judge guard and gate.py,
     a stand-in probe runner, and a run.py that writes a result where the candidate beats the base."""
 
     def setUp(self):
@@ -200,7 +195,7 @@ class Verify(unittest.TestCase):
         for p in ('tests/figma_lib_test.js', 'tests/snapshot_test.js', 'tests/api_test.mjs'):
             write(self.repo, p, "require('node:test').test('ok', () => {});\n" if not p.endswith('.mjs') else "import { test } from 'node:test'; test('ok', () => {});\n")
         write(self.repo, 'tests/eval/run.py', STAND_IN_RUN)
-        for p in ('tests/judge_guard.py', 'tests/eval/compare.py', 'tests/eval/affects.json', 'tests/known_losses.json'):
+        for p in ('tests/judge_guard.py', 'tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/affects.json', 'tests/known_losses.json'):
             shutil.copy(os.path.join(ROOT, p), os.path.join(self.repo, p))
         for t in ('recon', 'effects', 'fidelity-edit', 'capture'):
             write(self.repo, f'tests/eval/tasks/{t}.json', json.dumps({'id': t}))
@@ -249,7 +244,7 @@ class Verify(unittest.TestCase):
 
     def test_verify_stops_at_the_judge_guard(self):
         cid, wt = self.claimed('tests/eval/tasks/recon.json')
-        write(wt, 'tests/eval/compare.py', '# looser\n')
+        write(wt, 'tests/eval/gate.py', '# looser\n')
         write(wt, 'figma_lib.js', 'fixed\n')
         git(wt, 'add', '-A'); git(wt, 'commit', '-q', '-m', 'fix and loosen')
         out = self.case('verify', cid, code=1)
