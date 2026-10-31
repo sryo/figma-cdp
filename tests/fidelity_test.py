@@ -103,6 +103,8 @@ class Fidelity(unittest.TestCase):
         self.assertEqual([(e['component'], e['state']) for e in g['missing states']], [('button', 'disabled')])
         self.assertEqual([(e['component'], e['uses']) for e in g['missing components']], [('input', 2)])
         self.assertTrue(g['missing components'][0]['src'].startswith('components.css:'))
+        self.assertEqual([(e['component'], e['usage'], e['ids']) for e in g['stretched usages hug']],
+                         [('button', 'login.html:20 in form', [ids['primaryId']])], 'the hugging Sign in button; the raw secondary is no instance')
         self.assertEqual(rep['count'], sum(len(v) for v in g.values()))
 
     def test_a_component_set_frame_radius_is_not_a_source_radius(self):
@@ -120,7 +122,7 @@ class Fidelity(unittest.TestCase):
         r = self.fidelity(ids['rootId'])
         self.assertEqual(r.returncode, 0, 'gaps are the report, not a failure: a nonzero exit reads as a failed call')
         out = r.stdout
-        self.assertRegex(out.splitlines()[0], r'^fidelity \S+ "Login": 13 gaps')
+        self.assertRegex(out.splitlines()[0], r'^fidelity \S+ "Login": 14 gaps')
         for line in ('missing copy (2): "Welcome back to Lumen" login.html:',
                      'invented copy (1): "Remember me" ' + ids['rootId'].split(':')[0] + ':',
                      'off-manifest colors (1): #2563eb ×1 (' + ids['primaryId'] + ')',
@@ -259,6 +261,26 @@ class Diff(unittest.TestCase):
         self.assertEqual([x['variable'] for x in g['unbound']], ['text/muted'])
 
 
+    def test_a_stretched_usage_built_hug_is_flagged_with_its_node_and_fix(self):
+        """r15 app-screens rep 3 built the Customer details badge HUG; reps 1 and 2 FILL."""
+        m = {'components': [{'component': 'badge', 'uses': 9, 'nests': [], 'src': 'components.css:24',
+                             'fillAcross': ['customers.html:69 in .card.grow']}]}
+        def col(sizing, ctx=('Content', 'Card', 'Card'), path='Customers / Page / Row / Card / Content / Badge'):
+            return {'id': '76:4400', 'comp': 'Badge', 'sizing': sizing, 'path': path, 'ctx': list(ctx)}
+        rep = self.diff(m, self.collected(cols=[col('HUG')], comps=[{'id': '2:1', 'name': 'Badge', 'words': []}]))
+        self.assertEqual(rep['gaps']['stretched usages hug'], [{
+            'component': 'badge', 'usage': 'customers.html:69 in .card.grow', 'ids': ['76:4400'],
+            'path': 'Customers / Page / Row / Card / Content / Badge'}])
+        self.assertEqual(rep['count'], 1)
+        for passing in ([col('FILL')], []):
+            self.assertEqual(self.diff(m, self.collected(cols=passing))['gaps']['stretched usages hug'], [])
+        self.assertEqual(self.diff(m, self.collected(cols=[col('HUG', ctx=('Sidebar', 'Nav'))]))['gaps']['stretched usages hug'], [],
+                         'a hugging badge in a column the source does not stretch is left alone')
+        legacy = {'components': [dict(m['components'][0], fill=m['components'][0].pop('fillAcross'))]}
+        self.assertEqual(len(self.diff(legacy, self.collected(cols=[col('HUG')]))['gaps']['stretched usages hug']), 1,
+                         'a manifest from before the rename still reads')
+
+
 class Collect(unittest.TestCase):
     """The eval itself, on the stub through the perch daemon path."""
 
@@ -326,6 +348,27 @@ class Collect(unittest.TestCase):
             json.dump({'variants': [{'component': 'productcard', 'prop': 'soldOut', 'values': ['true', 'false'], 'src': 'c.jsx:42'}]}, f)
         rep = json.loads(self.fidelity(root, '--json', manifest=m).stdout)
         self.assertEqual([e['component'] for e in rep['gaps']['missing variants']], ['productcard'])
+
+    def test_column_children_that_are_instances_are_collected_with_their_sizing(self):
+        root = self.seed(
+            "var badge = figma.createComponent(); badge.name = 'Badge'; badge.layoutMode = 'HORIZONTAL';\n"
+            "var row = figma.createComponent(); row.name = 'List item'; row.layoutMode = 'VERTICAL'; row.appendChild(badge.createInstance());\n"
+            "var screen = figma.createFrame(); screen.name = 'Customers'; screen.layoutMode = 'VERTICAL';\n"
+            "var card = figma.createFrame(); card.name = 'Card'; card.layoutMode = 'VERTICAL'; screen.appendChild(card);\n"
+            "var b = badge.createInstance(); card.appendChild(b); b.layoutSizingHorizontal = 'HUG';\n"
+            "var line = figma.createFrame(); line.name = 'Line'; line.layoutMode = 'HORIZONTAL'; card.appendChild(line); line.appendChild(badge.createInstance());\n"
+            "screen.appendChild(row.createInstance());\n"
+            "return screen.id;")
+        m = os.path.join(self.tmp.name, 'm.json')
+        with open(m, 'w') as f:
+            json.dump({'components': [{'component': 'badge', 'uses': 3, 'nests': [], 'src': 'c.css:1',
+                                       'fillAcross': ['x.html:3 in .card']}]}, f)
+        r = self.fidelity(root, manifest=m)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("stretched usages hug (1): badge x.html:3 in .card: Customers / Card / Badge (", r.stdout)
+        self.assertIn("→ layoutSizingHorizontal = 'FILL'", r.stdout)
+        rep = json.loads(self.fidelity(root, '--json', manifest=m).stdout)
+        self.assertEqual(len(rep['gaps']['stretched usages hug']), 1, 'a row child and a badge inside another instance are not column children of the build')
 
     fidelity = Fidelity.fidelity
 

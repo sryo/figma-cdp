@@ -13,6 +13,8 @@ sets behind it. The report lists, per kind, what differs from the manifest:
   missing components                a source component used 2+ times with no component in the subtree, or
                                     behind its instances, whose name (or a /-segment of it) holds all its words
                                     and no longer source component's
+  stretched usages hug              a manifest fillAcross usage built as a HUG instance in a column whose name (or
+                                    its slot's instance) holds a word of the source parent's classes
 A boolean variant or a state counts as present on a component whose instances override it per use
 (a nested instance's variant or a hidden layer that differs from the main component).
 A kind the manifest has no entries for is not checked. The first line counts the gaps; exit 0
@@ -65,7 +67,13 @@ COLLECT = r'''
   function hidden(n) { for (var p = n; p && p !== root.parent; p = p.parent) if (p.visible === false) return true; return false; }
   function inDef(n) { for (var p = n.parent; p; p = p.parent) if (p.type === 'COMPONENT' || p.type === 'COMPONENT_SET') return true; return false; }
   var out = { root: { id: root.id, name: root.name, type: root.type }, texts: [], colors: {}, nums: { spacing: {}, radius: {}, fontSize: {}, fontWeight: {} },
-    families: {}, comps: [], names: {}, vars: { color: {}, float: {} } };
+    families: {}, comps: [], names: {}, vars: { color: {}, float: {} }, cols: [] };
+  // An instance the build placed (not one inside another instance, except per-use slot content).
+  function placed(n) {
+    for (var p = n.parent; p && p !== root.parent; p = p.parent) { if (p.type === 'SLOT') return true; if (p.type === 'INSTANCE') return false; }
+    return true;
+  }
+  function pathOf(n) { var names = []; for (var p = n; p && p !== root.parent; p = p.parent) names.unshift(p.name); return names.join(' / '); }
   function add(map, key, id, bound, extra) {
     var e = map[key] || (map[key] = { n: 0, ids: [], unbound: [], u: 0 });
     e.n++;
@@ -149,6 +157,18 @@ COLLECT = r'''
       mains[owner.id] = { id: owner.id, name: owner.name, words: words };
       out.comps.push(mains[owner.id]);
     }
+    // An instance placed in a column: its width sizing and the names around it, for the source's stretched usages.
+    var col = n.parent;
+    if (main && owner && !inDef(n) && placed(n) && col && col.layoutMode === 'VERTICAL' && n.layoutPositioning !== 'ABSOLUTE' && out.cols.length < 300) {
+      var ctx = [col.name];
+      if (col.type === 'SLOT') for (var q = col.parent; q; q = q.parent) if (q.type === 'INSTANCE') {
+        var qm = await q.getMainComponentAsync();
+        ctx.push(q.name);
+        if (qm) ctx.push(qm.parent && qm.parent.type === 'COMPONENT_SET' ? qm.parent.name : qm.name);
+        break;
+      }
+      out.cols.push({ id: n.id, comp: owner.name, sizing: n.layoutSizingHorizontal, path: pathOf(n), ctx: ctx });
+    }
     // A per-use state set through overrides: the instance's nested variants or hidden layers differ from its main's.
     if (main && !inDef(n)) {
       var mine = overrideSig(n), theirs = overrideSig(main);
@@ -173,7 +193,7 @@ COLLECT = r'''
 
 KINDS = ['missing copy', 'invented copy', 'off-manifest colors', 'off-manifest spacing', 'off-manifest radii',
          'off-manifest font sizes', 'off-manifest weights', 'off-manifest fonts', 'unbound', 'missing variants',
-         'missing states', 'missing components']
+         'missing states', 'missing components', 'stretched usages hug']
 NUM_KINDS = [('spacing', 'spacing', 'off-manifest spacing'), ('radius', 'radii', 'off-manifest radii'),
              ('fontSize', 'fontSizes', 'off-manifest font sizes'), ('fontWeight', 'fontWeights', 'off-manifest weights')]
 
@@ -355,6 +375,21 @@ def diff(m, c):
     for e, want in zip(m.get('components', []), entries):
         if e['uses'] >= 2 and want and not any(covers(seg, want) for seg in segs):
             gaps['missing components'].append({'component': e['component'], 'uses': e['uses'], 'src': e['src']})
+    # A usage the source's column parent stretches (the manifest's fillAcross; `fill` before the
+    # rename) built as a hugging instance in a column whose names hold a word of that parent's classes.
+    flagged = set()
+    for e in m.get('components', []):
+        for u in e.get('fillAcross') or e.get('fill') or []:
+            if ' in ' not in u:
+                continue
+            words = set(name_words(u.split(' in ', 1)[1].replace('.', ' ')))
+            for k in c.get('cols', []):
+                b = flat(k['comp'].split('/')[-1])
+                if k['sizing'] != 'HUG' or k['id'] in flagged or b != flat(e['component']):
+                    continue
+                if words & {w for name in k['ctx'] for w in name_words(name)}:
+                    flagged.add(k['id'])
+                    gaps['stretched usages hug'].append({'component': e['component'], 'usage': u, 'ids': [k['id']], 'path': k['path']})
     return {'root': c['root'], 'count': sum(len(v) for v in gaps.values()), 'gaps': gaps,
             'unchecked': list(dict.fromkeys(unchecked))}
 
@@ -375,6 +410,8 @@ def item(kind, e):
         return f"{e['component']}: {', '.join(e['values'])} ({e['src']})"
     if kind == 'missing components':
         return f"{e['component']} ×{e['uses']} ({e['src']})"
+    if kind == 'stretched usages hug':
+        return f"{e['component']} {e['usage']}: {e['path']} ({e['ids'][0]}) → layoutSizingHorizontal = 'FILL'"
     if kind == 'missing states':
         return f"{e['component']}: {e['state']} ({e['src']})"
     return f"{e['value']} ×{e['n']} {ids(e)}"

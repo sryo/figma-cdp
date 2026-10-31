@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6512,
+    'SKILL.md': 6514,
     'figma-worker.md': 6984,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -181,8 +181,9 @@ class Docs(unittest.TestCase):
 
     def test_the_brief_copies_stretched_usages_from_the_manifest(self):
         d = docs()
-        self.assertRegex(d['SKILL.md'], r'`fill`[^.]*build or brief[^.]*FILL across', 'SKILL.md does not apply the manifest fill list to inline builds and briefs')
-        self.assertIn('fill?', d['references/fidelity.md'], 'fidelity.md does not document a component\'s fill list')
+        self.assertRegex(d['SKILL.md'], r'`fillAcross`[^.]*build or brief[^.]*FILL across', 'SKILL.md does not apply the manifest fill list to inline builds and briefs')
+        self.assertIn('fillAcross?', d['references/fidelity.md'], 'fidelity.md does not document a component\'s fillAcross list')
+        self.assertIn('stretched usages hug', d['references/fidelity.md'], 'fidelity.md does not document the gate on stretched usages')
 
     def test_capture_inline_exception_is_for_block_parents_only(self):
         cap = docs()['references/capture.md']
@@ -215,7 +216,7 @@ class Docs(unittest.TestCase):
         self.assertRegex(reuse.group(0), r'(?i)per-use[^.;]*instance overrides', 'per-use differences are not overrides')
         self.assertRegex(reuse.group(0), r'(?i)never[^.;]*renam[^.;]*variant[^.;]*set[^.;]*unless',
                          'nothing stops a reused component from being renamed, given variants or made a set')
-        self.assertIn('`components` `[{component, uses, nests, src, css?, fill?}]`', docs()['references/fidelity.md'])
+        self.assertIn('`components` `[{component, uses, nests, src, css?, fillAcross?}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):
         gate = next(l for l in docs()['SKILL.md'].splitlines() if 'Final gate' in l)

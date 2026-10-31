@@ -33,6 +33,7 @@ function button(parent, variant, label) {
   var main = set.children.filter(function (c) { return c.name === 'Variant=' + variant + ', State=Default'; })[0];
   var inst = main.createInstance();
   parent.appendChild(inst);
+  if (!bad) inst.layoutSizingHorizontal = 'FILL';  // the form is a column flexbox: its children stretch
   var props = {};
   props[labelKey] = label;
   inst.setProperties(props);
@@ -50,6 +51,7 @@ var form = mkFrame(root, 'Form', 'VERTICAL', { gap: bad ? 18 : 16 });
   if (!bad) {
     var inst = input.createInstance();
     form.appendChild(inst);
+    inst.layoutSizingHorizontal = 'FILL';
     var props = {};
     Object.keys(input.componentPropertyDefinitions).forEach(function (k) { props[k] = k.indexOf('Label') === 0 ? f[0] : f[1]; });
     inst.setProperties(props);

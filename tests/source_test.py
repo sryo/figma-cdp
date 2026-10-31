@@ -301,11 +301,11 @@ class Generic(unittest.TestCase):
                         '<div class="col tight">\n  <p>Some text here</p>\n  <span class="badge badge--x">H</span>\n</div>\n'
                         '<div class="col"><div class="wrap"><span class="badge">I</span></div></div>\n')
             comps = {c['component']: c for c in manifest(tmp)['components']}
-            self.assertEqual(comps['badge']['fill'], ['a.html:1 in .col', 'a.html:10 in .col.tight'],
+            self.assertEqual(comps['badge']['fillAcross'], ['a.html:1 in .col', 'a.html:10 in .col.tight'],
                              'only a column parent with default or stretch align-items, and a child with no width or align-self')
-            self.assertNotIn('fill', comps['stat'], 'a component nothing stretches has no fill list')
+            self.assertNotIn('fillAcross', comps['stat'], 'a component nothing stretches has no fill list')
         page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor', 'customers.html')
-        fill = {c['component']: c.get('fill', []) for c in manifest(page)['components']}
+        fill = {c['component']: c.get('fillAcross', []) for c in manifest(page)['components']}
         self.assertIn('customers.html:69 in .card.grow', fill['badge'], 'the Customer details badge stretches')
         self.assertFalse([u for u in fill['badge'] if not u.startswith('customers.html:69 ')],
                          'list-item badges sit in a centered row')
