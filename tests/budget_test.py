@@ -17,7 +17,7 @@ import os, re, sys, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6548,
+    'SKILL.md': 6792,
     'figma-worker.md': 7444,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -114,6 +114,16 @@ class Docs(unittest.TestCase):
         edit = next(l for l in text.splitlines() if '"make it match"' in l)
         self.assertRegex(edit, r'recon\(\{nodeId[^)]*props: true\}\)', 'an edit reads its target without layout, paints and effects')
         self.assertRegex(edit, r'(?i)step 3.s call', 'the props read is a second call instead of part of recon')
+
+    def test_design_md_is_the_source_when_present(self):
+        text = docs()['SKILL.md']
+        line = next((l for l in text.splitlines() if 'DESIGN.md, it is the source' in l), '')
+        self.assertRegex(line, r'build from it and check against it')
+        self.assertRegex(line, r'figma_sync\.py report`[^;.]*drift')
+        self.assertRegex(line, r'`propose[^`]*`[^.]*PR[^.]*Proposed page')
+        for phrase in ('check design drift', "sync <project>'s design to Figma"):
+            self.assertIn(phrase, line)
+        self.assertIn('DESIGN.md', text.split('---')[1], 'the description triggers on DESIGN.md sync')
 
     def test_section_pointers_resolve(self):
         for rel, text in docs().items():
