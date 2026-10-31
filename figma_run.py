@@ -17,13 +17,14 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 ~/.perch, then ~/Documents/perch), which needs no remote debugging; else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
-perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
+perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 100 (under the 120 s a
+Bash tool call gets by default, so a timeout comes back as an error with its request id).
 --lib: figma_lib.js goes in front of the script, installing window.__fx once per tab.
 --ns <prefix>: run as that worker (figma-worker.md's NS): the result may carry an fxNote when
 it wrote inside another worker's frame, and a script is refused (reason 'stale') when someone
 else edited this worker's frame since its last eval.
 --recover <request-id>: the result of a script that timed out or whose reply was lost, from
-the page's ledger, once it finishes.
+the page's ledger: waits up to --timeout seconds while the script is still running.
 """
 import base64, fcntl, hashlib, json, os, re, socket, stat, subprocess, sys, time, uuid
 
@@ -194,10 +195,10 @@ def compact(v):
     return json.dumps(v, ensure_ascii=False)
 
 def timeout_seconds(flag):
-    """--timeout, else FIGMA_TIMEOUT, else 120: seconds a perch eval may await, clamped to 1-300."""
+    """--timeout, else FIGMA_TIMEOUT, else 100: seconds a perch eval may await, clamped to 1-300."""
     raw = flag if flag is not None else os.environ.get('FIGMA_TIMEOUT')
     if raw is None or str(raw).strip() == '':
-        return 120.0
+        return 100.0
     try:
         v = float(raw)
     except ValueError:
@@ -206,7 +207,7 @@ def timeout_seconds(flag):
         sys.exit(f"--timeout / FIGMA_TIMEOUT is seconds, 1 to 300; got '{raw}'")
     return min(300.0, max(1.0, v))
 
-def perch(req, timeout=120.0, rids=()):
+def perch(req, timeout=100.0, rids=()):
     """Ask figma_perch.mjs (next to this script, symlinks followed) through its daemon, else run it once; its JSON reply.
     rids are the request ids of req's sources, so a timeout can say how to recover its script."""
     helper = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_perch.mjs')
@@ -320,14 +321,14 @@ def ledger_error(v):
         return None
     rid = v['__fxRun']
     if v.get('state') == 'running':
-        return f'request {rid} is still running in the page; figma_run.py --recover {rid} prints its result once it finishes'
+        return f'request {rid} is still running in the page; figma_run.py --recover {rid} waits for it and prints its result'
     return f'request {rid} finished, but its result was over 32 KB and was not kept; read the state it left instead'
 
 def timeout_note(error, rid):
     """A timed-out script keeps running in the page: say how to get its result."""
     if not error.startswith('timeout:'):
         return error
-    return f'{error}\nIt may still finish: figma_run.py --recover {rid} prints its result then'
+    return f'{error}\nIt may still finish: figma_run.py --recover {rid} waits for it and prints its result'
 
 def with_lib(src):
     """figma_lib.js (next to this script) in front of a wrapped script: the library installs
@@ -454,6 +455,16 @@ sources = [recover(rec)] if rec else [program(src, rid, opts['--ns']) for _, src
 if opts['--lib'] and sources:
     sources[0] = with_lib(sources[0])
 
+def until_finished(ask, running):
+    """ask() once; for --recover, again every 2 s while the ledger says the script is still running,
+    up to --timeout seconds, so a caller never polls with sleep."""
+    deadline = time.time() + timeout_seconds(opts['--timeout'])
+    res = ask()
+    while rec and running(res) and 'still running' in running(res) and time.time() < deadline:
+        time.sleep(min(2.0, max(0.0, deadline - time.time())))
+        res = ask()
+    return res
+
 def log(ok, out):
     label, src = scripts[0] if scripts else ('--recover', rec)
     journal(rid, opts['--file'], label, src, ok, out)
@@ -469,8 +480,9 @@ if backend() == 'perch':
         perch({'op': 'screenshot', 'file': opts['--file'] or '', 'path': os.path.abspath(shot)})
         print(f"✓ Screenshot saved to {shot}")
         sys.exit(0)
-    res = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
-                timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
+    ask = lambda: perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
+                        timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
+    res = until_finished(ask, lambda res: res['ok'] and ledger_error(res['value']))
     err = timeout_note(res['error'], rid) if not res['ok'] else ledger_error(res['value'])
     log(err is None, err or res['value'])
     if err:
@@ -488,8 +500,16 @@ else:
         sys.exit(1)
     cmd = ['eval', '-b', b64]
 
-try:
+def agent_browser():
     r = subprocess.run(['agent-browser', '--cdp', cdp_port(), *cmd], capture_output=True, text=True)
+    try:
+        r.value = json.loads(r.stdout, parse_int=js_int) if not r.returncode and not shot else None
+    except ValueError:
+        r.value = None
+    return r
+
+try:
+    r = until_finished(agent_browser, lambda r: ledger_error(r.value))
 except FileNotFoundError:
     print('agent-browser not found — npm i -g agent-browser && agent-browser install',
           file=sys.stderr)
@@ -505,9 +525,8 @@ if r.returncode or shot:
             print(hint(r.stderr), file=sys.stderr)
     sys.exit(r.returncode)
 # agent-browser indents its result; print it as the perch branch does.
-try:
-    value = json.loads(r.stdout, parse_int=js_int)
-except ValueError:
+value = r.value
+if value is None and r.stdout.strip() != 'null':
     print(r.stdout, end='')
     sys.exit(r.returncode)
 log(not ledger_error(value), ledger_error(value) or value)

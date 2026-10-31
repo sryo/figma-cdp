@@ -24,7 +24,7 @@ return { name: page.name, frames: page.children.length };'
 - **Quoting.** The script sits in single quotes, so write JS strings with `"` or backticks; a `'` ends the shell string.
 - **Other sources.** A path to a `.js` file (written with the Write tool) works the same, and `-` reads the script from stdin.
 - **File.** `--file <figma-url-or-key>` picks the tab in Mode P (required when several Figma files are open); `FIGMA_FILE` is its default.
-- **Timeout.** In Mode P a script that awaits gets 120s, or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file. A script that times out keeps running; the error names `--recover <id>` for its result (Lost replies and timeouts below).
+- **Timeout.** In Mode P a script that awaits gets 100s (under the Bash tool's own 120s), or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file. A script that times out keeps running; the error names `--recover <id>` for its result (Lost replies and timeouts below).
 
 In Mode A/B the helper base64-encodes the script for `agent-browser eval -b` (port: `FIGMA_CDP_PORT`, else `DevToolsActivePort`, else 9222); in Mode P it runs through perch.
 
@@ -152,7 +152,7 @@ Workers in one tab can't see each other's writes as they happen, so the helpers 
 
 ### Lost replies and timeouts
 
-Each script runs under a request id in the page's ledger (`window.__fxRuns`, the last 50). When the daemon drops a reply, the helper resends the same request once: a script that finished answers from the ledger, one that never ran runs now, and nothing runs twice. A timeout, or a script still running at the resend, names its id: `figma_run.py --file <url> --recover <id>` prints its result once it finishes (results over 32 KB aren't kept; read the state instead).
+Each script runs under a request id in the page's ledger (`window.__fxRuns`, the last 50). When the daemon drops a reply, the helper resends the same request once: a script that finished answers from the ledger, one that never ran runs now, and nothing runs twice. A timeout, or a script still running at the resend, names its id: `figma_run.py --file <url> --recover <id>` waits for it (up to `--timeout`) and prints its result; don't poll it with `sleep` (results over 32 KB aren't kept; read the state instead).
 
 ### When to use sessions vs shared state
 

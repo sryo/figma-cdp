@@ -24,7 +24,7 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 ~/.perch, then ~/Documents/perch); else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (or FIGMA_FILE) names the Figma file; needed when several are open.
-perch await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 120.
+perch await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 100.
 cdp walks public/unauthenticated pages only (the capture session has no Chrome login);
 a perch walk runs in the user's browser, with its logins.
 """
@@ -189,10 +189,10 @@ def start_daemon(sock, helper):
         return False
 
 def timeout_seconds(flag):
-    """--timeout, else FIGMA_TIMEOUT, else 120: seconds a perch eval may await, clamped to 1-300."""
+    """--timeout, else FIGMA_TIMEOUT, else 100: seconds a perch eval may await, clamped to 1-300."""
     raw = flag if flag is not None else os.environ.get('FIGMA_TIMEOUT')
     if raw is None or str(raw).strip() == '':
-        return 120.0
+        return 100.0
     try:
         v = float(raw)
     except ValueError:
@@ -559,7 +559,7 @@ def main():
     i.add_argument('--dry-run', metavar='DIR', help='write each eval to DIR/NN_<kind>.js instead of running')
     for sp in (w, i):
         sp.add_argument('--timeout', metavar='SECONDS',
-                        help='how long an eval may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 120)')
+                        help='how long an eval may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 100)')
     args = p.parse_args()
     walk(args) if args.cmd == 'walk' else import_spec(args)
 

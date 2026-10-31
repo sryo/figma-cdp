@@ -21,7 +21,7 @@ else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 ~/.perch, then ~/Documents/perch), which needs no remote debugging; else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
 perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
-perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 120.
+perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 100.
 --lib: figma_lib.js goes in front of the first script, installing window.__fx once per tab.
 --ns <prefix>: run as that worker, as figma_run.py --ns does.
 --stop: end the batch at the first script that throws, returns nothing, or returns {error};
@@ -182,10 +182,10 @@ def start_daemon(sock, helper):
         return False
 
 def timeout_seconds(flag):
-    """--timeout, else FIGMA_TIMEOUT, else 120: seconds a perch eval may await, clamped to 1-300."""
+    """--timeout, else FIGMA_TIMEOUT, else 100: seconds a perch eval may await, clamped to 1-300."""
     raw = flag if flag is not None else os.environ.get('FIGMA_TIMEOUT')
     if raw is None or str(raw).strip() == '':
-        return 120.0
+        return 100.0
     try:
         v = float(raw)
     except ValueError:
@@ -195,7 +195,7 @@ def timeout_seconds(flag):
     return min(300.0, max(1.0, v))
 
 
-def perch(req, timeout=120.0, rids=()):
+def perch(req, timeout=100.0, rids=()):
     """Ask figma_perch.mjs (next to this script, symlinks followed) through its daemon, else run it once; its JSON reply.
     rids are the request ids of req's sources, so a timeout can say how to recover its script."""
     helper = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_perch.mjs')
@@ -309,14 +309,14 @@ def ledger_error(v):
         return None
     rid = v['__fxRun']
     if v.get('state') == 'running':
-        return f'request {rid} is still running in the page; figma_run.py --recover {rid} prints its result once it finishes'
+        return f'request {rid} is still running in the page; figma_run.py --recover {rid} waits for it and prints its result'
     return f'request {rid} finished, but its result was over 32 KB and was not kept; read the state it left instead'
 
 def timeout_note(error, rid):
     """A timed-out script keeps running in the page: say how to get its result."""
     if not error.startswith('timeout:'):
         return error
-    return f'{error}\nIt may still finish: figma_run.py --recover {rid} prints its result then'
+    return f'{error}\nIt may still finish: figma_run.py --recover {rid} waits for it and prints its result'
 
 def with_lib(src):
     """figma_lib.js (next to this script) in front of a wrapped script: the library installs

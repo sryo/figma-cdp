@@ -307,10 +307,11 @@ class PerchBackend(Harness):
     def eval_timeouts(self):
         return [c['args'].get('timeout') for c in self.calls('eval_js')]
 
-    def test_default_timeout_is_two_minutes(self):
-        r = self.run_helper('figma_run.py', self.js('a.js', '1'))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.eval_timeouts(), [120000])
+    def test_default_timeout_is_under_the_bash_tools_two_minutes(self):
+        for helper in ('figma_run.py', 'figma_batch_run.py'):
+            r = self.run_helper(helper, self.js('a.js', '1'))
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.eval_timeouts()[-2:], [100000, 100000])
 
     def test_timeout_is_honoured(self):
         slow = self.js('a.js', 'new Promise(r => setTimeout(() => r("late"), 1500))')
@@ -364,7 +365,7 @@ class PerchBackend(Harness):
                             PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 30000ms')
         self.assertEqual(r.returncode, 1)
         self.assertIn('perch: timeout: eval_js', r.stderr)
-        self.assertIn('ran past the 120s it was given', r.stderr)
+        self.assertIn('ran past the 100s it was given', r.stderr)  # under the Bash tool's own 120 s
 
     def test_missing_js_file(self):
         r = self.run_helper('figma_run.py', os.path.join(self.tmp.name, 'nope.js'))
@@ -1003,12 +1004,21 @@ class Ledger(Harness):
     def test_a_timed_out_script_is_recovered_once_it_finishes(self):
         r = self.run_helper('figma_run.py', '--timeout', '1', '-e', 'await new Promise((r) => setTimeout(r, 1500)); return "late"')
         self.assertEqual(r.returncode, 1)
+        self.assertIn('--recover', r.stderr)
+        self.assertIn('waits for it', r.stderr)
         rid = re.search(r'--recover ([0-9a-f]{12})', r.stderr).group(1)
-        early = self.run_helper('figma_run.py', '--recover', rid)
-        self.assertIn('still running', early.stderr)
-        time.sleep(1)
+        # --recover waits in the helper while the script runs, so nobody polls it with sleep.
         rec = self.run_helper('figma_run.py', '--recover', rid)
         self.assertEqual((rec.returncode, rec.stdout), (0, '"late"\n'), rec.stderr)
+
+    def test_recover_gives_up_after_its_timeout(self):
+        r = self.run_helper('figma_run.py', '--timeout', '1', '-e', 'await new Promise((r) => setTimeout(r, 6000)); return 1')
+        rid = re.search(r'--recover ([0-9a-f]{12})', r.stderr).group(1)
+        t = time.time()
+        rec = self.run_helper('figma_run.py', '--recover', rid, '--timeout', '1')
+        self.assertLess(time.time() - t, 4)
+        self.assertEqual(rec.returncode, 1)
+        self.assertIn(f'request {rid} is still running', rec.stderr)
 
     def test_recover_an_unknown_request(self):
         r = self.run_helper('figma_run.py', '--recover', 'abcdefabcdef')
@@ -1126,7 +1136,7 @@ class CapturePerch(Harness):
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url})
         ev = self.calls('eval_js')[0]['args']
         tab = ev['target']['tabId']
-        self.assertEqual((ev['world'], ev['awaitPromise'], ev['timeout']), ('main', True, 120000))
+        self.assertEqual((ev['world'], ev['awaitPromise'], ev['timeout']), ('main', True, 100000))
         self.assertEqual(self.calls('wait')[0]['args']['target'], {'tabId': tab})
         self.assertEqual(self.calls('close_tab')[0]['args'], {'tabId': tab})
 

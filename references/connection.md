@@ -103,7 +103,7 @@ If text set in a local system font (SF Pro, a font installed on the Mac) measure
 If a Mode P call fails, the error keeps perch's code:
 - `no_perch`: no `server.js` at `PERCH_DIR`, or a perch without `eval_js` `world:"main"`; update perch.
 - `no_tab` / `ambiguous_tab`: open the file in Chrome, or pass `--file`.
-- `timeout`: an awaited eval runs at most 120s by default; pass `--timeout <seconds>` to either helper (or set `FIGMA_TIMEOUT`), up to 300. A perch older than this awaits 30s whatever you ask; update it. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
+- `timeout`: an awaited eval runs at most 100s by default; pass `--timeout <seconds>` to either helper (or set `FIGMA_TIMEOUT`), up to 300. A perch older than this awaits 30s whatever you ask; update it. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
 - `tab_not_visible` (screenshot only): the tab isn't the one its window shows.
 - `figma is undefined in this tab`: open and close any plugin once, as above.
 - `stale_tab: ... no longer shows file`: the tab moved to another file mid-batch; the rest of the batch didn't run.
