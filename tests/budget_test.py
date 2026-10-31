@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 5985,
+    'SKILL.md': 6098,
     'figma-worker.md': 6181,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -108,6 +108,12 @@ class Docs(unittest.TestCase):
         self.assertLess(edit.start(), flow.index('**Component plan'), 'the edit rule must come before the component plan')
         self.assertRegex(edit.group(0), r'(?i)in place')
         self.assertRegex(edit.group(0), r'(?i)never[^.]*(replace|remove)[^.]*instance')
+
+    def test_an_edit_reads_its_target_with_props_in_the_recon_call(self):
+        text = docs()['SKILL.md']
+        edit = next(l for l in text.splitlines() if '"make it match"' in l)
+        self.assertRegex(edit, r'recon\(\{nodeId[^)]*props: true\}\)', 'an edit reads its target without layout, paints and effects')
+        self.assertRegex(edit, r'(?i)step 3.s call', 'the props read is a second call instead of part of recon')
 
     def test_component_plan_covers_the_manifest_components_and_containers(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
