@@ -102,11 +102,25 @@ class Affects(unittest.TestCase):
             rules = json.load(f)['rules']
         tasks = {f[:-5] for f in os.listdir(os.path.join(EVAL, 'tasks'))}
         for r in rules:
-            self.assertTrue(r['tasks'] == '*' or set(r['tasks']) <= tasks, r)
+            self.assertTrue(r['tasks'] in ('*', 'none') or set(r['tasks']) <= tasks, r)
         files = subprocess.run(['git', '-C', ROOT, 'ls-files'], capture_output=True, text=True).stdout.split()
         for path in files:
             if judge_guard.SKILL.match(path):
                 self.assertTrue(any(fnmatch.fnmatch(path, g) for r in rules for g in r['files']), f'affects.json has no rule for {path}')
+
+
+    def test_skip_rules_map_docs_to_the_trio_and_tooling_to_nothing(self):
+        sys.path.insert(0, os.path.join(ROOT, 'tests', 'cases'))
+        import case
+        trio = ['recon', 'effects', 'fidelity-edit']
+        hit = lambda *files: case.affected(list(files), ROOT)
+        self.assertEqual(hit('SKILL.md'), trio, 'app-screens runs only when a case targets it')
+        self.assertEqual(hit('figma-worker.md'), trio)
+        self.assertEqual(hit('figma_run.py'), ['recon'])
+        self.assertEqual(hit('figma_perch.mjs'), ['recon'])
+        self.assertEqual(hit('tests/eval/gate.py', 'tests/eval/reparse.py', 'tests/gates_test.py', 'README.md', 'GOALS.md', 'AGENTS.md'), [])
+        every = sorted(t['id'] for t in (read(os.path.join(EVAL, 'tasks', f)) for f in os.listdir(os.path.join(EVAL, 'tasks'))) if t.get('default', True))
+        self.assertEqual(sorted(hit('some/new_helper.py')), every, 'an unmatched file could move anything')
 
 
 def read(path):
@@ -145,7 +159,7 @@ class Guard(unittest.TestCase):
         git(self.repo, 'commit', '-q', '-m', msg)
 
     def test_the_fium_gate_and_its_noise_are_judges(self):
-        for p in ('tests/eval/gate.py', 'tests/eval/noise.json'):
+        for p in ('tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/reparse.py'):
             self.assertTrue(judge_guard.JUDGE.match(p), p)
 
     def test_a_commit_that_edits_its_own_judge_fails(self):

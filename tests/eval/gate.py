@@ -12,7 +12,8 @@ failed calls and unhinted errors are noisy counts, the other cost metrics exact 
 metrics and passed are quality, higher unless the scorer lists them lower, and noisy when the
 run's reps disagree (passed stays exact). Dollars and a task's saturated metrics are left out.
 
---tasks keeps only those tasks in both runs (a paired run of the affected tasks).
+--tasks keeps only those tasks in both runs (a paired run of the affected tasks); by default a run
+stamped with its commit is gated on the tasks fium scope says that change can move.
 --require task:metric>=x fails unless the candidate's median meets it, which gates a new task the
 baseline lacks; --gain task:metric>=x fails unless the candidate beats the baseline's median by at
 least x (ops: >= > <= < ==). A task with a worse metric gets its scorer notes printed under the rows.
@@ -119,12 +120,36 @@ def command(base_path, run_path, rev):
     return cmd
 
 
+def scope_command(rev, to):
+    return [FIUM, 'scope', f'{rev}..{to}', '--repo', REPO, '--affects', os.path.join(HERE, 'affects.json'), '--json']
+
+
+def default_tasks(cand):
+    """For a run stamped with its commit: the tasks fium scope says the change from the baseline's last
+    refresh to that commit can move ('*' is every task the runs share). None gates every shared task."""
+    to = (cand.get('meta') or {}).get('rev')
+    rev = subprocess.run(['git', '-C', REPO, 'log', '-1', '--format=%h', '--', 'tests/eval/baseline.json'],
+                         capture_output=True, text=True).stdout.strip()
+    if not to or not rev or not os.path.exists(FIUM):
+        return None
+    try:
+        tasks = json.loads(subprocess.run(scope_command(rev, to), capture_output=True, text=True).stdout)['tasks']
+    except (ValueError, KeyError):
+        return None
+    return None if tasks == '*' else set(tasks)
+
+
 def only(run, tasks):
-    return dict(run, tasks={t: v for t, v in run['tasks'].items() if t in tasks}) if tasks else run
+    return dict(run, tasks={t: v for t, v in run['tasks'].items() if t in tasks}) if tasks is not None else run
 
 
 def gate(baseline, candidate, tasks=None, require=(), gain=()):
-    base, cand = only(load(baseline), tasks), only(load(candidate), tasks)
+    base, cand = load(baseline), load(candidate)
+    if tasks is None:
+        tasks = default_tasks(cand)
+        if tasks is not None:
+            print(f"gate.py: tasks from fium scope: {', '.join(sorted(tasks)) or 'none'}")
+    base, cand = only(base, tasks), only(cand, tasks)
     tmp = tempfile.mkdtemp(prefix='figma-eval-fium-')
     try:
         paths = []

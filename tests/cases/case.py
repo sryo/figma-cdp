@@ -291,7 +291,9 @@ def affected(files, wt):
     out = []
     for path in files:
         rule = next((r for r in rules if any(fnmatch.fnmatch(path, g) for g in r['files'])), None)
-        for t in (every if rule and rule['tasks'] == '*' else (rule or {}).get('tasks', [])):
+        # A file no rule matches could move anything; "none" is a change no live run measures.
+        tasks = every if rule is None or rule['tasks'] == '*' else [] if rule['tasks'] == 'none' else rule['tasks']
+        for t in tasks:
             if t not in out:
                 out.append(t)
     return out

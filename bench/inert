@@ -1,0 +1,12 @@
+# Files no eval run reads: a change to only these carries a kept run (fium price compare).
+# fium's defaults, plus docs/, which the skill never loads (its runtime docs are references/).
+README.md
+GOALS.md
+AGENTS.md
+CLAUDE.md
+LICENSE
+docs/*
+test/*
+tests/*
+*noise.json
+*baseline.json

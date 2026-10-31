@@ -39,6 +39,36 @@ def file_key(url):
     return m.group(1)
 
 
+FIUM = os.environ.get('FIUM', os.path.expanduser('~/Documents/fium/fium'))
+
+
+def scope_command(rev):
+    return [FIUM, 'scope', f'{rev}..HEAD', '--repo', ROOT, '--affects', os.path.join(HERE, 'affects.json'), '--json']
+
+
+def scoped(scope):
+    """fium scope's answer as task ids: '*' is every default task."""
+    return [t['id'] for t in load_tasks([])] if scope['tasks'] == '*' else list(scope['tasks'])
+
+
+def expected_tokens(tasks, reps, baseline):
+    return sum(round(baseline['tasks'].get(t, {}).get('median', {}).get('tokens_total', 0)) for t in tasks) * reps
+
+
+def default_tasks(baseline):
+    """The tasks the change since baseline.json was last refreshed can move (fium scope over
+    affects.json), or None when fium is missing, so every default task runs."""
+    rev = subprocess.run(['git', '-C', ROOT, 'log', '-1', '--format=%h', '--', 'tests/eval/baseline.json'],
+                         capture_output=True, text=True).stdout.strip() or baseline.get('meta', {}).get('rev')
+    if not rev or not os.path.exists(FIUM):
+        return None, rev
+    r = subprocess.run(scope_command(rev), capture_output=True, text=True)
+    try:
+        return scoped(json.loads(r.stdout)), rev
+    except (ValueError, KeyError):
+        sys.exit(f'run.py: fium scope failed: {(r.stderr or r.stdout).strip()[:300]}')
+
+
 def load_tasks(names):
     tasks = {}
     for f in sorted(os.listdir(os.path.join(HERE, 'tasks'))):
@@ -252,7 +282,7 @@ def main():
     ap = argparse.ArgumentParser(prog='run.py', description=__doc__.split('\n\n')[0])
     ap.add_argument('--file', required=True, help='scratch Figma file URL')
     ap.add_argument('--skill-dir', default=ROOT, help='copy of the skill to measure (default: this repo)')
-    ap.add_argument('--tasks', default='', help='comma-separated task ids (default: every task not marked default:false)')
+    ap.add_argument('--tasks', default='', help='comma-separated task ids (default: the tasks fium scope says the change since the baseline can move)')
     ap.add_argument('--reps', type=int, default=3)
     ap.add_argument('--out', default='results.json')
     ap.add_argument('--keep', action='store_true', help="leave each rep's pages in the file")
@@ -275,7 +305,19 @@ def main():
         if problem:
             sys.exit(f'run.py: {problem}')
         print(f'run.py: tab {a.tab or tabs[0]["tabId"]}', file=sys.stderr)
-    tasks = load_tasks([t for t in a.tasks.split(',') if t])
+    names = [t for t in a.tasks.split(',') if t]
+    with open(os.path.join(HERE, 'baseline.json')) as f:
+        baseline = json.load(f)
+    if not names:
+        names, rev = default_tasks(baseline)
+        if names == []:
+            sys.exit(f'run.py: the change since {rev} moves no eval task (affects.json): re-judge it offline with '
+                     'reparse.py and gate.py on kept runs, or pass --tasks')
+        print(f"run.py: tasks from fium scope since {rev}: {', '.join(names)}" if names is not None
+              else 'run.py: no fium scope; every default task', file=sys.stderr)
+    tasks = load_tasks(names or [])
+    print(f"run.py: {', '.join(t['id'] for t in tasks)} x {a.reps} reps, about "
+          f"{expected_tokens([t['id'] for t in tasks], a.reps, baseline) / 1e6:.1f}M tokens at baseline medians", file=sys.stderr)
     rev, dirty = git_rev(a.skill_dir)
     out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '', 'case': a.case,
                     'reps': a.reps, 'date': time.strftime('%Y-%m-%dT%H:%M:%S%z')},

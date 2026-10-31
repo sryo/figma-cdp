@@ -481,6 +481,32 @@ class Gate(unittest.TestCase):
             self.assertEqual(gate.gate(base, write('worse.json', res(copy=0.9))), 1, 'a quality drop blocks')
 
 
+class Scope(unittest.TestCase):
+    """run.py's default --tasks: what fium scope says the change since the baseline can move."""
+
+    def test_scope_picks_the_tasks_and_prices_them(self):
+        every = [t['id'] for t in run.load_tasks([])]
+        self.assertEqual(run.scoped({'tasks': '*'}), every)
+        self.assertEqual(run.scoped({'tasks': ['recon', 'effects']}), ['recon', 'effects'])
+        self.assertEqual(run.scoped({'tasks': []}), [])
+        base = {'tasks': {'recon': {'median': {'tokens_total': 44000, 'turns': 2}},
+                          'effects': {'median': {'tokens_total': 90000, 'turns': 4}}}}
+        self.assertEqual(run.expected_tokens(['recon', 'effects'], 2, base), 268000)
+        self.assertEqual(run.expected_tokens(['recon', 'new-task'], 2, base), 88000, 'a task the baseline lacks adds nothing it can price')
+
+    def test_gate_scopes_a_stamped_run_to_what_its_commit_can_move(self):
+        import gate
+        self.assertIsNone(gate.default_tasks({'meta': {}}), 'an unstamped run is gated on every task it shares')
+        cmd = gate.scope_command('aaa1111', 'bbb2222')
+        self.assertEqual(cmd[1:3], ['scope', 'aaa1111..bbb2222'])
+
+    def test_scope_asks_fium_for_the_change_since_the_baseline_was_refreshed(self):
+        cmd = run.scope_command('abc1234')
+        self.assertEqual(cmd[1:3], ['scope', 'abc1234..HEAD'])
+        self.assertEqual(cmd[cmd.index('--affects') + 1], os.path.join(HERE, 'affects.json'))
+        self.assertIn('--json', cmd)
+
+
 class Stream(unittest.TestCase):
     def test_parse_counts_subagents_and_sums_models(self):
         out = subprocess.run([sys.executable, os.path.join(HERE, 'offline', 'fake_claude.py'), '-p',

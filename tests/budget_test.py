@@ -12,7 +12,7 @@ run from the skill directory, one rule for variant property timing, the worker's
 
   python3 tests/budget_test.py
 """
-import os, re, unittest
+import os, re, sys, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -167,6 +167,33 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_worker_sheet_helper_lines_mirror_execution_md(self):
+        """Every option the worker sheet lists for a helper is in execution.md's row for it."""
+        d = docs()
+        rows = {m.group(1): m.group(0) for m in re.finditer(r'^\| `__fx\.(\w+)\(.*$', d['references/execution.md'], re.M)}
+        for m in re.finditer(r'^- `(\w+)\(([^)]*)\)`', d['figma-worker.md'], re.M):
+            name, sig = m.group(1), m.group(2)
+            if name not in rows:
+                continue
+            opts = re.findall(r'\{[^{}]*\}', sig)  # the options object is the signature's last {...}
+            for opt in re.findall(r'[{,]\s*(\w+)(?=[:,}])', opts[-1] if opts else ''):
+                self.assertIn(opt, rows[name], f'worker sheet {name}() lists {opt}, execution.md does not')
+
+    def test_worker_sheet_gotchas_have_a_source(self):
+        """Each worker gotcha's key call is in a reference it mirrors (gotchas, execution, building, conventions, connection)."""
+        d = docs()
+        src = ''.join(d[f'references/{n}.md'] for n in ('gotchas', 'execution', 'building', 'conventions', 'connection'))
+        gotchas = d['figma-worker.md'].split('Gotchas:', 1)[1].split('\n## ', 1)[0]
+        for line in re.findall(r'^\d+\. (.+)$', gotchas, re.M):
+            calls = re.findall(r'`([^`]+)`', line)
+            self.assertTrue(not calls or any(c in src for c in calls), f'no source for worker gotcha: {line[:80]}')
+
+    def test_token_estimate_prices_always_loaded_bytes_by_turns(self):
+        import token_estimate as te
+        base = {'tasks': {'recon': {'median': {'turns': 2}}, 'effects': {'median': {'turns': 4}}}}
+        self.assertEqual(te.estimate({'SKILL.md': 400, 'references/api-text.md': 4000}, ['recon', 'effects'], base), 600,
+                         '400 bytes / 4 tokens per byte x (2 + 4) turns; a reference read on demand is not always loaded')
 
     def test_worker_sheet_says_linkcopies_keeps_nested_instances(self):
         line = next(l for l in docs()['figma-worker.md'].splitlines() if l.startswith('- `linkCopies('))
