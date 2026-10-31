@@ -7,7 +7,8 @@
       persists it to /tmp/figma_capture_<slug>.json.
       cdp: binds an isolated `--session capture` to the CDP port (connect explicitly —
       a bare --cdp does not retarget a bound session) and `open`s the URL in it.
-      perch: a new unselected tab (perch new_tab; the browser may come forward), closed after the walk.
+      perch: a new tab (perch new_tab) in --app, else a perch room that is up, else the frontmost browser,
+      closed after the walk; a Mac browser without the user's focus grant stops it (needs_focus).
   import <spec.json> [--components <json-or-path>] [--componentize] [--chunk-bytes N]
          [--file <figma-url-or-key>] [--timeout <seconds>] [--dry-run <dir>]
       Replays the spec into the Figma tab: a reset eval, the assets streamed in
@@ -545,7 +546,7 @@ def main():
     w.add_argument('url')
     w.add_argument('wait_ms', nargs='?', default='2000')
     w.add_argument('--app', default=os.environ.get('FIGMA_CAPTURE_APP'),
-                   help='browser to open the page tab in (perch backend; default FIGMA_CAPTURE_APP, else the frontmost one)')
+                   help='browser to open the page tab in (perch backend; default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one)')
     w.add_argument('--show', action='store_true',
                    help='Arc only: show the page tab, taking focus; other browsers run it in the background')
     i = sub.add_parser('import', help='replay a spec into the Figma tab')

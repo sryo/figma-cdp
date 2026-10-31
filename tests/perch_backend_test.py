@@ -1213,7 +1213,7 @@ class CapturePerch(Harness):
         with open(out) as f:
             spec = json.load(f)
         self.assertEqual((spec['meta']['url'], spec['nodes'][0]['text']), (url, 'ñ'))
-        self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'])
+        self.assertEqual([c['name'] for c in self.calls()], ['list_tabs', 'new_tab', 'wait', 'eval_js', 'close_tab'])
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url})
         ev = self.calls('eval_js')[0]['args']
         tab = ev['target']['tabId']
@@ -1303,9 +1303,33 @@ class CapturePerch(Harness):
         self.assertIn('show: brought Arc to the front', r.stderr)
 
     def test_walk_show_in_arc_without_a_focus_grant_says_why(self):
+        """perch 955a79b: opening the Arc tab already needs the grant, so the walk stops before --show."""
         _, _, r = self.walk('page', '0', '--show', '--app', 'Arc', PERCH_STUB_NO_FOCUS='1')
-        self.assertIn('show: needs_focus: activate_tab would bring the browser to the front', r.stderr)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('needs_focus', r.stderr)
+        self.assertIn('perch focus allow 15m', r.stderr)
         self.assertNotIn('show: brought Arc to the front', r.stderr)
+        self.assertEqual(self.calls('activate_tab'), [])
+
+    def test_walk_opens_its_page_tab_in_a_room_when_one_is_up(self):
+        """A room needs no focus grant and runs with the screen locked."""
+        room = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'about:blank', 'title': ''}]
+        url, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1', PERCH_STUB_TABS=json.dumps(room))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'room:main'})
+        stop_daemon(self.sock)
+        open(self.log, 'w').close()
+        url, _, r = self.walk('page', '0', '--app', 'Google Chrome', PERCH_STUB_TABS=json.dumps(room))
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome'}, 'an app the caller names wins')
+
+    def test_walk_without_a_room_or_focus_grant_stops_and_says_so(self):
+        _, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('needs_focus', r.stderr)
+        self.assertIn('perch focus allow 15m', r.stderr)
+        self.assertIn('rooms up', r.stderr)
+        self.assertEqual(len(self.calls('new_tab')), 1, 'never retried in a Mac browser')
+        self.assertEqual(self.calls('eval_js'), [])
 
     def test_walk_names_the_browser_when_the_walker_fails(self):
         _, _, r = self.walk('boom', '0', '--app', 'Google Chrome Canary')

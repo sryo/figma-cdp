@@ -13,6 +13,8 @@
 //   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
 //   PERCH_STUB_HIDDEN "1" gives scripts a `document` whose visibilityState is "hidden"
 //   PERCH_STUB_FRONT  the browser new_tab opens in when the call names none (default Google Chrome)
+//   PERCH_STUB_NO_FOCUS  no focus grant: new_tab in a Mac browser other than Safari and activate_tab on a
+//                     browser tab answer needs_focus; rooms are exempt
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
 // new_tab adds a tab (http(s), file or about:blank, as perch takes) that wait, eval_js and
 // close_tab address until it closes; it lives as long as this process. Like a browser's,
@@ -51,7 +53,10 @@ export async function handleCall(name, args = {}) {
   if (process.env.PERCH_STUB_LOG) appendFileSync(process.env.PERCH_STUB_LOG, JSON.stringify({ name, args, pid: process.pid }) + "\n");
   if (name === "list_tabs") {
     const q = String(args.urlContains || "").toLowerCase();
-    const rows = tabs().filter((t) => t.url.toLowerCase().includes(q));
+    const want = args.app ? String(args.app) : null;
+    const rows = tabs().filter((t) => t.url.toLowerCase().includes(q) &&
+      (!want || t.app === want || (want === "room" && /^room:/.test(t.app || ""))));
+    if (want === "room" && !rows.length) return fail("no_browser: no room is up; rooms up <name>");
     return text(JSON.stringify({ tabs: rows, total: rows.length }));
   }
   if (name === "eval_js") {
@@ -82,6 +87,8 @@ export async function handleCall(name, args = {}) {
     const url = args.url == null ? "about:blank" : String(args.url);
     if (!/^(https?:|file:|about:blank$)/i.test(url)) return fail(`bad_url: new_tab takes http(s), file or about:blank URLs; got ${url}`);
     const app = args.app || process.env.PERCH_STUB_FRONT || "Google Chrome";
+    // perch 955a79b: a new tab in a Mac browser other than Safari takes focus, so it needs the grant.
+    if (process.env.PERCH_STUB_NO_FOCUS && !/^room:/.test(app) && app !== "Safari") return fail("needs_focus: new_tab would bring the browser to the front, and the user has not allowed perch to take focus; nothing was sent");
     const tab = { app, tabId: `${app.split(" ").pop().toLowerCase()}:${++openSeq}`, url: "about:blank", title: "", loads: url };
     opened.push(tab);
     return text(JSON.stringify({ app: tab.app, tabId: tab.tabId }));

@@ -15,7 +15,8 @@
 //
 //   stop: true     (eval) the first script that fails, returns nothing or returns an
 //                  object with an `error` key ends the run (figma_capture.py's failures)
-//   op "page"      opens url in a new background tab, waits for it to load and
+//   op "page"      opens url in a new background tab (in `app`, else a room that is up, else perch's
+//                  frontmost browser; needs_focus from a Mac browser ends it), waits for it to load and
 //                  `settle` ms more, runs each source there, closes the tab. Each source
 //                  is one expression (awaited); it runs inline, not through eval, so a
 //                  page whose CSP bans eval still runs it. `app` names the browser (else
@@ -229,12 +230,20 @@ const ARC = /^arc$/i;
 async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
   let tabId, opened;
   const warnings = [];
+  // A room needs no focus grant and runs with the screen locked, so it wins unless the caller names an app.
+  if (!app) {
+    try { app = (JSON.parse((await call(handleCall, "list_tabs", { app: "room", limit: 1 })).text).tabs || [])[0]?.app || null; } catch { app = null; }
+  }
   try {
     const { text } = await call(handleCall, "new_tab", app ? { url, app } : { url });
     opened = JSON.parse(text.split("\n")[0]);
     tabId = opened.tabId;
     if (opened.warning) warnings.push(opened.warning);
   } catch (e) {
+    if (/^needs_focus: /.test(e.message)) {
+      return { app: app || "the browser", warnings, fatal: "needs_focus: capture opens the page in a new tab, and a Mac browser takes focus to open one, " +
+        "which the user has not allowed; nothing was opened. Bring up a room (rooms up <name>), or ask the user to run `perch focus allow 15m`" };
+    }
     return { fatal: e.message };
   }
   const where = opened.app || app || "the browser";
