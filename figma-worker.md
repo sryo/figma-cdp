@@ -34,13 +34,13 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 - `frame({parent, name, dir: 'V'|'H'|'NONE', gap, pad: n|[v,h]|[t,r,b,l], align, justify: start|center|end|between|baseline, wrap: true, w, h: n|'fill'|'hug', fill, stroke, strokeWeight, radius, clip, component: true, abs: true, x, y, constraints})`: no fill unless given; with `dir` it hugs
 - `text(chars, {parent, name, family, weight: 'Bold'|700, size, lineHeight, textStyle, color, align: start|center|end, w: 'fill'|n, abs, x, y, constraints})`: loads the font; `w` wraps it
 - `instance(id|key|name, {Axis: 'Value', Label: 'x'}, {parent, name, w, h, abs, x, y, constraints})`
-- `icon(svg, {parent, name, component: true, color})`: an SVG icon as one hugging auto-layout layer, paths where the SVG draws them
+- `icon(svg, {parent, name, component: true, color})`: an SVG icon as one hugging auto-layout layer, paths where the SVG draws them; every icon, never by hand
 - `linkCopies([ids], {master, name})`: hand-drawn copies of one structure become a component (the master, in place) and instances keeping each copy's texts, fills and place; returns `{master, props, linked, raw}`
 - `bindFill(ref, '#hex'|token|style, 'fills'|'strokes')`; `fill`/`stroke`/`color` above go through it
 - `react(ref, [{on: 'click'|'hover'|'press'|{key: 27}|{after: ms}, do: 'back'|'close'|{to, nav: navigate|overlay|swap|change|scroll, anim, ms}}], {append})`, `overlayFrame({base, name, items})`, `flow(page, frame, name)`: `references/prototyping.md`. An instance's own reactions drop its main's hover
 - `autoLayout(ref, opts)`, `inventory({match})`, `audit(rootId)`
 
-Variants: hugging auto-layout base component; clones named with the source's names (`Size=sm, State=hover`); `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set: auto layout + HUG. Slot (per-use content): `const s = comp.createSlot()` adds a SLOT layer and its SLOT property; give it a name and auto layout; per use, `appendChild` into the instance's SLOT layer.
+Variants: hugging auto-layout base component; clones named with the source's names from the manifest's `variants` and `states` (`Size=sm, State=hover`); `figma.combineAsVariants(list, parent)`; then on the set `addComponentProperty` TEXT/BOOLEAN/INSTANCE_SWAP, linked per variant with `layer.componentPropertyReferences = {characters|visible|mainComponent: key}` (the returned `Name#id`); the set: auto layout + HUG. Slot (per-use content): `const s = comp.createSlot()` adds a SLOT layer and its SLOT property; give it a name and auto layout; per use, `appendChild` into the instance's SLOT layer.
 
 Gotchas:
 1. FILL/HUG after `appendChild`; `resize()` before sizing modes (it resets them).

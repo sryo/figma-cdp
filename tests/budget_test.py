@@ -18,15 +18,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 6235,
-    'figma-worker.md': 6792,
+    'figma-worker.md': 6863,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 27113,
+    'Build screens': 27404,
     'Copy/text edit': 15888,
-    'Component/variant/design-system': 23199,
-    'Color/effects/prototype': 15892,
+    'Component/variant/design-system': 23256,
+    'Color/effects/prototype': 16126,
 }
 
 
@@ -159,6 +159,25 @@ class Docs(unittest.TestCase):
         self.assertRegex(line, r"(?i)source's names", 'clones are not named from the source')
         for call in ('getNodeByIdAsync', 'getMainComponentAsync', 'figma.variables.getLocalVariablesAsync'):
             self.assertIn(call, worker, f'the worker sheet does not name {call} for dynamic-page reads')
+
+    def test_flex_default_stretch_maps_to_fill_across(self):
+        conv = docs()['references/conventions.md']
+        row = next((l for l in conv.splitlines() if 'stretch' in l.lower() and 'align-items' in l), '')
+        self.assertRegex(row, r'(?i)no `?align-items`?[^|]*\|[^|]*FILL', 'default cross-axis stretch has no mapping')
+        self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
+
+    def test_variant_axes_come_from_manifest_variants_and_states(self):
+        text = docs()['references/building.md']
+        sec = text[text.index('## Repeated patterns'):].split('\n## ')[0]
+        self.assertRegex(sec, r"manifest's `variants` and `states`", 'states the source names are left out of the axes')
+        worker = docs()['figma-worker.md']
+        line = next(l for l in worker.splitlines() if l.startswith('Variants:'))
+        self.assertRegex(line, r"manifest's `variants` and `states`")
+
+    def test_worker_builds_icons_with_fx_icon_only(self):
+        worker = docs()['figma-worker.md']
+        line = next(l for l in worker.splitlines() if 'icon(svg' in l)
+        self.assertRegex(line, r'(?i)never by hand', 'a hand-built icon has no auto layout')
 
     def test_component_plan_covers_the_manifest_components_and_containers(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
