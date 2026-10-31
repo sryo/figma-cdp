@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 6548,
-    'figma-worker.md': 7380,
+    'figma-worker.md': 7444,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -167,6 +167,10 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_worker_sheet_says_linkcopies_keeps_nested_instances(self):
+        line = next(l for l in docs()['figma-worker.md'].splitlines() if l.startswith('- `linkCopies('))
+        self.assertIn('nested instances', line, 'r17: a worker read figma_lib.js to learn how linkCopies treats nested instances')
 
     def test_previews_export_at_half_scale(self):
         d = docs()

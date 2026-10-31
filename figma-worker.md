@@ -35,7 +35,7 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 - `text(chars, {parent, name, family, weight: 'Bold'|700, size, lineHeight, textStyle, color, align: start|center|end, w: 'fill'|n, abs, x, y, constraints})`: loads the font; `w` wraps it
 - `instance(id|key|name, {Axis: 'Value', Label: 'x'}, {parent, name, w, h, abs, x, y, constraints})`
 - `icon(svg, {parent, name, component: true, color, set})`: an SVG icon as one hugging auto-layout layer, paths where the SVG draws them; `set: 'Icon'`: that set's `Name=<name>` variant; every icon, never by hand
-- `linkCopies([ids], {master, name})`: hand-drawn copies of one structure become a component (the master, in place) and instances keeping each copy's texts, fills and place; returns `{master, props, linked, raw}`
+- `linkCopies([ids], {master, name})`: hand-drawn copies of one structure become a component (the master, in place) and instances keeping each copy's texts, fills, visibility, place and nested instances (swapped to the copy's component); returns `{master, props, linked, raw}`
 - `bindFill(ref, '#hex'|token|style, 'fills'|'strokes')`; `fill`/`stroke`/`color` above go through it
 - `react(ref, [{on: 'click'|'hover'|'press'|{key: 27}|{after: ms}, do: 'back'|'close'|{to, nav: navigate|overlay|swap|change|scroll, anim, ms}}], {append})`, `overlayFrame({base, name, items})`, `flow(page, frame, name)`: `references/prototyping.md`. An instance's own reactions drop its main's hover
 - `autoLayout(ref, opts)`, `inventory({match})`, `audit(rootId)`
