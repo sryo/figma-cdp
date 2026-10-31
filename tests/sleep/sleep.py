@@ -389,7 +389,7 @@ def cmd_check(a):
     for g in gates:
         print('$ ' + ' '.join(g), flush=True)
         if not a.dry_run and subprocess.run(g, cwd=REPO).returncode:
-            case.die(f"gate failed: {' '.join(g)}")
+            print(f"sleep.py: gate failed: {' '.join(g)}", file=sys.stderr); sys.exit(1)
     if not a.dry_run:
         print('every gate passed')
 
