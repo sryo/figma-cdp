@@ -1,6 +1,6 @@
 # figma-cdp
 
-Build Figma mockups from code or plain English. The reverse of Figma MCP (which turns Figma into code). Point your agent at your app's code, paste HTML, or describe a screen, and it builds it in your Figma file.
+figma-cdp builds Figma mockups from code or plain English. The reverse of Figma MCP (which turns Figma into code). Point your agent at your app's code, paste HTML, or describe a screen, and it builds it in your Figma file.
 
 It reads your real code first, so the mockup uses your actual copy, colors and spacing. It reuses the components already in your file, turns repeated pieces into components with variants, and checks the result against your code before it says it's done.
 
@@ -20,7 +20,7 @@ On a Mac, also install [perch](https://github.com/sryo/perch). figma-cdp uses it
 
 Optional: set `FIGMA_TOKEN` if you want REST features like image rendering or comments. Generate a token at [figma.com/developers/api](https://www.figma.com/developers/api#access-tokens).
 
-## Usage
+## Use
 
 Talk to your agent:
 
