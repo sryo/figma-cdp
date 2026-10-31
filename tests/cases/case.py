@@ -14,7 +14,7 @@ source, sort out why, fix it test-first on its own branch, and record the outcom
 
 Cases live in ~/.figma-cdp/inbox/<case>/ (FIGMA_CDP_HOME moves it), outside the repo, since they
 quote the user's own files: case.json (fields) and notes.md (expected, actual, oracle, routes).
---last / --rid pull the eval from the journal figma_run.py and figma_batch_run.py keep in
+--last / --rid pull the eval from the journal figma_run.py keeps in
 ~/.figma-cdp/journal/. A closed case leaves one file in tests/ledger/<case>.json, committed with
 its fix; read the ledger before proposing a fix for a similar signature. AGENTS.md → Improving the
 skill has the loop, the classes and when each is decided.
@@ -273,7 +273,7 @@ def cmd_claim(a):
 OFFLINE = [['node', '--test', 'tests/figma_lib_test.js', 'tests/snapshot_test.js', 'tests/api_test.mjs'],
            ['tests/cases_test.py'], ['tests/probe_test.py'], ['tests/gates_test.py'], ['tests/drift_test.py'], ['tests/importer_test.py'], ['tests/source_test.py'],
            ['tests/fidelity_test.py'], ['tests/fidelity_elements_test.py'], ['tests/pixels_test.py'], ['tests/eval/offline_test.py'], ['tests/sleep_test.py'], ['tests/perch_backend_test.py']]
-PERCH_SIDE = re.compile(r'^(figma_run\.py|figma_batch_run\.py|figma_capture\.py|figma_perch\.mjs|tests/perch_)')
+PERCH_SIDE = re.compile(r'^(figma_run\.py|figma_capture\.py|figma_perch\.mjs|tests/perch_)')
 
 
 def affected(files, wt):

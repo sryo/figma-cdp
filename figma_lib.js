@@ -1,11 +1,11 @@
 // figma_lib.js: resident helpers, installed once per Figma tab as window.__fx.
-// figma_run.py / figma_batch_run.py --lib put this file in front of the script. A copy with a
+// figma_run.py --lib puts this file in front of the first script. A copy with a
 // higher V replaces the installed one; an equal or older copy returns at its first line, so a
 // tab that has it pays one property read. Bump V with every change (tests/figma_lib_test.js
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 12;
+  var V = 13;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;

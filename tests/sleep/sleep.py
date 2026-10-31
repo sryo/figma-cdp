@@ -354,7 +354,7 @@ def hint_rows():
     """Every hint the helpers give, with its place: (file, line, label, matcher), where a matcher takes
     an error line (the HINTS patterns) or a whole tool result (figma_perch.mjs's *_HINT messages)."""
     rows = []
-    for h in ('figma_run.py', 'figma_batch_run.py'):
+    for h in ('figma_run.py',):
         with open(os.path.join(REPO, h)) as f:
             tree = ast.parse(f.read())
         for node in tree.body:
@@ -410,7 +410,7 @@ def cmd_stale(a):
     fired = {(f, n): 0 for f, n, _, _ in hints}
     seen = {l['signature']: 0 for l in rows if l.get('signature')}
     # A helper answers with its first matching row, so that row is the one that fired.
-    ordered = {h: [(f, n, pat) for f, n, pat, kind in hints if f == h and kind == 'pattern'] for h in ('figma_run.py', 'figma_batch_run.py')}
+    ordered = {h: [(f, n, pat) for f, n, pat, kind in hints if f == h and kind == 'pattern'] for h in ('figma_run.py',)}
     calls = 0
     for text in failed_results(sources):
         calls += 1
@@ -475,7 +475,7 @@ def cmd_learn(a):
 
 
 def helper_tables():
-    return {h: helper_hints(h) for h in ('figma_run.py', 'figma_batch_run.py')}
+    return {h: helper_hints(h) for h in ('figma_run.py',)}
 
 
 def doc_body(l):

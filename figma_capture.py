@@ -52,7 +52,7 @@ def cdp_port():
     return '9222'
 
 # ------------------------------------------------- perch client
-# perch_dir through timeout_seconds are figma_batch_run.py's own, kept identical
+# perch_dir through timeout_seconds are figma_run.py's own, kept identical
 # (tests/perch_backend_test.py compares them).
 
 def perch_dir():

@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 12, sha: '4a17457062cac725' };
+const PIN = { v: 13, sha: '275a824519330a28' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {

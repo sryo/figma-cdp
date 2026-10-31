@@ -30,13 +30,13 @@ In Mode A/B the helper base64-encodes the script for `agent-browser eval -b` (po
 
 ### Batched evals
 
-For ≥3 sequential evals with no intermediate user feedback or state inspection, batch them — one `agent-browser` invocation saves ~200ms per extra script (CLI cold-start). Scripts are `-e '<js>'`, `.js` paths, or `-` (stdin, once), run in the order given:
+For ≥3 sequential evals with no intermediate user feedback or state inspection, give them to one `figma_run.py` call — one `agent-browser` batch saves ~200ms per extra script (CLI cold-start). Scripts are `-e '<js>'`, `.js` paths, or `-` (stdin, once), run in the order given:
 
 ```bash
-python3 <skill-dir>/figma_batch_run.py -e 'window.__batchState = { ids: [] }; return "ready"' /tmp/step2.js -e 'return window.__batchState.ids'
+python3 <skill-dir>/figma_run.py -e 'window.__batchState = { ids: [] }; return "ready"' /tmp/step2.js -e 'return window.__batchState.ids'
 ```
 
-Each result prints under a `== <label> ==` header (the file's basename, `-e[n]` for the nth inline script, `stdin`) as `{"origin": ..., "result": ...}`, or `Evaluation error: ...` (with a `hint:` line under a known error). `--stop` ends the batch at the first script that throws, returns nothing or returns `{error}`; the rest don't run and the exit code is 1. Use it whenever a step builds on the one before. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` invocations.
+With two or more scripts, each result prints under a `== <label> ==` header (the file's basename, `-e[n]` for the nth inline script, `stdin`) as `{"origin": ..., "result": ...}`, or `Evaluation error: ...` (with a `hint:` line under a known error). `--stop` ends the batch at the first script that throws, returns nothing or returns `{error}`; the rest don't run and the exit code is 1. Use it whenever a step builds on the one before. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` calls.
 
 For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), switch to `agent-browser batch`'s stdin JSON mode directly — see `agent-browser batch --help`; Mode P has no such cap.
 
@@ -44,7 +44,7 @@ When NOT to batch: when step N needs to read the result of step N-1 before decid
 
 ## Resident helper library (`--lib`)
 
-`python3 <skill-dir>/figma_run.py --lib -e '<js>'` (and `figma_batch_run.py --lib`, on the first script) puts `figma_lib.js` in front of the script. It installs `window.__fx` once per tab; later `--lib` calls skip the install, and a newer copy replaces an older one. Every helper is async; `ref` / `parent` take a node or its id.
+`python3 <skill-dir>/figma_run.py --lib -e '<js>'` puts `figma_lib.js` in front of the (first) script. It installs `window.__fx` once per tab; later `--lib` calls skip the install, and a newer copy replaces an older one. Every helper is async; `ref` / `parent` take a node or its id.
 
 | Call | Does |
 |------|------|
@@ -75,10 +75,10 @@ return (await __fx.audit(s.id)).text;
 
 ## State between evals
 
-`window.__batchState` persists across separate eval calls (same browser tab). Fold steps into one eval unless you need to look at an intermediate result; steps you can't fold go in one `figma_batch_run.py` call:
+`window.__batchState` persists across separate eval calls (same browser tab). Fold steps into one eval unless you need to look at an intermediate result; steps you can't fold go in one `figma_run.py` call:
 
 ```bash
-python3 <skill-dir>/figma_batch_run.py --lib --file <url> \
+python3 <skill-dir>/figma_run.py --lib --file <url> \
   -e 'const f = await __fx.frame({name: "Card", dir: "V", w: 320, gap: 8, pad: 16});
 window.__batchState = window.__batchState || {}; window.__batchState.a_cardId = f.id; return f.id' \
   -e 'const card = await figma.getNodeByIdAsync(window.__batchState.a_cardId);

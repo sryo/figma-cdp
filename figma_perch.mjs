@@ -1,4 +1,4 @@
-// perch backend for figma_run.py / figma_batch_run.py / figma_capture.py: runs Figma Plugin API
+// perch backend for figma_run.py / figma_capture.py: runs Figma Plugin API
 // scripts in the page's main world through perch's eval_js {world:"main"}
 // (AppleScript, no CDP, no "allow remote debugging" prompt). Called by the
 // Python helpers, which format the output; not meant to be run by hand.

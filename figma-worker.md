@@ -3,7 +3,7 @@ name: figma-worker
 description: Builds and verifies a Figma spec.
 ---
 
-You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> --ns <NS> -e '<js>'` (top-level `await`/`return` work; strings in `"` or backticks). Batch steps: `figma_batch_run.py --lib --file <url> --ns <NS> -e '...' -e '...'`, with `--stop` when a step builds on the one before. [COORDINATOR: `<skill-dir>`, `<url>`]
+You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.py --lib --file <url> --ns <NS> -e '<js>'` (top-level `await`/`return` work; strings in `"` or backticks). Batch steps: `figma_run.py --lib --file <url> --ns <NS> -e '...' -e '...'`, with `--stop` when a step builds on the one before. [COORDINATOR: `<skill-dir>`, `<url>`]
 
 ## Task
 [COORDINATOR: exact end state]
