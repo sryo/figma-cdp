@@ -278,6 +278,38 @@ class Generic(unittest.TestCase):
             self.assertRegex(css['…'], r'^\d+ more rules in a\.css$')
             self.assertNotIn('css', comps['Row'], 'a code component has no style rules')
 
+    def test_a_component_lists_the_usages_its_column_parent_stretches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'a.css'), 'w') as f:
+                f.write('.col { display: flex; flex-direction: column; }\n'
+                        '.center { display: flex; flex-flow: column wrap; align-items: center; }\n'
+                        '.row { display: flex; }\n'
+                        '.stat { display: flex; flex-direction: column; background: #fff; }\n'
+                        '.stat .badge { align-self: flex-start; }\n'
+                        '.badge { display: inline-flex; padding: 2px; background: #eee; }\n'
+                        '.badge--wide { width: 120px; }\n'
+                        '.self { align-self: center; }\n'
+                        '.col.tight { align-items: stretch; }\n')
+            with open(os.path.join(tmp, 'a.html'), 'w') as f:
+                f.write('<div class="col"><span class="badge">A</span></div>\n'
+                        '<div class="center"><span class="badge">B</span></div>\n'
+                        '<div class="col"><span class="badge badge--wide">C</span></div>\n'
+                        '<div class="col"><span class="badge self">D</span></div>\n'
+                        '<div class="stat"><span class="badge">E</span></div>\n'
+                        '<div class="row"><span class="badge">F</span></div>\n'
+                        '<div class="col"><span class="badge" style="width: 40px">G</span></div>\n'
+                        '<div class="col tight">\n  <p>Some text here</p>\n  <span class="badge badge--x">H</span>\n</div>\n'
+                        '<div class="col"><div class="wrap"><span class="badge">I</span></div></div>\n')
+            comps = {c['component']: c for c in manifest(tmp)['components']}
+            self.assertEqual(comps['badge']['fill'], ['a.html:1 in .col', 'a.html:10 in .col.tight'],
+                             'only a column parent with default or stretch align-items, and a child with no width or align-self')
+            self.assertNotIn('fill', comps['stat'], 'a component nothing stretches has no fill list')
+        page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor', 'customers.html')
+        fill = {c['component']: c.get('fill', []) for c in manifest(page)['components']}
+        self.assertIn('customers.html:69 in .card.grow', fill['badge'], 'the Customer details badge stretches')
+        self.assertFalse([u for u in fill['badge'] if not u.startswith('customers.html:69 ')],
+                         'list-item badges sit in a centered row')
+
     def test_a_page_brings_its_linked_and_imported_style_sheets(self):
         page = os.path.join(ROOT, 'tests', 'eval', 'fixtures', 'harbor-pages', 'notes.html')
         m = manifest(page)

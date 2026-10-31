@@ -13,11 +13,12 @@ or a sheet @imports), and writes JSON with:
                                              prose string literals, string tables
   variants      [{component, prop, values, src}]  prop unions, enums, boolean props, class modifiers
   states        [{component, state, src}]    pseudo-classes, state-named props and modifiers
-  components    [{component, uses, nests, src, css?}]  style blocks with a paint or type rule and
+  components    [{component, uses, nests, src, css?, fill?}]  style blocks with a paint or type rule and
                                              capitalized code tags, with how often the markup uses each
                                              and the components used directly inside it, most used
                                              first; a style block's css is its rules (modifiers and
-                                             elements too) as {selector: declarations}, about 1.6 KB
+                                             elements too) as {selector: declarations}, about 1.6 KB;
+                                             fill: the usages a column flex parent stretches across
 src is `file:line` relative to the inputs' common directory. Without -o the JSON goes to
 stdout; with -o a one-line summary does. figma_fidelity.py diffs a Figma subtree against it.
 """
@@ -75,6 +76,9 @@ VISUAL = re.compile(r'(?<![\w-])(?:background(?:-color|-image)?|border(?:-(?:top
                     r'color|box-shadow|font(?:-size|-weight|-family)?|outline|fill|stroke|text-decoration)\s*:', re.I)
 RULE = re.compile(r'([^{}]+)\{([^{}]*)\}')
 CSS_CAP = 1600  # bytes of rules per component in the manifest
+FILL_CAP = 8     # stretched usages listed per component
+COMPOUND = re.compile(r'^(?:\.-?[A-Za-z_][\w-]*)+$')
+STYLE_ATTR = re.compile(r'(?<![\w-])style\s*=\s*(?:"([^"]*)"|\'([^\']*)\')')
 TAG_OR_CLOSE = re.compile(r'<(/?)([A-Za-z][\w.:-]*)((?:\{(?:[^{}]|\{[^{}]*\})*\}|"[^"]*"|\'[^\']*\'|[^<>{}"\'])*)>')
 CLASS_ATTR = re.compile(r'(?<![\w-])class(?:Name)?\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|\{((?:[^{}]|\{[^{}]*\})*)\})')
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
@@ -111,6 +115,16 @@ def colors_in(text, line=''):
             h = m.group(1)
             out.append((m.start(), '#' + (h[2:] if len(h) == 8 else h).lower()))
     return sorted(out)
+
+
+def decl_dict(decls):
+    """'a: b; c: d' as {a: b, c: d}, properties lowercased, !important dropped."""
+    out = {}
+    for d in decls.split(';'):
+        k, sep, v = d.partition(':')
+        if sep and k.strip():
+            out[k.strip().lower()] = ' '.join(v.replace('!important', '').split())
+    return out
 
 
 def kind_of(name):
@@ -212,6 +226,7 @@ class Source:
         self.variants = []
         self.blocks = {}  # style block -> [src, visual]
         self.rules = {}   # style block -> [(selector, declarations, file)]
+        self.sheet = []   # [(compounds, combinators, specificity, order, {property: value})] for class-only selectors
         self.comps = {}   # component -> {component, uses, nests, src}
 
     # ---- reading
@@ -452,6 +467,7 @@ class Source:
         for m in RULE.finditer(text):
             visual = bool(VISUAL.search(m.group(2)))
             rule = (re.sub(r'\s*,\s*', ', ', ' '.join(m.group(1).split())), ' '.join(m.group(2).split()).rstrip(';') + ';', f[0])
+            self.add_sheet_rule(rule[0], rule[1])
             for c in re.finditer(r'\.(-?[A-Za-z_][\w-]*)', m.group(1)):
                 block = re.split(r'__|--', c.group(1))[0]
                 rules = self.rules.setdefault(block, [])
@@ -460,11 +476,60 @@ class Source:
                 b = self.blocks.setdefault(block, [self.src(f, m.start(1) + len(m.group(1)) - len(m.group(1).lstrip())), False])
                 b[1] = b[1] or visual
 
+    def add_sheet_rule(self, selectors, decls):
+        props = decl_dict(decls)
+        for part in selectors.split(', '):
+            chain, kinds = [], []
+            for t in re.sub(r'\s*>\s*', ' > ', part).split():
+                if t == '>' and kinds:
+                    kinds[-1] = '>'
+                elif COMPOUND.match(t):
+                    chain.append(set(t[1:].split('.')))
+                    kinds.append(' ')
+                else:
+                    chain = None
+                    break
+            if chain:
+                self.sheet.append((chain, kinds, sum(map(len, chain)), len(self.sheet), props))
+
+    def style_of(self, classes, inline, ancestors):
+        """An element's declared properties from class-only rules and its style attribute; ancestors nearest first."""
+        def matches(chain, kinds):
+            if not chain[-1] <= set(classes):
+                return False
+            i, ups = len(chain) - 2, 0
+            while i >= 0:
+                child = kinds[i] == '>'
+                while ups < len(ancestors) and not chain[i] <= set(ancestors[ups]):
+                    if child:
+                        return False
+                    ups += 1
+                if ups == len(ancestors):
+                    return False
+                ups += 1
+                i -= 1
+            return True
+        out = {}
+        for chain, kinds, spec, order, props in sorted(self.sheet, key=lambda r: (r[2], r[3])):
+            if matches(chain, kinds):
+                out.update(props)
+        out.update(inline)
+        return out
+
+    def stretches(self, parent, child):
+        """Whether a column flex parent stretches this child across: no align-items or align-self, no width."""
+        direction = parent.get('flex-direction') or next((w for w in parent.get('flex-flow', '').split() if 'row' in w or 'column' in w), '')
+        return (parent.get('display') in ('flex', 'inline-flex') and direction.startswith('column')
+                and parent.get('align-items', 'stretch') in ('stretch', 'normal')
+                and child.get('align-self', 'auto') in ('auto', 'stretch', 'normal')
+                and child.get('width', 'auto') == 'auto' and child.get('inline-size', 'auto') == 'auto'
+                and child.get('position', 'static') not in ('absolute', 'fixed'))
+
     def component_uses(self, f):
         rel, ext, text, _ = f
         work = BLANK_BLOCKS.sub(lambda m: re.sub(r'[^\n]', ' ', m.group(0)), text)
         markup = ext in ('.html', '.htm', '.xml', '.xhtml')
-        stack = []  # [(tag, components)]
+        stack = []  # [(tag, components, classes, inline style)]
         for m in TAG_OR_CLOSE.finditer(work):
             closing, tag, attrs = m.groups()
             if not markup and not closing and m.start() and re.match(r'[\w$.]', work[m.start() - 1]):
@@ -475,11 +540,13 @@ class Source:
                         del stack[i:]
                         break
                 continue
-            found = []
+            found, classes = [], []
             for a in CLASS_ATTR.finditer(attrs):
                 raw = a.group(1) if a.group(1) is not None else a.group(2) if a.group(2) is not None else \
                     ' '.join(next(g for g in q.groups() if g is not None) for q in LITERAL.finditer(a.group(3)))
                 for cls in re.sub(r'\$\{[^{}]*\}', ' ', raw).split():
+                    if cls not in classes:
+                        classes.append(cls)
                     if '__' in cls:
                         continue
                     block = cls.split('--')[0]
@@ -487,19 +554,27 @@ class Source:
                         found.append(block)
             if not markup and tag[0].isupper() and '.' not in tag and tag != 'Fragment':
                 found.append(tag)
-            parent = next((s for t, s in reversed(stack) if s), [])
+            parent = next((s for t, s, _, _ in reversed(stack) if s), [])
+            st = STYLE_ATTR.search(attrs)
+            inline = decl_dict(next(g for g in st.groups() if g is not None)) if st else {}
             found = list({norm_component(n): n for n in reversed(found)}.values())[::-1]
             for name in found:
                 key = norm_component(name)
                 e = self.comps.setdefault(key, {'component': name, 'uses': 0, 'nests': [],
                                                 'src': self.blocks[name][0] if name in self.blocks else self.src(f, m.start())})
                 e['uses'] += 1
+                if stack and markup and name in self.blocks:
+                    ups = [c for _, _, c, _ in reversed(stack)]
+                    pstyle = self.style_of(ups[0], stack[-1][3], ups[1:])
+                    if self.stretches(pstyle, self.style_of(classes, inline, ups)):
+                        where = ''.join('.' + c for c in ups[0]) or stack[-1][0]
+                        e.setdefault('fill', []).append(f'{self.src(f, m.start())} in {where}')
                 for p in parent:
                     nest = self.comps[norm_component(p)]['nests']
                     if norm_component(p) != key and key not in map(norm_component, nest):
                         nest.append(e['component'])
             if not attrs.rstrip().endswith('/') and tag.lower() not in VOID:
-                stack.append((tag.lower(), found))
+                stack.append((tag.lower(), found, classes, inline))
 
     def enclosing(self, text, offset):
         last = None
@@ -617,6 +692,11 @@ class Source:
             css['…'] = f"{len(left)} more rules in {', '.join(dict.fromkeys(left))}"
         return css
 
+    def capped(self, e):
+        if len(e.get('fill', [])) > FILL_CAP:
+            e = dict(e, fill=e['fill'][:FILL_CAP] + [f"{len(e['fill']) - FILL_CAP} more"])
+        return e
+
     def manifest(self):
         def by_value(d):
             return sorted(d.values(), key=lambda e: e['value'])
@@ -633,8 +713,8 @@ class Source:
             'copy': list(self.copy.values()),
             'variants': self.merged_variants(),
             'states': list(self.states.values()),
-            'components': [dict(e, css=self.component_css(e['component'])) if self.rules.get(e['component']) else e
-                           for e in sorted(self.comps.values(), key=lambda e: -e['uses'])],
+            'components': [dict(self.capped(e), css=self.component_css(e['component'])) if self.rules.get(e['component'])
+                           else self.capped(e) for e in sorted(self.comps.values(), key=lambda e: -e['uses'])],
         }
 
 

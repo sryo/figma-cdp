@@ -17,7 +17,7 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6235,
+    'SKILL.md': 6351,
     'figma-worker.md': 6863,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -168,6 +168,11 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
 
+    def test_the_brief_copies_stretched_usages_from_the_manifest(self):
+        d = docs()
+        self.assertRegex(d['SKILL.md'], r'`fill`[^.]*FILL across', 'SKILL.md does not have the brief copy the manifest fill list')
+        self.assertIn('fill?', d['references/fidelity.md'], 'fidelity.md does not document a component\'s fill list')
+
     def test_capture_inline_exception_is_for_block_parents_only(self):
         cap = docs()['references/capture.md']
         row = next((l for l in cap.splitlines() if 'not inline-level' in l), '')
@@ -199,7 +204,7 @@ class Docs(unittest.TestCase):
         self.assertRegex(reuse.group(0), r'(?i)per-use[^.;]*instance overrides', 'per-use differences are not overrides')
         self.assertRegex(reuse.group(0), r'(?i)never[^.;]*renam[^.;]*variant[^.;]*set[^.;]*unless',
                          'nothing stops a reused component from being renamed, given variants or made a set')
-        self.assertIn('`components` `[{component, uses, nests, src, css?}]`', docs()['references/fidelity.md'])
+        self.assertIn('`components` `[{component, uses, nests, src, css?, fill?}]`', docs()['references/fidelity.md'])
 
     def test_audit_gates_only_what_the_session_built(self):
         gate = next(l for l in docs()['SKILL.md'].splitlines() if 'Final gate' in l)
