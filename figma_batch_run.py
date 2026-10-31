@@ -334,11 +334,14 @@ HINTS = [
     (r'unloaded font', 'await figma.loadFontAsync(...) for every font in this same eval before writing text (gotchas #2)'),
     (r'FILL can only be set on children of auto-layout', 'appendChild into the auto-layout parent first, then set layoutSizing* = "FILL" (gotchas #1)'),
     (r'HUG can only be set on auto-layout', 'HUG needs an auto-layout frame or a text node; set layoutMode first (gotchas #1)'),
+    (r'Use node\.getMainComponentAsync', 'await inst.getMainComponentAsync() (an async findOne callback can\'t await it: collect the instances, then await each)'),
+    (r'instance sublayer or table cell\) with id', 'an id starting with I is an instance sublayer: it changes when the instance is swapped or re-rendered, so find it again from the instance (inst.findOne) in this eval'),
     (r'does not exist|has been removed', 'a node object went stale or was deleted; re-fetch it with await figma.getNodeByIdAsync(id) in this eval (gotchas #15)'),
     (r'documentAccess: dynamic-page|has not been explicitly loaded', 'use await figma.getNodeByIdAsync(id) or await page.loadAsync() instead of the sync API'),
     (r'(inside of |is )an instance|cannot be overridden in an instance', 'instance children are fixed: edit the main component, or set text/property overrides on the instance'),
     (r"Cannot (read|set) propert(y|ies) of null", 'a lookup returned null: the id is on another page, deleted, or mistyped; check it before use'),
     (r'component property definitions of a component set or non-variant', 'a variant: read componentPropertyDefinitions on its set (node.parent)'),
+    (r'figma\.(get|create)\w*Variable\w* is not a function', 'the variables API lives under figma.variables.<name> (figma.variables.getVariableByIdAsync, createVariable, ...)'),
     (r'must be in the same page as the parent', 'nodes on two pages: create them with parent: on the target page, or await figma.setCurrentPageAsync(page) first'),
 ]
 
