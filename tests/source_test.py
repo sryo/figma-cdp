@@ -436,5 +436,73 @@ class DesignMd(unittest.TestCase):
             self.assertEqual([e['value'] for e in m['colors']], ['#654321'])
 
 
+class Check(unittest.TestCase):
+    """--check DESIGN.md <code>: tokens missing from code, values that differ, code tokens DESIGN.md lacks."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(DESIGN, 'tokens.css')) as f:
+            self.css = f.read()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def check(self, css=None, name='tokens.css', design=None):
+        path = os.path.join(DESIGN, 'tokens.css')
+        if css is not None:
+            path = os.path.join(self.tmp.name, name)
+            with open(path, 'w') as f:
+                f.write(css)
+        return run_source('--check', design or os.path.join(DESIGN, 'DESIGN.md'), path)
+
+    def findings(self, r):
+        return r.stdout.splitlines()[1:]
+
+    def test_matching_code_is_clean(self):
+        r = self.check()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertRegex(r.stdout.strip(), r'^check: 0 drift')
+
+    def test_changed_value_and_extra_var_give_two_findings_with_file_line(self):
+        css = self.css.replace('--ink:#1A1D2E;', '--ink:#1A1D2F;').replace('  --gap:16px;\n', '  --gap:16px;\n  --extra:#ABCDEF;\n')
+        r = self.check(css)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        rows = self.findings(r)
+        self.assertEqual(len(rows), 2, r.stdout)
+        self.assertRegex(rows[0], r'^different colors\.ink DESIGN\.md:9 #1a1d2e, .*tokens\.css:3 --ink #1a1d2f$')
+        self.assertRegex(rows[1], r'^undocumented --extra .*tokens\.css:8 = #ABCDEF$')
+        self.assertRegex(r.stdout.splitlines()[0], r'^check: 2 drift \(1 different, 1 undocumented\)')
+
+    def test_token_missing_from_code(self):
+        r = self.check(self.css.replace('  --r-tile:20px;\n', ''))
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.findings(r), ['missing rounded.r-tile DESIGN.md:19 = 20'])
+
+    def test_a_theme_matches_its_own_block(self):
+        r = self.check(self.css.replace('--ink:#EDEEF3;', '--ink:#EDEEF4;'))
+        self.assertEqual(r.returncode, 1)
+        rows = self.findings(r)
+        self.assertEqual(len(rows), 1, r.stdout)
+        self.assertRegex(rows[0], r'^different colors\.ink-dark DESIGN\.md:12 #edeef3, .*tokens\.css:11 --ink \(dark\) #edeef4$')
+        r = self.check(self.css.replace('  --canvas:#0E0F13; --ink:#EDEEF3;\n', '  --canvas:#0E0F13;\n'))
+        self.assertEqual(self.findings(r), ['missing colors.ink-dark DESIGN.md:12 = #edeef3'])
+
+    def test_style_blocks_in_markup(self):
+        page = ('<!doctype html>\n<script>if (a) { b({c: 1}); }</script>\n<style>\n' + self.css + '</style>\n'
+                '<script>const x = {y: "--nope:#000000"};</script>\n')
+        r = self.check(page, name='index.html')
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_broken_ref_is_drift(self):
+        with open(os.path.join(DESIGN, 'DESIGN.md')) as f:
+            text = f.read().replace('"{colors.canvas}"', '"{colors.paper}"')
+        design = os.path.join(self.tmp.name, 'DESIGN.md')
+        with open(design, 'w') as f:
+            f.write(text)
+        r = self.check(design=design)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('broken colors.on-primary DESIGN.md:10 {colors.paper}', r.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

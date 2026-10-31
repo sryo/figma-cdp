@@ -29,6 +29,19 @@ or a sheet @imports), and a DESIGN.md's YAML tokens (Google's format: front matt
                                              collection: `<name>/<theme>`, or `<name>` with no themes.
 src is `file:line` relative to the inputs' common directory. Without -o the JSON goes to
 stdout; with -o a one-line summary does. figma_fidelity.py diffs a Figma subtree against it.
+
+  python3 figma_source.py --check DESIGN.md <code-file-or-dir>... [--json]
+
+Code against DESIGN.md, one line per finding, cited file:line (code relative to DESIGN.md's directory):
+  broken        a {ref} in DESIGN.md that names no token
+  missing       a DESIGN.md token no code custom property ($var, @var) defines
+  different     the code defines it with another value
+  undocumented  a code custom property no DESIGN.md token names
+A code name matches a token as its key (colors.ink: --ink), <group>-<key> (--color-ink, --spacing-md,
+--rounded-sm; also colors-, space-, radius-), or for typography <key>-<prop> (--body-font-size), or <key>
+when the typography token has one property. Definitions inside a block whose prelude names a theme
+(prefers-color-scheme: dark, [data-theme=dark], .dark) match that theme's -<theme> tokens. Markup is
+read for its <style> blocks only. Exit 1 on drift, 0 without, 2 when it could not run.
 """
 import argparse, bisect, colorsys, html, json, os, re, sys
 
@@ -958,6 +971,172 @@ def build(paths):
     return m
 
 
+# ---- --check: code custom properties against DESIGN.md
+
+STYLE_BLOCK = re.compile(r'(<style\b[^>]*>)([\s\S]*?)</style>', re.I)
+CSS_COMMENT = re.compile(r'/\*[\s\S]*?\*/')
+THEME_PRELUDE = re.compile(r'prefers-color-scheme\s*:\s*([\w-]+)|\[\s*data-(?:theme|mode|color-scheme)\s*=\s*["\']?([\w-]+)', re.I)
+TYPE_PROPS = {'fontFamily': 'font-family', 'fontSize': 'font-size', 'fontWeight': 'font-weight', 'lineHeight': 'line-height',
+              'letterSpacing': 'letter-spacing', 'fontFeature': 'font-feature', 'fontVariation': 'font-variation'}
+GROUP_PREFIXES = {'colors': ('color', 'colors'), 'rounded': ('rounded', 'radius'), 'spacing': ('spacing', 'space')}
+
+
+def css_name(s):
+    return re.sub(r'[^a-z0-9]+', '-', str(s).lower()).strip('-')
+
+
+def blank(text, pattern):
+    return pattern.sub(lambda m: re.sub(r'[^\n]', ' ', m.group(0)), text)
+
+
+def code_defs(path, rel, themes):
+    """[{name, raw, theme, src}] for the custom properties a file defines; a definition takes the theme
+    its enclosing blocks' preludes name (prefers-color-scheme, data-theme, a declared theme's class)."""
+    try:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            text = f.read(MAX_BYTES)
+    except OSError:
+        return []
+    ext = os.path.splitext(path)[1].lower()
+    if ext in ('.html', '.htm', '.vue', '.svelte', '.astro'):
+        keep = [(m.start(2), m.end(2)) for m in STYLE_BLOCK.finditer(text)]
+        text = ''.join(c if c == '\n' or any(a <= i < b for a, b in keep) else ' ' for i, c in enumerate(text))
+    text = blank(text, CSS_COMMENT)
+    starts = [0] + [m.end() for m in re.finditer('\n', text)]
+    named = [t for t in themes[1:]]
+    out, stack, last = [], [], 0
+    defs = list(SIGIL_DEF.finditer(text))
+    k = 0
+    for i, c in enumerate(text):
+        while k < len(defs) and defs[k].start() <= i:
+            m, theme = defs[k], None
+            for prelude in reversed(stack):
+                t = THEME_PRELUDE.search(prelude)
+                word = (t.group(1) or t.group(2)).lower() if t else next(
+                    (w for w in named if re.search(rf'(?<![\w-]){re.escape(w)}(?![\w-])', prelude)), None)
+                if word:
+                    theme = word
+                    break
+            out.append({'name': m.group(1), 'raw': m.group(2).strip(), 'theme': None if themes and theme == themes[0] else theme,
+                        'src': f'{rel}:{bisect.bisect_right(starts, m.start(1))}'})
+            k += 1
+        if c == '{':
+            stack.append(text[last:i])
+            last = i + 1
+        elif c == '}':
+            if stack:
+                stack.pop()
+            last = i + 1
+        elif c == ';':
+            last = i + 1
+    return out
+
+
+def token_names(t):
+    """The code names (without sigil) a DESIGN.md token answers to."""
+    parts = t['variable'].split('/')
+    group = parts[0]
+    if group == 'typography':
+        key, prop = css_name(parts[1]), parts[-1]
+        names = [f'{key}-{TYPE_PROPS.get(prop, css_name(prop))}']
+        return names + ([key] if t.get('solo') else [])
+    key = css_name('-'.join(parts[1:]))
+    return [key] + [f'{p}-{key}' for p in GROUP_PREFIXES.get(group, (group,))]
+
+
+def same_code_value(t, raw):
+    """(equal?, the code value as compared)"""
+    kind, v = t['kind'], t['value']
+    if kind == 'color':
+        found = colors_in(raw)
+        return bool(found) and found[0][1] == v, found[0][1] if found else raw
+    if kind == 'fontFamily':
+        a, b = [x.lower() for x in families(raw)], [x.lower() for x in families(str(v))]
+        return a == b, ', '.join(families(raw)) or raw
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        nums = numbers(raw, kind)
+        return len(nums) == 1 and abs(nums[0] - v) < 0.01, nums[0] if len(nums) == 1 else raw
+    return ' '.join(raw.split()) == ' '.join(str(v).split()), raw
+
+
+def check(design, code_paths):
+    m = build([design])
+    d = m.get('design')
+    if not d:
+        return None
+    root = os.path.dirname(os.path.abspath(design))
+    themes = d['themes']
+    toks = [t for t in m['tokens'] if t.get('variable')]
+    per_group = {}
+    for t in toks:
+        if t['variable'].startswith('typography/'):
+            per_group.setdefault((t.get('theme'), t['variable'].split('/')[1]), []).append(t)
+    for ts in per_group.values():
+        if len(ts) == 1:
+            ts[0]['solo'] = True
+    defs = []
+    for f in with_style_sheets(gather([os.path.abspath(p) for p in code_paths])):
+        if not is_design(f):
+            defs.extend(code_defs(f, os.path.relpath(f, root), themes))
+    by_key = {}
+    for c in defs:
+        by_key.setdefault((css_name(c['name'].lstrip('-$@')), c['theme']), c)
+    # var() and $refs inside code resolve within the theme, then the base
+    def code_value(c, seen=()):
+        def sub(name):
+            ref = by_key.get((css_name(name.lstrip('-$@')), c['theme'])) or by_key.get((css_name(name.lstrip('-$@')), None))
+            return code_value(ref, seen + (c['name'],)) if ref and ref['name'] not in seen else name
+        raw = VAR.sub(lambda m: sub(m.group(1)), c['raw'])
+        return re.sub(r'(?<![\w-])(\$[\w-]+)', lambda m: sub(m.group(1)), raw)
+    base = themes[0] if themes else None
+    broken = {b['token'] for b in d['brokenRefs']}
+    rows = [{'kind': 'broken', 'token': b['token'], 'src': b['src'], 'ref': b['ref']} for b in d['brokenRefs']]
+    used = set()
+    found = {'missing': [], 'different': []}
+    for t in toks:
+        theme = None if t.get('theme') in (None, base) else t['theme']
+        c = next((by_key[(n, theme)] for n in token_names(t) if (n, theme) in by_key), None)
+        if c is None:
+            found['missing'].append({'kind': 'missing', 'token': t['name'], 'src': t['src'], 'source': t['value']})
+            continue
+        used.add(id(c))
+        if t['name'] in broken:
+            continue
+        ok, code = same_code_value(t, code_value(c))
+        if not ok:
+            found['different'].append({'kind': 'different', 'token': t['name'], 'src': t['src'], 'source': t['value'],
+                                       'code': c['name'], 'theme': c['theme'], 'codeSrc': c['src'], 'codeValue': code})
+    rows += found['missing'] + found['different']
+    seen = set()
+    for c in defs:
+        key = (css_name(c['name'].lstrip('-$@')), c['theme'])
+        if id(c) not in used and key not in seen and by_key.get(key) is c:
+            rows.append({'kind': 'undocumented', 'code': c['name'], 'theme': c['theme'], 'codeSrc': c['src'], 'codeValue': c['raw']})
+        seen.add(key)
+    return {'design': d['src'], 'codeTokens': len(by_key), 'findings': rows}
+
+
+CHECK_KINDS = ('broken', 'missing', 'different', 'undocumented')
+
+
+def render_check(rep):
+    rows = rep['findings']
+    counts = [f"{sum(r['kind'] == k for r in rows)} {k}" for k in CHECK_KINDS if any(r['kind'] == k for r in rows)]
+    lines = [f"check: {len(rows)} drift" + (f" ({', '.join(counts)})" if rows else '') +
+             f" between {rep['design']} and {rep['codeTokens']} code tokens"]
+    th = lambda r: f" ({r['theme']})" if r.get('theme') else ''
+    for r in rows:
+        if r['kind'] == 'broken':
+            lines.append(f"broken {r['token']} {r['src']} {r['ref']}")
+        elif r['kind'] == 'missing':
+            lines.append(f"missing {r['token']} {r['src']} = {r['source']}")
+        elif r['kind'] == 'different':
+            lines.append(f"different {r['token']} {r['src']} {r['source']}, {r['codeSrc']} {r['code']}{th(r)} {r['codeValue']}")
+        else:
+            lines.append(f"undocumented {r['code']}{th(r)} {r['codeSrc']} = {r['codeValue']}")
+    return '\n'.join(lines)
+
+
 def summary(m):
     return (f"{len(m['copy'])} copy, {len(m['colors'])} colors ({sum(t['kind'] == 'color' for t in m['tokens'])} tokens), "
             f"{len(m['spacing'])} spacing, {len(m['radii'])} radii, {len(m['fontSizes'])} font sizes, "
@@ -968,11 +1147,20 @@ def main():
     ap = argparse.ArgumentParser(prog='figma_source.py', description='Extract a cited source manifest for figma_fidelity.py')
     ap.add_argument('paths', nargs='+', help='source files or directories')
     ap.add_argument('-o', '--out', help='write the manifest here and print a one-line summary')
+    ap.add_argument('--check', metavar='DESIGN.md', help='check the code paths against this DESIGN.md instead')
+    ap.add_argument('--json', action='store_true', help='with --check: the findings as JSON')
     a = ap.parse_args()
-    missing = [p for p in a.paths if not os.path.exists(p)]
+    missing = [p for p in a.paths + ([a.check] if a.check else []) if not os.path.exists(p)]
     if missing:
         print(f"figma_source.py: no such file or directory: {', '.join(missing)}", file=sys.stderr)
         sys.exit(2)
+    if a.check:
+        rep = check(a.check, a.paths)
+        if rep is None:
+            print(f'figma_source.py: {a.check} has no DESIGN.md tokens', file=sys.stderr)
+            sys.exit(2)
+        print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else render_check(rep))
+        sys.exit(1 if rep['findings'] else 0)
     m = build(a.paths)
     if a.out:
         with open(a.out, 'w') as f:
