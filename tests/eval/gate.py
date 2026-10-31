@@ -19,10 +19,20 @@ FIUM = os.environ.get('FIUM', os.path.expanduser('~/Documents/fium/fium'))
 NOISE = os.path.join(HERE, 'noise.json')
 
 
+REPO = os.path.dirname(os.path.dirname(HERE))
+
+
+def command(base_path, run_path, rev):
+    """fium price compare on two exported runs, with this repo's noise file and Price: trailers since rev."""
+    cmd = [FIUM, 'price', 'compare', base_path, run_path, '--noise', NOISE, '--repo', REPO]
+    if rev and subprocess.run(['git', '-C', REPO, 'cat-file', '-e', rev + '^{commit}'], capture_output=True).returncode == 0:
+        cmd += ['--since', rev]
+    return cmd
+
+
 def gate(baseline, candidate):
     base, cand = compare.load(baseline), compare.load(candidate)
-    # fium reads Price: trailers from the repo the run file sits in, so the exports go under this one.
-    tmp = tempfile.mkdtemp(prefix='.fium-', dir=HERE)
+    tmp = tempfile.mkdtemp(prefix='figma-eval-fium-')
     try:
         paths = []
         for name, run in (('base', base), ('run', cand)):
@@ -30,11 +40,7 @@ def gate(baseline, candidate):
             with open(p, 'w') as f:
                 json.dump(compare.fium(run), f)
             paths.append(p)
-        cmd = [FIUM, 'price', 'compare', *paths, '--noise', NOISE]
-        rev = base.get('meta', {}).get('rev')
-        if rev and subprocess.run(['git', '-C', HERE, 'cat-file', '-e', rev + '^{commit}'], capture_output=True).returncode == 0:
-            cmd += ['--since', rev]
-        return subprocess.run(cmd).returncode
+        return subprocess.run(command(*paths, base.get('meta', {}).get('rev'))).returncode
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
