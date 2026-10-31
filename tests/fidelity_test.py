@@ -407,5 +407,85 @@ class Collect(unittest.TestCase):
     fidelity = Fidelity.fidelity
 
 
+DESIGN = os.path.join(ROOT, 'tests', 'design')
+DRIFT = ['missing Lede/light spacing/gap', 'different Lede/light colors/ink', 'unused Lede/light colors/old',
+         'missing Lede/dark colors/ink']
+
+
+class Variables(unittest.TestCase):
+    """--variables: Figma's variables (__fx.inventory() VARS) against a DESIGN.md manifest's tokens."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.manifest = os.path.join(self.tmp.name, 'manifest.json')
+        r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), '-o', self.manifest,
+                            os.path.join(DESIGN, 'DESIGN.md')], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def variables(self, *args, env=None):
+        return subprocess.run([sys.executable, os.path.join(ROOT, 'figma_fidelity.py'), '--variables', *args],
+                              capture_output=True, text=True, env=env)
+
+    def kinds(self, out):
+        return [' '.join(l.split()[:3]) for l in out.splitlines()[1:]]
+
+    def test_recorded_inventory_gives_one_line_per_finding(self):
+        r = self.variables(self.manifest, '--inventory', os.path.join(DESIGN, 'inventory.txt'))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(self.kinds(r.stdout), DRIFT)
+        self.assertRegex(r.stdout.splitlines()[0], r'^variables: 4 drift \(2 missing, 1 different, 1 unused\) in Lede/light, Lede/dark')
+        line = next(l for l in r.stdout.splitlines() if 'colors/ink' in l and 'different' in l)
+        self.assertIn('#000000', line)
+        self.assertIn('#1a1d2e', line)
+        self.assertIn('DESIGN.md:9', line)
+        self.assertNotIn('Brand', r.stdout, 'a collection DESIGN.md does not name is not drift')
+
+    def test_json_rows(self):
+        r = self.variables(self.manifest, '--inventory', os.path.join(DESIGN, 'inventory.txt'), '--json')
+        self.assertEqual(r.returncode, 1, r.stderr)
+        rows = json.loads(r.stdout)['findings']
+        self.assertEqual([f"{x['kind']} {x['collection']} {x['variable']}" for x in rows], DRIFT)
+        ink = rows[1]
+        self.assertEqual((ink['figma'], ink['source'], ink['src']), ('#000000', '#1a1d2e', 'DESIGN.md:9'))
+
+    def test_matching_inventory_is_clean(self):
+        with open(os.path.join(DESIGN, 'inventory.txt')) as f:
+            text = f.read()
+        text = (text.replace('colors/ink [VariableID:6] #000000', 'colors/ink [VariableID:6] #1a1d2e')
+                .replace('  colors/old [VariableID:12] #ffffff\n', '  spacing/gap [VariableID:12] 16\n')
+                .replace('  colors/on-primary [VariableID:16]', '  colors/ink [VariableID:99] #edeef3\n  colors/on-primary [VariableID:16]'))
+        path = os.path.join(self.tmp.name, 'inv.txt')
+        with open(path, 'w') as f:
+            f.write(text)
+        r = self.variables(self.manifest, '--inventory', path)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, 'variables: 0 drift in Lede/light, Lede/dark'), r.stderr)
+
+    def test_live_inventory_through_the_backend(self):
+        sock = os.path.join(self.tmp.name, 'd.sock')
+        env = {k: v for k, v in os.environ.items() if k not in ('FIGMA_FILE', 'FIGMA_PERCH_TAB', 'FIGMA_CDP_PORT', 'PERCH_STUB_ERROR')}
+        env.update(FIGMA_BACKEND='perch', PERCH_DIR=os.path.join(ROOT, 'tests', 'perch_stub'), PERCH_STUB_FIGMA='full',
+                   FIGMA_PERCH_SOCK=sock, FIGMA_PERCH_DAEMON='1', FIGMA_CDP_JOURNAL='0')
+        try:
+            r = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_run.py'), '--file', FILE, os.path.join(DESIGN, 'seed_vars.js')],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            r = self.variables(self.manifest, '--file', FILE, env=env)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertEqual(self.kinds(r.stdout), DRIFT)
+        finally:
+            stop_daemon(sock)
+
+    def test_a_manifest_without_design_md_cannot_run(self):
+        path = os.path.join(self.tmp.name, 'plain.json')
+        with open(path, 'w') as f:
+            json.dump({'tokens': []}, f)
+        r = self.variables(path, '--inventory', os.path.join(DESIGN, 'inventory.txt'))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('DESIGN.md', r.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

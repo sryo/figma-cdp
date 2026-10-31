@@ -37,6 +37,17 @@ share of the root's area); a node with no element is extra-node. --waive drops r
 element the walker flagged for a loss known_losses.json lists (grid, transform) and counts them.
 Rows are {kind, source:{i, css_prop, value}, figma:{id, name, prop, value}}.
 
+  python3 figma_fidelity.py --variables <manifest.json> [--inventory <file>] [--file <url>] [--json]
+
+The file's local variables (__fx.inventory()'s VARS lines; --inventory reads them recorded, as text
+or its JSON) against the tokens of the DESIGN.md the manifest read. Each DESIGN.md theme is its own
+collection (free Figma has one mode per collection), holding every token, the theme's -<theme>
+overrides in place of the base value. One line per finding, per collection missing first:
+  missing    a token whose variable the collection lacks (or the whole collection)
+  different  the variable holds another value (colors as #rrggbb, numbers within 0.01)
+  unused     a variable in a DESIGN.md collection no token mirrors
+Collections DESIGN.md doesn't name are not read. Exit 1 on drift, 0 without, 2 when it could not run.
+
   ... --elements <spec> <rootId> --pixels <page.png> [--crops <dir>]
 
 Adds what the rows don't explain: the subtree exported as PNG, compared with a screenshot of the
@@ -902,6 +913,141 @@ EXPORT = r"""
 """
 
 
+# ---- --variables: Figma variables against DESIGN.md tokens
+
+VAR_HEAD = re.compile(r'^VARS (.+) \[[^\]]*\] modes: ')
+VAR_LINE = re.compile(r'^\s+(.+?) \[[^\]]*\] (.*)$')
+VAR_KINDS = ('missing', 'different', 'unused')
+
+
+def expected_variables(m):
+    """{(collection, variable): token} for every collection a manifest's DESIGN.md maps, in order:
+    each theme's collection holds every base token, its own overrides in their place."""
+    d = m.get('design')
+    if not d:
+        return None
+    toks = [t for t in m['tokens'] if t.get('variable')]
+    out = {}
+    if not d['themes']:
+        for t in toks:
+            out.setdefault((t['collection'], t['variable']), t)
+        return out
+    over = {(t['theme'], t['variable']): t for t in toks if t.get('theme') != d['themes'][0]}
+    for theme, coll in zip(d['themes'], d['collections']):
+        for t in toks:
+            if t.get('theme') == d['themes'][0]:
+                out.setdefault((coll, t['variable']), over.get((theme, t['variable']), t))
+    return out
+
+
+def var_value(text):
+    """A VARS line's value: #hex, a number or a string (a trailing ' =alias' dropped)."""
+    text = re.sub(r' =[^"]*$', '', text.strip())
+    if text.startswith('"'):
+        try:
+            return json.loads(text)
+        except ValueError:
+            return text.strip('"')
+    try:
+        return num_key(text)
+    except ValueError:
+        return text.lower() if text.startswith('#') else text
+
+
+def parse_vars(text):
+    """{collection: {variable: value}} from __fx.inventory() lines."""
+    out, cur = {}, None
+    for line in text.split('\n'):
+        h = VAR_HEAD.match(line)
+        if h:
+            cur = out.setdefault(h.group(1), {})
+        elif not line.startswith(' '):
+            cur = None
+        elif cur is not None:
+            v = VAR_LINE.match(line)
+            if v:
+                cur[v.group(1)] = var_value(v.group(2))
+    return out
+
+
+def same_value(t, fig):
+    src = t['value']
+    if t.get('kind') == 'color' or (isinstance(src, str) and src.startswith('#')):
+        return isinstance(fig, str) and fig.lower()[:7] == str(src).lower()[:7]
+    if isinstance(src, (int, float)) and not isinstance(src, bool):
+        return isinstance(fig, (int, float)) and abs(fig - src) < 0.01
+    return str(fig).strip() == str(src).strip()
+
+
+def variable_drift(m, figma_vars):
+    exp = expected_variables(m)
+    rows = []
+    for coll in m['design']['collections']:
+        have = figma_vars.get(coll, {})
+        mine = [(var, t) for (c, var), t in exp.items() if c == coll]
+        found = {k: [] for k in VAR_KINDS}
+        for var, t in mine:
+            if var not in have:
+                found['missing'].append({'kind': 'missing', 'collection': coll, 'variable': var, 'source': t['value'], 'src': t['src']})
+            elif not same_value(t, have[var]):
+                found['different'].append({'kind': 'different', 'collection': coll, 'variable': var, 'figma': have[var],
+                                           'source': t['value'], 'src': t['src']})
+        names = {var for var, _ in mine}
+        found['unused'] = [{'kind': 'unused', 'collection': coll, 'variable': var, 'figma': v} for var, v in have.items() if var not in names]
+        for k in VAR_KINDS:
+            rows.extend(found[k])
+    return {'collections': m['design']['collections'], 'missingCollections': [c for c in m['design']['collections'] if c not in figma_vars],
+            'findings': rows}
+
+
+def render_variables(rep, design_src):
+    rows, colls = rep['findings'], ', '.join(rep['collections'])
+    counts = [f"{sum(r['kind'] == k for r in rows)} {k}" for k in VAR_KINDS if any(r['kind'] == k for r in rows)]
+    lines = [f"variables: {len(rows)} drift" + (f" ({', '.join(counts)})" if rows else '') + f" in {colls}"]
+    if rep['missingCollections']:
+        lines[0] += f" (no collection {', '.join(rep['missingCollections'])})"
+    label = design_src.rsplit('/', 1)[-1]
+    for r in rows:
+        if r['kind'] == 'missing':
+            lines.append(f"missing {r['collection']} {r['variable']} = {r['source']} ({r['src']})")
+        elif r['kind'] == 'different':
+            lines.append(f"different {r['collection']} {r['variable']} figma {r['figma']}, {label} {r['source']} ({r['src']})")
+        else:
+            lines.append(f"unused {r['collection']} {r['variable']} = {r['figma']}")
+    return '\n'.join(lines)
+
+
+INVENTORY_VARS = "__fx.inventory({ match: '^VARS ', fresh: true, maxChars: 1000000 })"
+
+
+def figma_variables(a):
+    """The file's VARS lines: recorded (--inventory, text or {text}) or read live through figma_run.py --lib."""
+    if a.inventory:
+        try:
+            with open(a.inventory) as f:
+                text = f.read()
+        except OSError as e:
+            fail(f'cannot read {a.inventory}: {e}')
+        try:
+            text = json.loads(text).get('text', '')
+        except (ValueError, AttributeError):
+            pass
+        return text
+    run = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_run.py')
+    cmd = [sys.executable, run, '--lib', *(['--file', a.file] if a.file else []), *(['--timeout', a.timeout] if a.timeout else []),
+           '-e', INVENTORY_VARS]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        fail((r.stderr or r.stdout).strip()[:600])
+    try:
+        out = json.loads(r.stdout)
+    except ValueError:
+        fail(f'unreadable eval output: {r.stdout.strip()[:300]}')
+    if out.get('truncated'):
+        print('figma_fidelity.py: the inventory was truncated; some variables were not read', file=sys.stderr)
+    return out.get('text', '')
+
+
 def run_collect(script, a):
     run = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'figma_run.py')
     if not os.path.exists(run):
@@ -925,7 +1071,7 @@ def run_collect(script, a):
 def main():
     ap = argparse.ArgumentParser(prog='figma_fidelity.py', description='Diff a Figma subtree against a figma_source.py manifest')
     ap.add_argument('manifest')
-    ap.add_argument('root', help='node id of the subtree, e.g. 12:34')
+    ap.add_argument('root', nargs='?', help='node id of the subtree, e.g. 12:34')
     ap.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
     ap.add_argument('--timeout', help='seconds the eval may await (passed to figma_run.py)')
     ap.add_argument('--json', action='store_true', help='print the full report as JSON')
@@ -935,7 +1081,22 @@ def main():
     ap.add_argument('--pixels', help='with --elements: a full-page screenshot of the walked page; adds the regions no row explains')
     ap.add_argument('--figma-png', help='with --pixels: the subtree exported at scale 1 already (skips the export)')
     ap.add_argument('--crops', help='with --pixels: write a source and a Figma crop of each unexplained region here')
+    ap.add_argument('--variables', action='store_true', help="the file's variables against the manifest's DESIGN.md tokens; no root")
+    ap.add_argument('--inventory', help='with --variables: recorded __fx.inventory() output instead of a live read')
     a = ap.parse_args()
+    if a.variables:
+        try:
+            with open(a.manifest) as f:
+                m = json.load(f)
+        except (OSError, ValueError) as e:
+            fail(f'cannot read manifest {a.manifest}: {e}')
+        if not m.get('design'):
+            fail(f'{a.manifest} read no DESIGN.md; pass figma_source.py a DESIGN.md')
+        rep = variable_drift(m, parse_vars(figma_variables(a)))
+        print(json.dumps(rep, indent=1, ensure_ascii=False) if a.json else render_variables(rep, m['design']['src']))
+        sys.exit(1 if rep['findings'] else 0)
+    if not a.root:
+        ap.error('the following arguments are required: root')
     if a.elements:
         try:
             with open(a.manifest) as f:

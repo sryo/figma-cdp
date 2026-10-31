@@ -1,0 +1,21 @@
+VARS Lede/light [VariableCollectionId:3] modes: Mode 1
+  colors/primary [VariableID:4] #2f5bea
+  colors/canvas [VariableID:5] #faf9f6
+  colors/ink [VariableID:6] #000000
+  colors/on-primary [VariableID:7] #faf9f6
+  typography/fs-s/fontFamily [VariableID:8] "Inter"
+  typography/fs-s/fontSize [VariableID:9] 14
+  typography/fs-s/fontWeight [VariableID:10] 500
+  rounded/r-tile [VariableID:11] 20
+  colors/old [VariableID:12] #ffffff
+VARS Lede/dark [VariableCollectionId:13] modes: Mode 1
+  colors/primary [VariableID:14] #2f5bea
+  colors/canvas [VariableID:15] #0e0f13
+  colors/on-primary [VariableID:16] #faf9f6
+  typography/fs-s/fontFamily [VariableID:17] "Inter"
+  typography/fs-s/fontSize [VariableID:18] 14
+  typography/fs-s/fontWeight [VariableID:19] 500
+  rounded/r-tile [VariableID:20] 20
+  spacing/gap [VariableID:21] 16
+VARS Brand [VariableCollectionId:22] modes: Mode 1
+  colors/x [VariableID:23] #123456
