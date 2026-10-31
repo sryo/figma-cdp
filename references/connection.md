@@ -25,11 +25,11 @@ Coordinator-facing setup: how the helpers reach Figma's Plugin API, through perc
 
    ### Mode R: a perch room (unattended runs)
 
-   A perch room is a Chromium on its own profile in a VM, driven over its DevTools endpoint, with no window of yours involved. Its tab runs with your windows minimized or the screen locked, so prefer it for unattended runs. The helpers show the tab inside the room before each call (no focus taken on the Mac): a background room tab's timers run, but it gets no animation frames, so Figma's PNG `exportAsync` would never settle. The user signs the room in to Figma once (`rooms view <name> --signin https://www.figma.com/login`); then open the file there: `new_tab {app:"room:<name>", url}` in perch, or `rooms` CLI.
+   A perch room is a Chromium on its own profile in a VM, driven over its DevTools endpoint, with no window of yours involved. Its tab runs with your windows minimized or the screen locked, so prefer it for unattended runs. The helpers show the tab inside the room before each call (no focus taken on the Mac): a background room tab's timers run, but it gets no animation frames, so Figma's PNG `exportAsync` would never settle. The user signs the room in to Figma once (`rooms signin <name> https://www.figma.com/login`); then open the file there: `new_tab {app:"room:<name>", url}` in perch, or `rooms` CLI.
 
    - Tabs are `room:<name>:<id>` (`list_tabs {app:"room"}`). With `--file`, a room's tab on the file wins over a browser's; `FIGMA_PERCH_TAB=room:<name>:<id>` pins one, and `tests/eval/run.py` takes the file's one room tab by default.
    - Which backend ran: `python3 <skill-dir>/figma_run.py --file <url> --where` prints `perch room:main:<id> (room main: runs minimized or locked) <url>`, or the browser tab and that it needs its window shown and the screen unlocked, or `cdp port <n>`.
-   - A room tab on Figma's sign-in page stops the call with `signed_out` and the `rooms view` command, and nothing runs. It never falls back to a browser tab. `no_browser: room '<name>' is not up` means `rooms up <name>`.
+   - A room tab on Figma's sign-in page stops the call with `signed_out` and the `rooms signin` command, and nothing runs. It never falls back to a browser tab. `no_browser: room '<name>' is not up` means `rooms up <name>`.
 
    ### Mode A — Attach to your running Chrome (recommended)
 

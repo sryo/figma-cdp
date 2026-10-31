@@ -435,7 +435,7 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', '--file', 'AAA111', '-e', '1', PERCH_STUB_TABS=json.dumps(tabs))
         self.assertEqual(r.returncode, 1)
         self.assertIn('signed_out', r.stderr)
-        self.assertIn('rooms view main --signin', r.stderr)
+        self.assertIn('rooms signin main https://www.figma.com/login', r.stderr)
         self.assertEqual(self.calls('eval_js'), [])
 
     def test_a_pinned_room_tab_on_a_sign_in_page_says_signed_out(self):
@@ -444,7 +444,7 @@ class PerchBackend(Harness):
                             PERCH_STUB_TABS=json.dumps(tabs))
         self.assertEqual(r.returncode, 1)
         self.assertIn('signed_out', r.stderr)
-        self.assertIn('rooms view main --signin', r.stderr)
+        self.assertIn('rooms signin main https://www.figma.com/login', r.stderr)
 
     def test_a_timeout_in_a_room_tab_does_not_blame_hiding(self):
         """A room's background tab is not throttled; its visibilityState still reads hidden."""

@@ -110,7 +110,7 @@ function signedOut(url) {
   try { const u = new URL(url); return /(^|\.)figma\.com$/.test(u.hostname) && LOGIN_PATH.test(u.pathname + u.search); } catch { return false; }
 }
 const signedOutError = (room, url) => `signed_out: room ${room} is signed out of Figma (its tab shows ${url}); ` +
-  `run rooms view ${room} --signin https://www.figma.com/login, sign in, then retry; nothing ran`;
+  `run rooms signin ${room} https://www.figma.com/login, sign in, then retry; nothing ran`;
 
 // One tab per call: the pinned tabId as is, else the Figma tabs of the named file
 // (or of the only Figma file open), preferring a room's (it runs minimized or locked),

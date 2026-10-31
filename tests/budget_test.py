@@ -176,7 +176,7 @@ class Docs(unittest.TestCase):
         conn = d['references/connection.md']
         self.assertRegex(conn, r'(?i)### Mode R[^\n]*room', 'connection.md has no room mode')
         self.assertRegex(conn, r'(?i)minimized or (the screen )?locked', 'connection.md does not say a room runs locked')
-        self.assertIn('rooms view', conn)
+        self.assertIn('rooms signin', conn)
         self.assertRegex(d['figma-worker.md'], r'signed_out[^\n]*BLOCKED', 'the worker sheet does not stop on a signed-out room')
 
     def test_the_brief_copies_stretched_usages_from_the_manifest(self):
