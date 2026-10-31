@@ -125,7 +125,7 @@ function harborKit(cfg) {
     } else {
       n = draw(parent, u, false);
     }
-    size(n, E.sizing[u.c]);
+    size(n, u.sizing ? Object.assign({}, E.sizing[u.c], u.sizing) : E.sizing[u.c]);
     return n;
   }
   function variantOf(u, which) {

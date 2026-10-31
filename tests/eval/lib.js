@@ -521,6 +521,7 @@ async function componentMetrics(read, expect, pages) {
   recs.forEach(function (r) {
     var want = expect.sizing[r.u.c];
     if (!want) return;
+    if (r.u.sizing) want = Object.assign({}, want, r.u.sizing);  // stretched by its column parent
     var n = r.inst || r.region;
     if (want.h) { sizeChecks++; if (n && n.layoutSizingHorizontal === want.h) sizeOk++; }
     if (want.v) { sizeChecks++; if (n && n.layoutSizingVertical === want.v) sizeOk++; }

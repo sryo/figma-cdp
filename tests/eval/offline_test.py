@@ -333,6 +333,21 @@ class HarborFixture(unittest.TestCase):
                 n = len(re.findall(r'class="(?:[^"]*\s)?%s(?:\s[^"]*)?"' % re.escape(cls), html))
                 self.assertEqual(found.get(c, 0), n, (stem, cls))
 
+    def test_a_usage_stretched_by_its_column_parent_expects_fill(self):
+        stretched = []
+        for e, stem, s, html in self.screens():
+            for u in self.walk(s['usages']):
+                if u.get('sizing'):
+                    stretched.append((stem, u['c'], u['key'], u['sizing']))
+        self.assertEqual(stretched, [('customers', 'Badge', 'Active', {'h': 'FILL'})],
+                         'only a badge straight inside .card stretches; .stat-card .badge keeps align-self: flex-start')
+        p = source.Screen()
+        p.feed('<div class="card"><span class="badge">A</span><div class="card__header"><span class="badge">B</span></div>'
+               '<button class="button">C</button><span class="avatar">D</span></div>'
+               '<div class="stat-card"><span class="badge">E</span></div>')
+        got = {u['texts'][0]: u.get('sizing') for u in self.walk(p.root['kids'])}
+        self.assertEqual(got, {'A': {'h': 'FILL'}, 'B': None, 'C': {'h': 'FILL'}, 'D': None, 'E': None})
+
     def test_every_modifier_is_a_known_variant_value(self):
         for e, stem, s, html in self.screens():
             for cls in re.findall(r'class="([^"]+)"', html):

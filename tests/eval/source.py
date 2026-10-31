@@ -66,6 +66,11 @@ SIZING = {
     'Input': {'h': 'FILL'}, 'Badge': {'h': 'HUG', 'v': 'HUG'}, 'Button': {'h': 'HUG', 'v': 'HUG'},
     'Tab': {'h': 'HUG', 'v': 'HUG'}, 'Avatar': {'h': 'FIXED', 'v': 'FIXED'},
 }
+# Column flex boxes with no align-items (harbor/components.css): a child with no width of its
+# own (AUTO_WIDTH) stretches across one, so a usage straight inside it expects FILL across.
+# .stat-card is not one: `.stat-card .badge { align-self: flex-start }`.
+STRETCH = {'card', 'page', 'list', 'fields', 'pairs', 'screen'}
+AUTO_WIDTH = {'Badge', 'Button', 'Tab'}
 # Components whose content differs per usage (a card holds anything): an instance of one only
 # has to carry its own strings, not its nested usages.
 SLOTS = ['Card']
@@ -102,7 +107,7 @@ def modifier_values(c, mods):
 class Screen(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.stack = []      # (tag, usage or None, skip)
+        self.stack = []      # (tag, usage or None, skip, classes)
         self.root = {'c': 'Screen', 'anchors': [], 'texts': [], 'kids': [], 'items': []}
         self.title = None
         self.paragraphs = []
@@ -110,16 +115,16 @@ class Screen(HTMLParser):
         self.h1 = False
 
     def owner(self):
-        for _, u, _ in reversed(self.stack):
+        for _, u, _, _ in reversed(self.stack):
             if u is not None:
                 return u
         return self.root
 
     def chain(self):
-        return [self.root] + [u for _, u, _ in self.stack if u is not None]
+        return [self.root] + [u for _, u, _, _ in self.stack if u is not None]
 
     def skipping(self):
-        return any(s for _, _, s in self.stack)
+        return any(s for _, _, s, _ in self.stack)
 
     def add_text(self, s):
         s = ws(s)
@@ -144,6 +149,8 @@ class Screen(HTMLParser):
                 c = COMPONENTS.get(cls) or ROLE_CLASSES[cls]
                 mods = [m[len(cls) + 2:] for m in classes if m.startswith(cls + '--')]
                 usage = {'c': c, 'props': modifier_values(c, mods), 'anchors': [], 'texts': [], 'kids': [], 'items': []}
+                if c in AUTO_WIDTH and self.stack and STRETCH & set(self.stack[-1][3]):
+                    usage['sizing'] = {'h': 'FILL'}
                 parent = self.owner()
                 parent['items'].append({'k': len(parent['kids'])})
                 parent['kids'].append(usage)
@@ -154,7 +161,7 @@ class Screen(HTMLParser):
             return
         if tag in VOID:
             return
-        self.stack.append((tag, usage, tag in SKIP))
+        self.stack.append((tag, usage, tag in SKIP, classes))
         if tag == 'h1':
             self.h1 = True
         if tag == 'p':
@@ -169,7 +176,7 @@ class Screen(HTMLParser):
         if tag in VOID:
             return
         while self.stack:
-            t, _, _ = self.stack.pop()
+            t, _, _, _ = self.stack.pop()
             if t == tag:
                 break
         if tag == 'h1':
