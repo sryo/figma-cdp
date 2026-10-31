@@ -505,6 +505,7 @@ class Compare(unittest.TestCase):
         for t in tasks:
             for k in ('failed_tool_calls', 'unhinted_errors', 'lost_replies'):
                 self.assertEqual(noise['abs'].get(f'{t}.{k}'), 1, f'{t}.{k}')
+            self.assertEqual(noise['abs'].get(f'{t}.input_tokens'), 5, 'uncached input moves by a few tokens a run')
         self.assertEqual(noise.get('rel', {}), {}, 'rel stays at fium\'s 10% default until an A/A run measures it')
 
     def test_gate_reads_price_trailers_from_this_repo(self):
