@@ -4,7 +4,8 @@
   python3 figma_source.py <file-or-dir>... [-o manifest.json]
 
 Reads style sheets, markup, UI code and JSON token or string files (plus the local sheets a page links
-or a sheet @imports), and writes JSON with:
+or a sheet @imports), and a DESIGN.md's YAML tokens (Google's format: front matter or ```yaml blocks,
+{group.token} refs), and writes JSON with:
   tokens        [{name, value, kind, src}]   custom properties, theme constants, JSON tokens
   colors        [{value, token?, src}]       every literal color, as #rrggbb
   spacing, radii, fontSizes, fontWeights     [{value, token?, src}]  numbers in px
@@ -20,6 +21,12 @@ or a sheet @imports), and writes JSON with:
                                              elements too) as {selector: declarations}, about 1.6 KB;
                                              fillAcross: the usages a column flex parent stretches across;
                                              files: the markup files that use it
+  design        {src, name, themes, collections, brokenRefs, errors}  when a DESIGN.md was read; its tokens
+                                             carry theme, collection and variable (the Figma variable
+                                             they mirror). `themes: [light, dark]` names the themes, the
+                                             first the base; a token key ending -dark overrides it in dark.
+                                             Free Figma has one mode per collection, so each theme is a
+                                             collection: `<name>/<theme>`, or `<name>` with no themes.
 src is `file:line` relative to the inputs' common directory. Without -o the JSON goes to
 stdout; with -o a one-line summary does. figma_fidelity.py diffs a Figma subtree against it.
 """
@@ -214,6 +221,114 @@ def text_node(s):
     return s
 
 
+# ---- DESIGN.md: the YAML subset its spec uses (mappings, quoted or plain scalars, flow lists, comments)
+
+DESIGN_NAME = 'design.md'
+DESIGN_GROUPS = ('colors', 'typography', 'rounded', 'spacing', 'components')
+
+
+def is_design(path):
+    return os.path.basename(path).lower() == DESIGN_NAME
+
+
+def yaml_blocks(text):
+    """[(first line number, [lines])] for the front matter and every ```yaml block."""
+    lines, out, i = text.split('\n'), [], 0
+    if lines and lines[0].strip() == '---':
+        for j in range(1, len(lines)):
+            if lines[j].strip() == '---':
+                out.append((2, lines[1:j]))
+                i = j + 1
+                break
+    while i < len(lines):
+        if re.match(r'^\s*```ya?ml\s*$', lines[i]):
+            j = i + 1
+            while j < len(lines) and not re.match(r'^\s*```\s*$', lines[j]):
+                j += 1
+            out.append((i + 2, lines[i + 1:j]))
+            i = j
+        i += 1
+    return out
+
+
+def uncomment(line):
+    """line without a # comment (one outside quotes, at the start or after a space)."""
+    q = None
+    for i, c in enumerate(line):
+        if q:
+            q = None if c == q else q
+        elif c in '"\'':
+            q = c
+        elif c == '#' and (i == 0 or line[i - 1] in ' \t'):
+            return line[:i]
+    return line
+
+
+def scalar(v):
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in '"\'':
+        inner = v[1:-1]
+        return inner.replace("''", "'") if v[0] == "'" else inner.replace('\\"', '"').replace('\\\\', '\\')
+    if v.startswith('[') and v.endswith(']'):
+        return [scalar(x) for x in re.findall(r'"[^"]*"|\'[^\']*\'|[^,]+', v[1:-1]) if x.strip()]
+    if re.fullmatch(r'-?\d+', v):
+        return int(v)
+    if re.fullmatch(r'-?\d*\.\d+', v):
+        return float(v)
+    return {'true': True, 'false': False, 'null': None, '~': None}.get(v, v)
+
+
+def parse_yaml(first, lines, errors):
+    """{key: (value, line)}, nested by indentation; a duplicate key is an error and the first wins."""
+    rows = []
+    for k, raw in enumerate(lines):
+        s = uncomment(raw).rstrip()
+        if s.strip():
+            rows.append((len(s) - len(s.lstrip()), s.strip(), first + k))
+    pos = [0]
+
+    def block(indent):
+        out = {}
+        while pos[0] < len(rows) and rows[pos[0]][0] >= indent:
+            ind, s, n = rows[pos[0]]
+            pos[0] += 1
+            m = re.match(r'^("[^"]*"|\'[^\']*\'|[^:]+?)\s*:(?:\s+(.*)|$)', s)
+            if not m or s.startswith('- '):
+                continue
+            key = scalar(m.group(1)) if m.group(1)[0] in '"\'' else m.group(1)
+            if m.group(2) is not None and m.group(2).strip():
+                value = scalar(m.group(2))
+            elif pos[0] < len(rows) and rows[pos[0]][0] > ind:
+                if rows[pos[0]][1].startswith('- '):
+                    value = []
+                    while pos[0] < len(rows) and rows[pos[0]][0] > ind and rows[pos[0]][1].startswith('- '):
+                        value.append(scalar(rows[pos[0]][1][2:]))
+                        pos[0] += 1
+                else:
+                    value = block(rows[pos[0]][0])
+            else:
+                value = None
+            if key in out:
+                errors.append({'message': f'duplicate key {key}', 'line': n})
+                continue
+            out[key] = (value, n)
+        return out
+
+    return block(rows[0][0]) if rows else {}
+
+
+def design_tokens(text):
+    """(tree, errors) for a DESIGN.md: every YAML block merged, a top-level key defined twice an error."""
+    tree, errors = {}, []
+    for first, lines in yaml_blocks(text):
+        for k, v in parse_yaml(first, lines, errors).items():
+            if k in tree:
+                errors.append({'message': f'top-level key {k} is defined twice (first at line {tree[k][1]})', 'line': v[1]})
+            else:
+                tree[k] = v
+    return tree, errors
+
+
 class Source:
     def __init__(self, base):
         self.base = base
@@ -229,6 +344,8 @@ class Source:
         self.rules = {}   # style block -> [(selector, declarations, file)]
         self.sheet = []   # [(compounds, combinators, specificity, order, {property: value})] for class-only selectors
         self.comps = {}   # component -> {component, uses, nests, src}
+        self.design = None  # the DESIGN.md read, as the manifest's design entry
+        self.design_meta = {}  # token name -> {theme, collection, variable}
 
     # ---- reading
 
@@ -249,6 +366,57 @@ class Source:
 
     def src(self, f, offset):
         return f'{f[0]}:{bisect.bisect_right(f[3], offset)}'
+
+    # ---- DESIGN.md
+
+    def design_file(self, path):
+        """A DESIGN.md's tokens go in first, so they win a name a code file also defines."""
+        try:
+            with open(path, encoding='utf-8', errors='replace') as fh:
+                text = fh.read(MAX_BYTES)
+        except OSError:
+            return
+        rel = os.path.relpath(path, self.base)
+        tree, errors = design_tokens(text)
+        val = lambda k, d=None: tree[k][0] if k in tree and tree[k][0] is not None else d
+        themes = [str(t) for t in val('themes', [])] if isinstance(val('themes'), list) else []
+        name = str(val('name', 'DESIGN'))
+        coll = lambda t: f'{name}/{t}' if themes else name
+        self.design = {'src': rel, 'name': name, 'themes': themes, 'collections': [coll(t) for t in themes] or [name],
+                       'brokenRefs': [], 'errors': [{'message': e['message'], 'src': f"{rel}:{e['line']}"} for e in errors]}
+        for group in DESIGN_GROUPS:
+            node = val(group)
+            if not isinstance(node, dict):
+                continue
+            keys = set(node)
+            for key, (v, n) in node.items():
+                theme, base = themes[0] if themes else None, key
+                for t in themes[1:]:
+                    if key.endswith('-' + t) and key[:-len(t) - 1] in keys:
+                        theme, base = t, key[:-len(t) - 1]
+                for path, (leaf, line) in self.design_leaves([group, key], (v, n)):
+                    self.token_raw.setdefault('.'.join(path), (leaf, f'{rel}:{line}'))
+                    if group != 'components':
+                        self.design_meta['.'.join(path)] = {**({'theme': theme} if theme else {}), 'collection': coll(theme),
+                                                            'variable': '/'.join([group, base] + path[2:])}
+
+    def design_leaves(self, path, node):
+        v, n = node
+        if isinstance(v, dict):
+            for k, child in v.items():
+                yield from self.design_leaves(path + [k], child)
+        elif v is not None and not isinstance(v, (bool, list)):
+            yield path, (v, n)
+
+    def design_refs(self):
+        """Every {group.token} ref in DESIGN.md that names no token (nor a typography group), reported."""
+        names = set(self.token_raw)
+        for name, (raw, src) in self.token_raw.items():
+            if not self.design or not src.startswith(self.design['src'] + ':') or not isinstance(raw, str):
+                continue
+            for ref in re.findall(r'\{([\w.-]+)\}', raw):
+                if ref not in names and not any(x.startswith(ref + '.') for x in names):
+                    self.design['brokenRefs'].append({'token': name, 'ref': '{' + ref + '}', 'src': src})
 
     # ---- tokens
 
@@ -272,6 +440,8 @@ class Source:
                     self.token_raw.setdefault(name, (found[0][1], self.src(f, m.start(1))))
         for name in self.token_raw:
             self.resolve(name, set())
+        for name, meta in self.design_meta.items():
+            self.tokens[name].update(meta)
 
     def resolve(self, name, seen):
         if name in self.tokens:
@@ -720,6 +890,7 @@ class Source:
             'states': list(self.states.values()),
             'components': [dict(self.capped(e), css=self.component_css(e['component'])) if self.rules.get(e['component'])
                            else self.capped(e) for e in sorted(self.comps.values(), key=lambda e: -e['uses'])],
+            **({'design': self.design} if self.design else {}),
         }
 
 
@@ -730,7 +901,7 @@ def gather(paths):
             for d, dirs, names in os.walk(p):
                 dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS and not x.startswith('.') and not TEST_NAME.search(x))
                 for n in sorted(names):
-                    if os.path.splitext(n)[1].lower() not in SKIP_EXT and not n.endswith('.min.js') and not TEST_NAME.search(n):
+                    if (os.path.splitext(n)[1].lower() not in SKIP_EXT or is_design(n)) and not n.endswith('.min.js') and not TEST_NAME.search(n):
                         files.append(os.path.join(d, n))
         else:
             files.append(p)
@@ -772,10 +943,19 @@ def build(paths):
                               + [os.path.dirname(f) for f in files])
     s = Source(base)
     for path in files:
-        s.add_file(path)
+        if is_design(path):
+            s.design_file(path)
+        else:
+            s.add_file(path)
+    s.design_refs()
     s.collect_tokens()
     s.collect_usages()
-    return s.manifest()
+    m = s.manifest()
+    for b in m.get('design', {}).get('brokenRefs', []):
+        print(f"figma_source.py: {b['src']} {b['token']}: broken ref {b['ref']}", file=sys.stderr)
+    for e in m.get('design', {}).get('errors', []):
+        print(f"figma_source.py: {e['src']} {e['message']}", file=sys.stderr)
+    return m
 
 
 def summary(m):

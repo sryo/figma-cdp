@@ -344,5 +344,97 @@ class Generic(unittest.TestCase):
         self.assertIn('/nope/nothing', r.stderr)
 
 
+DESIGN = os.path.join(ROOT, 'tests', 'design')
+
+
+def run_source(*args):
+    return subprocess.run([sys.executable, os.path.join(ROOT, 'figma_source.py'), *args], capture_output=True, text=True)
+
+
+class DesignMd(unittest.TestCase):
+    """DESIGN.md (Google's format): YAML front matter tokens are the source, cited by line."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = manifest(os.path.join(DESIGN, 'DESIGN.md'))
+        cls.tokens = {t['name']: t for t in cls.m['tokens']}
+        with open(os.path.join(DESIGN, 'DESIGN.md')) as f:
+            cls.lines = f.read().splitlines()
+
+    def test_tokens_cite_their_design_md_line(self):
+        for name in ('colors.primary', 'colors.canvas-dark', 'typography.fs-s.fontSize', 'rounded.r-tile', 'spacing.gap'):
+            t = self.tokens[name]
+            f, n = t['src'].rsplit(':', 1)
+            self.assertEqual(f, 'DESIGN.md')
+            self.assertIn(name.split('.')[-1] + ':', self.lines[int(n) - 1], t)
+
+    def test_values_and_refs_resolve(self):
+        v = lambda n: (self.tokens[n]['value'], self.tokens[n]['kind'])
+        self.assertEqual(v('colors.primary'), ('#2f5bea', 'color'))
+        self.assertEqual(v('colors.on-primary'), ('#faf9f6', 'color'))
+        self.assertEqual(v('components.button.textColor'), ('#faf9f6', 'color'))
+        self.assertEqual(v('typography.fs-s.fontSize'), (14, 'fontSize'))
+        self.assertEqual(v('typography.fs-s.fontWeight'), (500, 'fontWeight'))
+        self.assertEqual(v('typography.fs-s.fontFamily'), ('Inter', 'fontFamily'))
+        self.assertEqual(v('rounded.r-tile'), (20, 'radius'))
+        self.assertEqual(v('spacing.gap'), (16, 'spacing'))
+        self.assertEqual({e['value'] for e in self.m['colors']} >= {'#2f5bea', '#0e0f13'}, True)
+
+    def test_each_theme_is_its_own_collection(self):
+        self.assertEqual(self.m['design']['themes'], ['light', 'dark'])
+        self.assertEqual(self.m['design']['collections'], ['Lede/light', 'Lede/dark'])
+        dark, base = self.tokens['colors.canvas-dark'], self.tokens['colors.canvas']
+        self.assertEqual((dark['theme'], dark['collection'], dark['variable']), ('dark', 'Lede/dark', 'colors/canvas'))
+        self.assertEqual((base['theme'], base['collection'], base['variable']), ('light', 'Lede/light', 'colors/canvas'))
+        self.assertEqual(self.tokens['typography.fs-s.fontSize']['variable'], 'typography/fs-s/fontSize')
+        self.assertNotIn('variable', self.tokens['components.button.textColor'])
+
+    def test_prose_colors_are_not_usages(self):
+        self.assertFalse(any(e['src'].startswith('DESIGN.md:') and int(e['src'].split(':')[1]) > 26 for e in self.m['colors']))
+        self.assertEqual(self.m['copy'], [])
+
+    def test_broken_ref_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'DESIGN.md'), 'w') as f:
+                f.write('---\nname: X\ncolors:\n  primary: "#000000"\n  ghost: "{colors.nope}"\n---\n')
+            r = run_source(os.path.join(tmp, 'DESIGN.md'))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(json.loads(r.stdout)['design']['brokenRefs'],
+                             [{'token': 'colors.ghost', 'ref': '{colors.nope}', 'src': 'DESIGN.md:5'}])
+            self.assertIn('DESIGN.md:5', r.stderr)
+            self.assertIn('{colors.nope}', r.stderr)
+
+    def test_yaml_blocks_merge_and_duplicate_keys_are_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'DESIGN.md'), 'w') as f:
+                f.write('---\nname: X\n---\n\n## Colors\n\n```yaml\ncolors:\n  primary: "#112233"  # ink\n```\n\n'
+                        '## Shapes\n\n```yaml\nrounded:\n  sm: 4px\ncolors:\n  extra: "#445566"\n```\n')
+            m = manifest(os.path.join(tmp, 'DESIGN.md'))
+            t = {e['name']: e for e in m['tokens']}
+            self.assertEqual((t['colors.primary']['value'], t['colors.primary']['src']), ('#112233', 'DESIGN.md:9'))
+            self.assertEqual(t['rounded.sm']['value'], 4)
+            self.assertEqual(m['design']['collections'], ['X'])
+            self.assertEqual(len(m['design']['errors']), 1)
+            self.assertIn('colors', m['design']['errors'][0]['message'])
+            self.assertEqual(m['design']['errors'][0]['src'], 'DESIGN.md:17')
+
+    def test_a_directory_reads_its_design_md(self):
+        m = manifest(DESIGN)
+        names = {t['name'] for t in m['tokens']}
+        self.assertIn('colors.primary', names)
+        self.assertIn('--primary', names)
+        self.assertEqual(next(t for t in m['tokens'] if t['name'] == 'colors.primary')['src'], 'DESIGN.md:7')
+
+    def test_other_markdown_is_still_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'README.md'), 'w') as f:
+                f.write('---\ncolors:\n  a: "#123456"\n---\n')
+            with open(os.path.join(tmp, 'a.css'), 'w') as f:
+                f.write('.a { color: #654321; }\n')
+            m = manifest(tmp)
+            self.assertNotIn('design', m)
+            self.assertEqual([e['value'] for e in m['colors']], ['#654321'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,11 @@
+:root{
+  --primary:#2F5BEA; --canvas:#FAF9F6;
+  --ink:#1A1D2E;
+  --on-primary:#FAF9F6;
+  --fs-s:14px;
+  --r-tile:20px;
+  --gap:16px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --canvas:#0E0F13; --ink:#EDEEF3;
+}}
