@@ -181,7 +181,7 @@ class Docs(unittest.TestCase):
 
     def test_the_brief_copies_stretched_usages_from_the_manifest(self):
         d = docs()
-        self.assertRegex(d['SKILL.md'], r'`fill`[^.]*FILL across', 'SKILL.md does not have the brief copy the manifest fill list')
+        self.assertRegex(d['SKILL.md'], r'`fill`[^.]*build or brief[^.]*FILL across', 'SKILL.md does not apply the manifest fill list to inline builds and briefs')
         self.assertIn('fill?', d['references/fidelity.md'], 'fidelity.md does not document a component\'s fill list')
 
     def test_capture_inline_exception_is_for_block_parents_only(self):
