@@ -118,11 +118,13 @@ If any of these break, that's the integration boundary to fix. The other ~140 ag
 ## perch backend
 
 `figma_perch.mjs` imports `server.js` from `PERCH_DIR` (default `~/Documents/perch`) and calls its exported `handleCall` in-process; no MCP session, no CDP. It depends on:
-- `list_tabs {urlContains}` to find the file's tab (a tab its window shows wins among duplicates; several files open and no `--file` is an `ambiguous_tab` error)
+- `list_tabs {urlContains}` to find the file's tab (a room's tab wins, then a tab its window shows, among duplicates; several files open and no `--file` is an `ambiguous_tab` error)
 - `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script (already in the helpers' parse-first wrapper, `AUTO_ASYNC`, identical on both backends: a program yields its completion value, a script with top-level `await` or `return` runs as an async body) is wrapped as `return await (0, eval)(<source>)`, and a throw is caught in-page and reported as `✗ Evaluation error: ...`. Requests carry the script text (`sources`), never file paths
 - `screenshot {target, maxWidth:0, format:"png"}` for `figma_run.py --screenshot` (the tab must be the one its window shows)
 - `new_tab {url}`, `wait {target, expression}` (readyState complete off the new tab's initial `about:blank`) and `close_tab {tabId}` for `figma_capture.py walk`
 - the `buildKick` export (`buildMainKick` before perch 5725447), which marks a perch new enough to have `world:"main"`; the helpers accept either
+
+Rooms (perch's `room:<name>:<id>` tabs, a Chromium in a VM over its DevTools endpoint) run with the Mac's windows minimized or its screen locked, and their background tabs aren't throttled. So `pickTab` prefers a room's tab on the file over a browser's, a timeout there gets no hidden-tab hint, and `tests/eval/run.py` defaults `--tab` to the file's one room tab. A room tab on Figma's sign-in page (perch's login-path test) stops the call with `signed_out` and the `rooms view <name> --signin` command: when listing finds no room tab on the file, and when a pinned room tab's page is a sign-in page. It never falls back to a browser tab, so an unattended run fails loudly instead of landing on a window the locked screen stalls. `figma_run.py --where` prints the backend and tab a call uses.
 
 On a `room:` tab, `figma_perch.mjs` checks `typeof figma` before a script. If it is undefined and the snapshot has an exact Tools button or tab, it opens and closes that control once, then checks again. It never runs a plugin or takes the Mac's foreground. If the control is absent, the existing plugin-open hint remains.
 

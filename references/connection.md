@@ -23,6 +23,13 @@ Coordinator-facing setup: how the helpers reach Figma's Plugin API, through perc
 
    `--file` takes the file URL or key (or set `FIGMA_FILE`); it is required when several Figma files are open, which fails with `ambiguous_tab` and lists them. The tab can stay in the background. Output and exit codes match Mode A. Raw `agent-browser` one-liners don't apply here; use `figma_run.py -e`. `figma_run.py --screenshot <png>` replaces `agent-browser screenshot`, but needs the tab to be the one its window shows. The capture fast-path (`figma_capture.py`) runs on Mode P too; see `references/capture.md`.
 
+   ### Mode R: a perch room (unattended runs)
+
+   A perch room is a Chromium on its own profile in a VM, driven over its DevTools endpoint, with no window of yours involved. Its tab runs with your windows minimized or the screen locked, and a background room tab isn't throttled, so prefer it for unattended runs. The user signs the room in to Figma once (`rooms view <name> --signin https://www.figma.com/login`); then open the file there: `new_tab {app:"room:<name>", url}` in perch, or `rooms` CLI.
+
+   - Tabs are `room:<name>:<id>` (`list_tabs {app:"room"}`). With `--file`, a room's tab on the file wins over a browser's; `FIGMA_PERCH_TAB=room:<name>:<id>` pins one, and `tests/eval/run.py` takes the file's one room tab by default.
+   - Which backend ran: `python3 <skill-dir>/figma_run.py --file <url> --where` prints `perch room:main:<id> (room main: runs minimized or locked) <url>`, or the browser tab and that it needs its window shown and the screen unlocked, or `cdp port <n>`.
+   - A room tab on Figma's sign-in page stops the call with `signed_out` and the `rooms view` command, and nothing runs. It never falls back to a browser tab. `no_browser: room '<name>' is not up` means `rooms up <name>`.
 
    ### Mode A — Attach to your running Chrome (recommended)
 
@@ -105,6 +112,7 @@ If a Mode P call fails, the error keeps perch's code:
 - `no_tab` / `ambiguous_tab`: open the file in Chrome, or pass `--file`.
 - `timeout`: an awaited eval runs at most 100s by default; pass `--timeout <seconds>` to either helper (or set `FIGMA_TIMEOUT`), up to 300. A perch older than this awaits 30s whatever you ask; update it. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
 - `tab_not_visible` (screenshot only): the tab isn't the one its window shows.
+- `signed_out` / `no_browser: room`: the room needs the user (Mode R); nothing ran.
 - `figma is undefined in this tab`: on a room tab the helper first tries an exact Tools control once; if that control is unavailable, open and close any plugin once, as above.
 - `stale_tab: ... no longer shows file`: the tab moved to another file mid-batch; the rest of the batch didn't run.
 - `perch_daemon: the daemon dropped the call`: the background helper died or went silent after taking the call, so the script may have run; check the file before running it again. Its log is next to its socket in `$TMPDIR/figma-perch-<uid>/`.

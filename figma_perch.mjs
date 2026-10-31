@@ -9,7 +9,7 @@
 // A request is {op:"eval", file, sources:[<js>...], tab, timeout, stop},
 // {op:"screenshot", file, path:<out.png>, tab} or {op:"page", url, sources, settle,
 // timeout, app, show}; file is a Figma URL, a file key or "". The reply is one JSON object:
-//   {tab:{tabId,url,title}, origin, results:[{ok:true,value,href} | {ok:false,error,figma,href}]}
+//   {tab:{tabId,url,title,app}, origin, results:[{ok:true,value,href} | {ok:false,error,figma,href}]}
 //   {tab, origin, path}                 (screenshot)
 //   {fatal:"<code>: <message>"}          (no perch, no tab, perch call failed)
 //
@@ -103,9 +103,21 @@ export function fileKey(file) {
   return m ? m[1] : /^[A-Za-z0-9]+$/.test(file) ? file : null;
 }
 
+// perch's own test for a room tab that landed on a sign-in page.
+const LOGIN_PATH = /(^|\/)(login|log-in|signin|sign-in|sign_in|auth|session\/new)([\/?#]|$)/i;
+const roomOf = (tabId) => /^room:([^:]+):/.exec(String(tabId))?.[1] || null;
+function signedOut(url) {
+  try { const u = new URL(url); return /(^|\.)figma\.com$/.test(u.hostname) && LOGIN_PATH.test(u.pathname + u.search); } catch { return false; }
+}
+const signedOutError = (room, url) => `signed_out: room ${room} is signed out of Figma (its tab shows ${url}); ` +
+  `run rooms view ${room} --signin https://www.figma.com/login, sign in, then retry; nothing ran`;
+
 // One tab per call: the pinned tabId as is, else the Figma tabs of the named file
-// (or of the only Figma file open), preferring the one its window shows.
+// (or of the only Figma file open), preferring a room's (it runs minimized or locked),
+// then the one its window shows. A room on Figma's sign-in page with no tab on the
+// file stops the call rather than falling back to a browser tab.
 export function pickTab(tabs, file) {
+  const out = tabs.find((t) => roomOf(t.tabId) && signedOut(t.url));
   const figma = tabs.filter((t) => FIGMA_PATH.test(t.url));
   const key = fileKey(file);
   if (file && !key) throw new Error(`bad_file: '${file}' is neither a Figma file URL nor a file key`);
@@ -118,8 +130,9 @@ export function pickTab(tabs, file) {
       throw new Error(`ambiguous_tab: ${keys.length} Figma files are open; pass --file <url-or-key>, one of: ${names.join(", ")}`);
     }
   }
+  if (out && !pool.some((t) => roomOf(t.tabId))) throw new Error(signedOutError(roomOf(out.tabId), out.url));
   if (!pool.length) throw new Error(`no_tab: no open Figma tab${key ? ` for file ${key}` : ""}; open the file in Chrome first`);
-  return pool.find((t) => t.active) || pool[0];
+  return pool.find((t) => roomOf(t.tabId)) || pool.find((t) => t.active) || pool[0];
 }
 
 // `cache` (serve only) maps a file key to its tab. A cached tab is checked on
@@ -128,12 +141,12 @@ export function pickTab(tabs, file) {
 // Calls without a file key always list tabs, so a second open file still turns
 // into ambiguous_tab.
 async function resolveTab(handleCall, file, pinned, cache) {
-  if (pinned) return { tabId: pinned, url: "https://www.figma.com/", title: "", key: null, cached: false };
+  if (pinned) return { tabId: pinned, url: "https://www.figma.com/", title: "", app: roomOf(pinned) ? `room:${roomOf(pinned)}` : "", key: null, cached: false };
   const want = fileKey(file);
   if (cache && want && cache.has(want)) return { ...cache.get(want), cached: true };
-  const { text } = await call(handleCall, "list_tabs", { urlContains: want ? want : "figma.com/", limit: 500 });
+  const { text } = await call(handleCall, "list_tabs", { urlContains: "figma.com/", limit: 500 });
   const t = pickTab(JSON.parse(text).tabs || [], file);
-  const tab = { tabId: t.tabId, url: t.url, title: t.title, key: FIGMA_PATH.exec(t.url)[1] };
+  const tab = { tabId: t.tabId, url: t.url, title: t.title, app: t.app || "", key: FIGMA_PATH.exec(t.url)[1] };
   if (cache && want) cache.set(want, tab);
   return { ...tab, cached: false };
 }
@@ -167,6 +180,7 @@ async function runEval(handleCall, tab, src, ms, page = false) {
   let out;
   try { out = JSON.parse(text); } catch { out = null; }
   if (!out || typeof out !== "object") return { ok: false, error: `unexpected eval_js reply: ${text.slice(0, 300)}` };
+  if (roomOf(tab.tabId) && signedOut(out.miss ?? out.h)) throw new Error(signedOutError(roomOf(tab.tabId), out.miss ?? out.h));
   if ("miss" in out) return { miss: String(out.miss) };
   if ("e" in out) return { ok: false, error: page || out.figma ? out.e : `${out.e}\n${UNDEFINED_HINT}`, figma: !!out.figma, href: out.h };
   return { ok: true, value: out.v === undefined ? null : out.v, href: out.h };
@@ -260,7 +274,7 @@ async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
 
 function headOf(tab) {
   const origin = (() => { try { return new URL(tab.url).origin; } catch { return null; } })();
-  return { tab: { tabId: tab.tabId, url: tab.url, title: tab.title }, origin };
+  return { tab: { tabId: tab.tabId, url: tab.url, title: tab.title, app: tab.app || "" }, origin };
 }
 
 // One request, one reply object (the shape documented at the top). Never throws.
@@ -306,7 +320,8 @@ export async function handle(handleCall, req, cache = null) {
       // A perch-level failure (stale tab, timeout, browser gone) would fail every
       // later script the same way, so it ends the run.
       else {
-        const hidden = /^timeout: /.test(e.message) && await tabHidden(handleCall, tab);
+        // A room's background tab reads hidden but is not throttled.
+        const hidden = /^timeout: /.test(e.message) && !roomOf(tab.tabId) && await tabHidden(handleCall, tab);
         return { ...headOf(tab), results, fatal: perchFatal(e, ms, sources[i]) + (hidden ? `. ${HIDDEN_HINT}` : "") };
       }
     }

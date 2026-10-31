@@ -565,6 +565,17 @@ class Stream(unittest.TestCase):
         self.assertIsNone(run.tab_problem([{'tabId': 'arc:1'}], None))
         self.assertIn('no tab', run.tab_problem([], None))
 
+    def test_a_lone_room_tab_on_the_file_is_the_default(self):
+        """A room runs locked, so an unattended run takes it over the browser tab without --tab."""
+        tabs = [{'tabId': 'canary:2'}, {'tabId': 'room:main:AB12'}]
+        self.assertEqual(run.default_tab(tabs, None), 'room:main:AB12')
+        self.assertIsNone(run.tab_problem(tabs, run.default_tab(tabs, None)))
+        self.assertEqual(run.default_tab(tabs, 'canary:2'), 'canary:2', 'an explicit --tab wins')
+        two = tabs + [{'tabId': 'room:main:CD34'}]
+        self.assertIsNone(run.default_tab(two, None), 'two room tabs: still ambiguous')
+        self.assertIn('--tab', run.tab_problem(two, run.default_tab(two, None)))
+        self.assertIsNone(run.default_tab([{'tabId': 'canary:2'}], None))
+
     def test_clean_env_drops_host_session_vars(self):
         saved = dict(os.environ)
         try:

@@ -50,6 +50,7 @@ Gotchas:
 5. Find before create (by name under its parent) so re-runs don't duplicate; keep ids, not node objects, in `__batchState`.
 6. Ids starting with `I` are instance sublayers: `setProperties` or a swap (yours or another worker's) rebuilds them, so don't reuse one in a later eval; find it again from the instance.
 7. Reads are async (dynamic-page): `figma.getNodeByIdAsync`, `inst.getMainComponentAsync()`, `figma.variables.getLocalVariablesAsync()`; the sync `getNodeById`, `.mainComponent` throw.
+8. `signed_out` (a room left Figma's session) or `no_browser: room`: BLOCKED with the error; never retry on another tab.
 
 ## Your Loop
 For each section (or the whole task):

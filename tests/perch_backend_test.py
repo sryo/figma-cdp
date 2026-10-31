@@ -419,6 +419,52 @@ class PerchBackend(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertIn('no_tab', r.stderr)
 
+    def test_a_room_tab_on_the_file_is_preferred(self):
+        """A room runs minimized or locked, so it wins over the browser tab its window shows."""
+        tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two – Figma'}]
+        for helper in ('figma_run.py', 'figma_batch_run.py'):
+            stop_daemon(self.sock)
+            open(self.log, 'w').close()
+            r = self.run_helper(helper, '--file', 'BBB222', '-e', '1', PERCH_STUB_TABS=json.dumps(tabs))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self.calls('eval_js')[-1]['args']['target'], {'tabId': 'room:main:R1'}, helper)
+
+    def test_a_signed_out_room_stops_the_run(self):
+        """No fallback to the browser tab: the room is where an unattended run expects to be."""
+        tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R2', 'url': 'https://www.figma.com/login?cont=%2Fdesign%2FAAA111', 'title': 'Login'}]
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', '-e', '1', PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('signed_out', r.stderr)
+        self.assertIn('rooms view main --signin', r.stderr)
+        self.assertEqual(self.calls('eval_js'), [])
+
+    def test_a_pinned_room_tab_on_a_sign_in_page_says_signed_out(self):
+        tabs = [{'app': 'room:main', 'tabId': 'room:main:R3', 'url': 'https://www.figma.com/login', 'title': 'Login'}]
+        r = self.run_helper('figma_run.py', '-e', '1', FIGMA_PERCH_TAB='room:main:R3', PERCH_STUB_FIGMA='0',
+                            PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('signed_out', r.stderr)
+        self.assertIn('rooms view main --signin', r.stderr)
+
+    def test_a_timeout_in_a_room_tab_does_not_blame_hiding(self):
+        """A room's background tab is not throttled; its visibilityState still reads hidden."""
+        tabs = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}]
+        slow = self.js('a.js', 'new Promise(r => setTimeout(() => r("late"), 1500))')
+        r = self.run_helper('figma_run.py', '--timeout', '1', slow, FIGMA_PERCH_TAB='room:main:R1',
+                            PERCH_STUB_HIDDEN='1', PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('timeout', r.stderr)
+        self.assertNotIn('The tab is hidden', r.stderr)
+
+    def test_where_names_the_backend_and_the_tab(self):
+        tabs = TWO_FILES + [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/BBB222/Two', 'title': 'Two – Figma'}]
+        r = self.run_helper('figma_run.py', '--file', 'BBB222', '--where', PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'perch room:main:R1 (room main: runs minimized or locked) https://www.figma.com/design/BBB222/Two')
+        stop_daemon(self.sock)
+        r = self.run_helper('figma_run.py', '--file', 'AAA111', '--where', PERCH_STUB_TABS=json.dumps(TWO_FILES))
+        self.assertEqual(r.stdout.strip(), 'perch chrome:1 (Google Chrome: needs its window shown and the screen unlocked) https://www.figma.com/design/AAA111/One')
+
     def test_pinned_tab_skips_listing(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_PERCH_TAB='canary:42')
         self.assertEqual(r.returncode, 0, r.stderr)

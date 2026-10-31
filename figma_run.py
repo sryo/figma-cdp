@@ -7,6 +7,7 @@ directory; nothing needs copying.
   python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] <js_file> | - | -e '<js>'
   python3 figma_run.py [--file <figma-url-or-key>] --screenshot <out.png>
   python3 figma_run.py [--file <figma-url-or-key>] --recover <request-id>
+  python3 figma_run.py [--file <figma-url-or-key>] --where
 
 The script is a file, stdin (-), or inline (-e / --js). Its result is its
 completion value; a script with top-level await or return runs as an async
@@ -16,7 +17,11 @@ Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
 else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
 ~/.perch, then ~/Documents/perch), which needs no remote debugging; else cdp.
 CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
-perch tab: --file (default FIGMA_FILE) names the file; needed when several are open.
+perch tab: --file (default FIGMA_FILE) names the file; needed when several are open. A room's
+tab on the file (perch rooms, `room:<name>:<id>`) wins over a browser's: it runs with the window
+minimized or the screen locked. A room on Figma's sign-in page stops the call (signed_out), never
+falling back to a browser. FIGMA_PERCH_TAB pins a tab. --where prints the backend and tab a call
+would use (it runs only a no-op there).
 perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 100 (under the 120 s a
 Bash tool call gets by default, so a timeout comes back as an error with its request id).
 --lib: figma_lib.js goes in front of the script, installing window.__fx once per tab.
@@ -31,7 +36,8 @@ import base64, fcntl, hashlib, json, os, re, socket, stat, subprocess, sys, time
 PROG = 'figma_run.py'
 USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] [--ns <prefix>] <js_file> | - | -e '<js>'\n"
          "       python3 figma_run.py [--file <url-or-key>] --screenshot <out.png>\n"
-         "       python3 figma_run.py [--file <url-or-key>] --recover <request-id>")
+         "       python3 figma_run.py [--file <url-or-key>] --recover <request-id>\n"
+         "       python3 figma_run.py [--file <url-or-key>] --where")
 
 def cdp_port():
     p = os.environ.get('FIGMA_CDP_PORT')
@@ -448,8 +454,20 @@ def load(scripts):
                 out.append((os.path.basename(v), f.read()))
     return out
 
-opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--screenshot', '--ns', '--recover'))
+opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--screenshot', '--ns', '--recover'), ('--lib', '--where'))
 shot, rec = opts['--screenshot'], opts['--recover']
+if opts['--where']:
+    if specs or shot or rec:
+        usage('--where takes no script')
+    if backend() != 'perch':
+        print(f'cdp port {cdp_port()}')
+        sys.exit(0)
+    head = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': ['null']})['tab']
+    room = re.match(r'room:([^:]+):', head['tabId'])
+    note = f'room {room[1]}: runs minimized or locked' if room else \
+        f"{head.get('app') or 'browser'}: needs its window shown and the screen unlocked"
+    print(f"perch {head['tabId']} ({note}) {head['url']}")
+    sys.exit(0)
 if len(specs) != (0 if shot or rec else 1) or (shot and rec):
     usage('give one script (<js_file>, - or -e <js>), or --screenshot or --recover alone')
 scripts = load(specs)

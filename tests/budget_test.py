@@ -17,8 +17,8 @@ import os, re, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6351,
-    'figma-worker.md': 6863,
+    'SKILL.md': 6512,
+    'figma-worker.md': 6984,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -167,6 +167,17 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_rooms_are_preferred_unattended_and_never_fall_back(self):
+        d = docs()
+        skill = d['SKILL.md']
+        for word in ('room', '--where', 'signed_out', 'locked'):
+            self.assertIn(word, skill, f'SKILL.md Setup does not mention {word}')
+        conn = d['references/connection.md']
+        self.assertRegex(conn, r'(?i)### Mode R[^\n]*room', 'connection.md has no room mode')
+        self.assertRegex(conn, r'(?i)minimized or (the screen )?locked', 'connection.md does not say a room runs locked')
+        self.assertIn('rooms view', conn)
+        self.assertRegex(d['figma-worker.md'], r'signed_out[^\n]*BLOCKED', 'the worker sheet does not stop on a signed-out room')
 
     def test_the_brief_copies_stretched_usages_from_the_manifest(self):
         d = docs()

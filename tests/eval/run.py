@@ -95,6 +95,14 @@ def figma(rel, ctx, a, tmp):
     return out
 
 
+def default_tab(tabs, tab):
+    """--tab as given, else the file's one room tab (perch rooms run minimized or locked), else None."""
+    if tab:
+        return tab
+    rooms = [t['tabId'] for t in tabs if t['tabId'].startswith('room:')]
+    return rooms[0] if len(rooms) == 1 else None
+
+
 def tab_problem(tabs, tab):
     """Why the run can't start with these tabs on the file, or None."""
     if not tabs:
@@ -248,7 +256,7 @@ def main():
     ap.add_argument('--reps', type=int, default=3)
     ap.add_argument('--out', default='results.json')
     ap.add_argument('--keep', action='store_true', help="leave each rep's pages in the file")
-    ap.add_argument('--tab', help='perch tabId of the Figma tab (FIGMA_PERCH_TAB)')
+    ap.add_argument('--tab', help='perch tabId of the Figma tab (FIGMA_PERCH_TAB); default: the file\'s one room tab')
     ap.add_argument('--model', help='model for the session (default: the CLI default)')
     ap.add_argument('--claude', default=os.environ.get('CLAUDE_BIN', 'claude'))
     ap.add_argument('--session-timeout', type=int, default=1800, help='seconds per session (default 1800)')
@@ -261,9 +269,12 @@ def main():
         sys.exit(f'--skill-dir {a.skill_dir} has no SKILL.md')
     key = file_key(a.file)
     if os.environ.get('FIGMA_BACKEND', 'perch') == 'perch':
-        problem = tab_problem(file_tabs(key), a.tab)
+        tabs = file_tabs(key)
+        a.tab = default_tab(tabs, a.tab)
+        problem = tab_problem(tabs, a.tab)
         if problem:
             sys.exit(f'run.py: {problem}')
+        print(f'run.py: tab {a.tab or tabs[0]["tabId"]}', file=sys.stderr)
     tasks = load_tasks([t for t in a.tasks.split(',') if t])
     rev, dirty = git_rev(a.skill_dir)
     out = {'meta': {'rev': rev, 'dirty': dirty, 'skill_dir': a.skill_dir, 'file': key, 'model': a.model or '', 'case': a.case,

@@ -10,7 +10,7 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 ## Setup
 
-`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`; if it still fails, stop and report the error. Never work around it with browser MCP tools, clicks, screenshots or exported code. Pass `--file` (or export `FIGMA_FILE`) on every helper call. Split outputs in one Bash call with `echo ---` (zsh runs `====` as a command).
+`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`; if it still fails, stop and report the error. Never work around it with browser MCP tools, clicks, screenshots or exported code. Pass `--file` (or export `FIGMA_FILE`) on every helper call. A perch room's tab on the file wins and runs locked (prefer it unattended); `--where` names the tab; a signed-out room stops (`signed_out`), never falling back. Split outputs in one Bash call with `echo ---` (zsh runs `====` as a command).
 
 ## Flow
 
