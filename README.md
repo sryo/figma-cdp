@@ -1,6 +1,6 @@
 # figma-cdp
 
-figma-cdp builds Figma mockups from code or plain English, the reverse of Figma MCP. Point your agent at your app's code, paste HTML, or describe a screen, and it builds it in the Figma file you have open in your browser, using your real copy, colors, spacing and components.
+figma-cdp builds Figma screens from your code or a plain description, using your real copy, colors, spacing and components. If your repo has a DESIGN.md, it also keeps design and code in sync: it shows where Figma and the code disagree, and proposes the fix as a pull request or a new page in Figma, never changing either on its own.
 
 ## Install
 
@@ -23,3 +23,9 @@ Optional: for image rendering or comments, give your agent a [Figma personal acc
 - *"Convert this HTML mockup into Figma components."*
 - *"Make the login frame match the current implementation."*
 - *"Extract all the copy from the Screens page."*
+- *"Write a DESIGN.md from this app's CSS."*
+- *"Check where [Lede](https://github.com/sryo/lede)'s Figma file and code have drifted."*
+- *"Propose the Figma color changes as a pull request."*
+
+## Known gaps
+- Syncing needs your browser signed in to Figma, so it runs on your Mac, not on a server.
