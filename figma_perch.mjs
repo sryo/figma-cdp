@@ -21,7 +21,8 @@
 //                  page whose CSP bans eval still runs it. `app` names the browser (else
 //                  perch's frontmost one); the reply adds {app, warnings}. Arc runs page JS
 //                  only in the tab its window shows, so an Arc tab is refused unless
-//                  `show` (activate_tab, which takes focus); other browsers never need it,
+//                  `show` (activate_tab, which takes focus under the user's perch focus grant,
+//                  else warns needs_focus); other browsers never need it,
 //                  and `show` is ignored there. Both come from the request, never this
 //                  process's environment: a daemon outlives the call that started it.
 //
@@ -245,7 +246,9 @@ async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
   if (tabId && show) {
     if (!ARC.test(where)) warnings.push(`show ignored: ${where} runs page JS in a background tab`);
     else {
-      try { await call(handleCall, "activate_tab", { target: { tabId } }); warnings.push("show: brought Arc to the front"); } catch {}
+      // perch takes focus only under the user's grant; without one, say why Arc stayed behind.
+      try { await call(handleCall, "activate_tab", { target: { tabId } }); warnings.push("show: brought Arc to the front"); }
+      catch (e) { warnings.push(`show: ${e.message}`); }
     }
   }
   if (!tabId) return { app: where, warnings, fatal: `no_tab: perch opened ${url} in ${where}, in a tab it can't address; retry, or use another browser` };

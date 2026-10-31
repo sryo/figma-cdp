@@ -1302,6 +1302,11 @@ class CapturePerch(Harness):
         self.assertEqual(len(self.calls('activate_tab')), 1)
         self.assertIn('show: brought Arc to the front', r.stderr)
 
+    def test_walk_show_in_arc_without_a_focus_grant_says_why(self):
+        _, _, r = self.walk('page', '0', '--show', '--app', 'Arc', PERCH_STUB_NO_FOCUS='1')
+        self.assertIn('show: needs_focus: activate_tab would bring the browser to the front', r.stderr)
+        self.assertNotIn('show: brought Arc to the front', r.stderr)
+
     def test_walk_names_the_browser_when_the_walker_fails(self):
         _, _, r = self.walk('boom', '0', '--app', 'Google Chrome Canary')
         self.assertEqual(r.returncode, 1)

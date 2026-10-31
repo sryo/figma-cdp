@@ -89,6 +89,8 @@ export async function handleCall(name, args = {}) {
   if (name === "activate_tab") {
     const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
     if (!tab) return fail(`stale_tab: tab ${(args.target || {}).tabId} is gone; re-run list_tabs`);
+    // perch takes focus only under the user's grant; PERCH_STUB_NO_FOCUS: there is none.
+    if (process.env.PERCH_STUB_NO_FOCUS && !/^room:/.test(tab.tabId)) return fail("needs_focus: activate_tab would bring the browser to the front, and the user has not allowed perch to take focus; nothing was sent");
     return text(JSON.stringify({ ok: true }));
   }
   if (name === "wait") {
