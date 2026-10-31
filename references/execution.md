@@ -108,10 +108,12 @@ Use namespaced keys when parallel workers share the same tab: `a_cardId`, `b_car
 
 ### Visual export (PNG)
 
+Preview at SCALE 0.5: a 1280-wide screen comes back 640 wide, a quarter of the image tokens on every later turn. Use 1 only to inspect a small detail, cropped to that node.
+
 ```js
 (async function() {
   var node = await figma.getNodeByIdAsync('NODE_ID');
-  var bytes = await node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}});
+  var bytes = await node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 0.5}});
   return figma.base64Encode(bytes);
 })()
 ```

@@ -51,6 +51,7 @@ Gotchas:
 6. Ids starting with `I` are instance sublayers: `setProperties` or a swap (yours or another worker's) rebuilds them, so don't reuse one in a later eval; find it again from the instance.
 7. Reads are async (dynamic-page): `figma.getNodeByIdAsync`, `inst.getMainComponentAsync()`, `figma.variables.getLocalVariablesAsync()`; the sync `getNodeById`, `.mainComponent` throw.
 8. `signed_out` (a room left Figma's session) or `no_browser: room`: BLOCKED with the error; never retry on another tab.
+9. PNG previews: `exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 0.5}})`; 1 only for a small detail.
 
 ## Your Loop
 For each section (or the whole task):

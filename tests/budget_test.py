@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 6548,
-    'figma-worker.md': 7263,
+    'figma-worker.md': 7380,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -167,6 +167,13 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_previews_export_at_half_scale(self):
+        d = docs()
+        self.assertRegex(d['figma-worker.md'], r'SCALE[^\n]*0\.5', 'the worker sheet has no preview export scale')
+        ex = d['references/execution.md']
+        self.assertNotIn("value: 2}", ex, 'the export example renders at 2x')
+        self.assertRegex(ex, r"type: 'SCALE', value: 0\.5")
 
     def test_fidelity_runs_per_screen_with_scope(self):
         d = docs()
