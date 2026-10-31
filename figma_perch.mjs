@@ -70,7 +70,7 @@ function timeoutHint(ms, src) {
   const own = lib && src.startsWith(lib) ? src.slice(lib.length) : src;
   return /loadAllPagesAsync/.test(own) ? `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window` : waited;
 }
-const UNDEFINED_HINT ="figma is undefined in this tab: open and close any Figma plugin once to load the Plugin API, then retry";
+const UNDEFINED_HINT ="figma is undefined in this tab: ask the user to open and close any Figma plugin once (it takes their click in the Figma window; don't script it), then retry";
 
 function finish(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n", () => process.exit(0));

@@ -164,6 +164,7 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', self.js('a.js', 'figma.currentPage.name'), PERCH_STUB_FIGMA='0')
         self.assertEqual(r.returncode, 1)
         self.assertIn('open and close any Figma plugin once', r.stderr)
+        self.assertIn('ask the user', r.stderr)
 
     def test_typeof_figma_undefined_is_a_result_not_an_error(self):
         r = self.run_helper('figma_run.py', self.js('a.js', 'typeof figma'), PERCH_STUB_FIGMA='0')
