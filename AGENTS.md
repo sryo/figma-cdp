@@ -4,77 +4,13 @@ Architecture and invariants for the figma-cdp Claude Code skill.
 
 figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — code → mockup, the reverse direction of Figma MCP. It reaches a browser tab open on a Figma file through perch (AppleScript, the default on a Mac) or the `agent-browser` CLI over Chrome DevTools Protocol. The current runtime surface is `SKILL.md`; this file is the design doc anyone reads when modifying the skill itself.
 
-## Layout
+## Test
 
+```bash
+python3 tests/sleep/sleep.py check
 ```
-.
-├── SKILL.md              # runtime entry — Claude reads this when the skill triggers
-├── figma-worker.md       # worker template the coordinator dispatches via the Agent tool
-├── bench/inert           # files no eval run reads beyond fium's defaults (docs/, bench/inert): a change to only these carries a kept run
-├── figma_run.py          # evals in order (-e inline, file or stdin; --lib; --screenshot) → one perch request, or agent-browser eval / batch
-├── figma_lib.js          # resident helpers the helpers' --lib prepends: window.__fx (recon, inventory, frame/text/instance/bindFill, audit), once per tab, version-stamped
-├── figma_backend.py      # backend choice and the perch daemon client figma_run.py and figma_capture.py share
-├── figma_perch.mjs       # perch backend for the helpers and figma_capture.py: list_tabs → eval_js {world:"main"}, no CDP; `serve` keeps it warm behind a unix socket
-├── figma_capture.py      # live-URL → Figma: `walk <url>` (own tab → /tmp JSON) and `import <spec>` (Figma tab: reset, assets streamed in pieces, node chunks through figma_importer.js); cdp or perch
-├── figma_walker.js       # DOM walker run by `walk` — emits the capture envelope (layout-space geometry, sparse styles, assets)
-├── figma_importer.js     # runs once per node chunk in the default session — chunk → Figma nodes
-├── figma_source.py       # source files → cited manifest (tokens, colors, scales, copy, variants, states, components) — references/fidelity.md
-├── figma_fidelity.py     # manifest + rootId → gap report from one eval through figma_run.py; exit 0 when the check ran, 2 when it couldn't
-├── AGENTS.md             # this file — architecture + invariants
-├── CLAUDE.md             # pointer to AGENTS.md
-├── README.md             # human-facing intro + install
-├── references/           # task-shaped reference files (loaded on demand)
-└── tests/
-    ├── capture_fixture.html  # static page exercising the walker's schema end to end — `walk` it to hand-verify a spec
-    ├── figma_stub.js         # stub Plugin API (node tree, components/variants/instances, variables, sandbox ordering rules) shared by the offline tests
-    ├── figma_lib_test.js     # `node --test tests/figma_lib_test.js`: every figma_lib.js helper against figma_stub.js, plus its version pin
-    ├── importer_stub.js      # `node tests/importer_stub.js <spec.json> [--componentize]` — replays `figma_capture.py import --dry-run` against figma_stub.js, no Figma tab needed
-    ├── importer_test.py      # `python3 tests/importer_test.py`: import sizing, constraints and componentize over capture_spec.json (hand-built spec of capture_fixture.html), offline
-    ├── walker_live_test.py   # `FIGMA_LIVE=1 python3 tests/walker_live_test.py`: figma_walker.js in a real background tab on svg_paint_fixture.html (SVG paints only the page resolves)
-    ├── capture_spec.json     # hand-built capture spec of capture_fixture.html for importer_test.py
-    ├── perch_backend_test.py # `python3 tests/perch_backend_test.py`: the helpers, --lib, figma_fidelity.py and figma_capture.py on the perch backend (daemon and one-shot) against perch_stub/, and cdp vs perch output through agent_browser_stub/, offline
-    ├── agent_browser_stub/   # stand-in agent-browser CLI (eval -b, batch --json) that runs scripts against perch_stub's `figma`, for the cdp branch offline
-    ├── source_test.py        # `python3 tests/source_test.py`: figma_source.py on the eval fixture app and on small generic sources
-    ├── fidelity_test.py      # `python3 tests/fidelity_test.py`: figma_fidelity.py on good and bad login builds (fidelity_login.js) through the perch stub
-    ├── fidelity_elements_test.py # `python3 tests/fidelity_elements_test.py`: figma_fidelity.py --elements on capture_spec.json built on the stub, with injected faults (move, resize, recolor, retype, remove, extra layer, spacing)
-    ├── pixels_test.py        # `python3 tests/pixels_test.py`: figma_fidelity.py --pixels: the stdlib PNG codec and the unexplained-region residual on hand-made images
-    ├── api/                  # the Plugin API surface: `figma_api.mjs lookup "<error, CSS property or words>"` ranks typings members ([ro], deprecated, docs link, covered by the skill or not); `coverage <member>`; `diff <old> <new>` between two typings; `runtime <probe-result>` diffs probes/runtime_surface.js's live members against them; `surface` regenerates surface.json from the typings typings.lock pins
-    ├── api_test.mjs          # `node --test tests/api_test.mjs`: the typings parser, coverage, lookup, and surface.json against typings.lock
-    ├── api/drift.py          # `drift.py check` (offline-safe, for a schedule: is typings.lock the latest @figma/plugin-typings?) and `drift.py bump [<version>]` (diffs it against surface.json and opens a case)
-    ├── drift_test.py         # `python3 tests/drift_test.py`: drift.py with a stand-in npm, and figma_api.mjs diff / runtime
-    ├── probes/               # live Plugin API probes: `figma_probe.py --file <scratch> [<name>]` runs <name>.js guarded (scratch file only, denied members, __probe* swept before and after, under figma_lock) and checks its verdicts against <name>.json; `--record` writes verdicts/<member>-<date>.json. stub_citations.json: what showed each refusal figma_stub.js models
-    ├── probe_test.py         # `python3 tests/probe_test.py`: figma_probe.py through the perch stub (guard, sweep, drift, record), case.py snapshot, and the stub citations
-    ├── figma_lock.py         # the one flock every live dev entry point (run.py, probes, case repros) takes on the scratch file
-    ├── cases/case.py         # failure cases: `new` (from the run journal), `triage`, `set`, `snapshot` (seed.json), `claim` (worktree + lease), `verify` (gates 1-6), `close` (ledger row), `list`, `stats` — Improving the skill
-    ├── cases/snapshot.js, rebuild.js  # a subtree as a seed with ids remapped, and its rebuild on any file (scratch or stub)
-    ├── cases_test.py         # `python3 tests/cases_test.py`: case.py and figma_lock.py offline
-    ├── sleep/sleep.py        # the sleep pass: `mine` (transcripts + journals → signals), `digest` (clusters, ranked, known vs new vs relapse), `learn`, `replay` (lessons.jsonl), `check` (no-regression gates); AGENTS.md → Sleep pass
-    ├── sleep/lessons.jsonl   # what earlier sleeps consolidated, as checks: an error text both helpers must hint, a rule a doc must keep
-    ├── sleep_test.py         # `python3 tests/sleep_test.py`: sleep.py on hand-written transcripts, and the repo's lessons replayed
-    ├── judge_guard.py        # `judge_guard.py [main..HEAD]`: fails a commit that changes the skill and edits an existing judge (scorers, tasks, lib.js, gate.py, noise.json, baseline.json, probe expectations) without a `Judge-Change:` line
-    ├── token_estimate.py     # `token_estimate.py [<rev>]`: a docs change's expected tokens before any run (always-loaded bytes / 4 x median turns over the tasks affects.json maps it to)
-    ├── gates_test.py         # `python3 tests/gates_test.py`: gate.py's fium verdict and --require/--gain/--tasks rules, process metrics, affects.json, the judge guard, and `case.py verify` end to end on stand-ins
-    ├── snapshot_test.js      # `node --test tests/snapshot_test.js`: snapshot → rebuild → snapshot round-trips on the stub
-    ├── ledger/               # one JSON per closed case (class, signature, fix commit, repro); read before fixing a similar signature
-    ├── known_losses.json     # capture losses capture.md already documents; case.py refuses them as new cases
-    ├── budget_test.py        # `python3 tests/budget_test.py`: byte caps on SKILL.md, figma-worker.md and each per-task reference combo
-    ├── bench_backends.py     # read-only timing of cdp vs perch (daemon and one-shot) on one open file
-    ├── perch_stub/           # stand-in perch server.js: runs eval_js scripts in Node against a stub `figma` (PERCH_STUB_FIGMA=full: figma_stub.js)
-    └── eval/                 # behavior evals: headless sessions on a scratch Figma file, scored on the resulting state
-        ├── run.py            # `run.py --file <url> [--skill-dir <worktree>] [--tasks a,b] [--reps N] [--out f]` → per-task medians
-        ├── plan.py           # run.py's entry point: --tasks from fium scope (affects.json), the expected tokens, the perch tab check and the CLI; tooling, mapped to none
-        ├── gate.py           # `gate.py [baseline.json] <candidate.json> [--tasks] [--require t:m>=x] [--gain t:m>=x]`: the live-run gate. Both runs in fium's format (`--fium <run>` prints one), then `~/Documents/fium/fium price compare` with noise.json and the Price: trailers since the baseline's rev; exit 1 on a worse, missing or stale verdict or an unmet rule
-        ├── affects.json      # file globs -> the eval tasks a change can move ("*" every default task, "none" no live run); read by case.py verify and, through `fium scope`, by run.py's default --tasks
-        ├── noise.json        # fium noise: abs 1 on failed_tool_calls, unhinted_errors and lost_replies, abs 5 on input_tokens, per task; rel stays fium's 10% until an A/A run
-        ├── session.py        # the headless `claude -p` command pinned to one skill copy; `session.py probe` verifies it offline
-        ├── offline_test.py   # `python3 tests/eval/offline_test.py`: seeds, scorers, run.py and gate.py with no Figma and no API
-        ├── lib.js            # helpers every seed/scorer/op body runs with (quality metrics, builders)
-        ├── tasks/            # <id>.json: prompt ({FILE_URL} {PAGE} {FIXTURE}), seed, score
-        ├── seeds/ scorers/ ops/  # Plugin API bodies: seed a page, score it ({metrics, lower, passed}), set up / clean up
-        ├── offline/          # hand-built good and bad end states per task, and a fake `claude` for run.py's offline test
-        ├── fixtures/app/     # the source app the tasks build from (HTML/CSS tokens + components.jsx)
-        └── fixtures/expect.json  # what the fixture renders (copy, token colors, rows, axes), checked against fixtures/app
-```
+
+Every offline suite (`tests/cases/case.py` OFFLINE), the byte budget and the lessons replay, in under two minutes. No browser, perch or Figma: perch and agent-browser are stubbed under `tests/`. Each file's docstring has its own usage.
 
 ## Architecture
 
