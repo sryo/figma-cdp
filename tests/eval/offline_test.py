@@ -476,11 +476,11 @@ class Compare(unittest.TestCase):
             self.assertEqual(subprocess.run(cmd + [b, os.path.join(d, 'nope.json')], capture_output=True).returncode, 2)
 
 
-    def test_house_export_writes_each_task_metric_in_the_run_format(self):
-        """house RULES K2: {metrics: {name: {dir, kind, samples}}}; prices in tokens and time, never dollars."""
+    def test_fium_export_writes_each_task_metric_in_the_run_format(self):
+        """fium RULES K2: {metrics: {name: {dir, kind, samples}}}; prices in tokens and time, never dollars."""
         r = self.result(reuse=[dict(self.rep(), cost_usd=0.5, turns=10, output_tokens=7),
                                dict(self.rep(passed=False, wall=120.0, copy=0.9), cost_usd=0.6, turns=12, output_tokens=8)])
-        h = compare.house(r)
+        h = compare.fium(r)
         m = h['metrics']
         self.assertEqual(m['reuse.wall_s'], {'dir': 'lower', 'kind': 'time', 'samples': [100.0, 120.0]})
         self.assertEqual(m['reuse.tokens_total']['kind'], 'tokens')

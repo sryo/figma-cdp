@@ -3,7 +3,7 @@
 
   python3 tests/eval/compare.py <baseline.json> <candidate.json> [--floor 0.10] [--all] [--tasks a,b]
                                 [--require task:metric>=x ...] [--gain task:metric>=x ...] [--flaky]
-  python3 tests/eval/compare.py --house <run.json>      the run in house's format, for house price compare
+  python3 tests/eval/compare.py --fium <run.json>       the run in fium's format, for ~/Documents/fium/fium price compare
 
 Per task, per metric, on the rep medians:
   quality (scorer metrics and pass_rate): any move in the worse direction is a regression;
@@ -136,12 +136,12 @@ def compare(base, cand, floor=0.10, tasks=None, flaky_metrics=None):
     return rows
 
 
-# Counts an agent's run moves every time; house judges them statistically.
+# Counts an agent's run moves every time; fium judges them statistically.
 NOISY_COUNTS = {'turns', 'tool_calls', 'failed_tool_calls', 'unhinted_errors'}
 
 
-def house(run):
-    """The run in house's run format (RULES K2): one metric per task and rep metric, samples per rep.
+def fium(run):
+    """The run in fium's run format (RULES K2): one metric per task and rep metric, samples per rep.
     Wall time is time and token counts are tokens (noisy kinds); the other cost metrics are counts;
     scorer metrics and passed are quality, higher unless the scorer lists them lower. Turns, tool calls,
     failed calls, unhinted errors and a scorer metric whose reps disagree are noisy (judged statistically,
@@ -192,10 +192,10 @@ def main():
     ap.add_argument('--require', action='append', type=parse_rule, default=[], help="task:metric>=x on the candidate's median")
     ap.add_argument('--gain', action='append', type=parse_rule, default=[], help='task:metric>=x on candidate minus baseline')
     ap.add_argument('--flaky', action='store_true', help='quality metrics whose baseline reps disagree count neither way')
-    ap.add_argument('--house', action='store_true', help="print the candidate in house's run format (house price compare) and exit")
+    ap.add_argument('--fium', action='store_true', help="print the candidate in fium's run format (fium price compare) and exit")
     a = ap.parse_args()
-    if a.house:
-        json.dump(house(load(a.candidate)), sys.stdout, indent=1)
+    if a.fium:
+        json.dump(fium(load(a.candidate)), sys.stdout, indent=1)
         print()
         return
     base, cand = load(a.baseline), load(a.candidate)
