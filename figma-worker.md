@@ -47,6 +47,7 @@ Gotchas:
 3. Colors are 0-1; opacity goes on the paint.
 4. Return `{error}`, don't throw; one `figma.commitUndo()` per unit; never `figma.closePlugin()`; no `?.` or `??`.
 5. Find before create (by name under its parent) so re-runs don't duplicate; keep ids, not node objects, in `__batchState`.
+6. Ids starting with `I` are instance sublayers: `setProperties` or a swap (yours or another worker's) rebuilds them, so don't reuse one in a later eval; find it again from the instance.
 
 ## Your Loop
 For each section (or the whole task):

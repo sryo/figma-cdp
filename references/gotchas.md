@@ -177,3 +177,14 @@ const hover = (await cardInstance.getMainComponentAsync()).reactions.filter(r =>
 await cardInstance.setReactionsAsync(hover.map(r => ({ trigger: r.trigger, actions: r.actions })));
 await __fx.react(cardInstance, [{ on: 'click', do: { to: detail } }], { append: true });
 ```
+
+## 18. Instance sublayer ids (`I…;…`) don't survive `setProperties` or a swap
+A node inside an instance has an id starting with `I`. Changing the instance's properties or swapping it (in your eval or another worker's) rebuilds those sublayers, and a held object or id then fails with "The node (instance sublayer or table cell) with id … does not exist", even in a read-only walk.
+```js
+// WRONG: id kept from an earlier eval, after tabs were switched with setProperties
+const label = await figma.getNodeByIdAsync(window.__batchState.labelId);  // I54:10290;54:10156
+label.visible;                                                            // throws
+// CORRECT: keep the instance's id and find the sublayer again in this eval
+const tab = await figma.getNodeByIdAsync(window.__batchState.tabId);
+const label = tab.findOne(n => n.name === 'Label');
+```

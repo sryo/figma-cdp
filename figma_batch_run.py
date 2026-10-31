@@ -335,7 +335,7 @@ HINTS = [
     (r'FILL can only be set on children of auto-layout', 'appendChild into the auto-layout parent first, then set layoutSizing* = "FILL" (gotchas #1)'),
     (r'HUG can only be set on auto-layout', 'HUG needs an auto-layout frame or a text node; set layoutMode first (gotchas #1)'),
     (r'Use node\.getMainComponentAsync', 'await inst.getMainComponentAsync() (an async findOne callback can\'t await it: collect the instances, then await each)'),
-    (r'instance sublayer or table cell\) with id', 'an id starting with I is an instance sublayer, rebuilt when setProperties or a swap changes the instance: collect what you need before changing properties, or find it again from the instance after each change'),
+    (r'instance sublayer or table cell\) with id', 'an id starting with I is an instance sublayer, rebuilt when setProperties or a swap changes the instance: collect what you need before changing properties, or find it again from the instance after each change (gotchas #18)'),
     (r'does not exist|has been removed', 'a node object went stale or was deleted; re-fetch it with await figma.getNodeByIdAsync(id) in this eval (gotchas #15)'),
     (r'documentAccess: dynamic-page|has not been explicitly loaded', 'use await figma.getNodeByIdAsync(id) or await page.loadAsync() instead of the sync API'),
     (r'(inside of |is )an instance|cannot be overridden in an instance', 'instance children are fixed: edit the main component, or set text/property overrides on the instance'),
