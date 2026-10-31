@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 11;
+  var V = 12;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -144,6 +144,46 @@
     colors = idx;
     return idx;
   }
+  // Per number scope (GAP, CORNER_RADIUS), value -> FLOAT variable holding it: one scoped to it before
+  // an all-scopes one. A miss rebuilds the index once per value, so a variable made since is found.
+  var numbers = null;
+  async function numberIndex(fresh) {
+    if (numbers && !fresh && Date.now() - numbers.at < 3000) return numbers;
+    var ctx = await varContext(), idx = { at: Date.now(), GAP: {}, CORNER_RADIUS: {}, missed: {} }, rank = { GAP: {}, CORNER_RADIUS: {} };
+    var ids = Object.keys(ctx.vars).sort();
+    for (var i = 0; i < ids.length; i++) {
+      var v = ctx.vars[ids[i]];
+      if (v.resolvedType !== 'FLOAT') continue;
+      var r = await resolve(v, ctx);
+      if (typeof r.value !== 'number') continue;
+      var scopes = v.scopes && v.scopes.length ? v.scopes : ['ALL_SCOPES'], k = String(round(r.value));
+      ['GAP', 'CORNER_RADIUS'].forEach(function (sc) {
+        var rk = scopes.indexOf(sc) !== -1 ? 0 : scopes.indexOf('ALL_SCOPES') !== -1 ? 1 : -1;
+        if (rk < 0 || (idx[sc][k] && rank[sc][k] <= rk)) return;
+        idx[sc][k] = v; rank[sc][k] = rk;
+      });
+    }
+    numbers = idx;
+    return idx;
+  }
+  async function numberVar(scope, value) {
+    var idx = await numberIndex(), k = String(round(value));
+    if (!idx[scope][k] && !idx.missed[scope + k]) {
+      idx = await numberIndex(true);
+      if (!idx[scope][k]) idx.missed[scope + k] = 1;
+    }
+    return idx[scope][k] || null;
+  }
+  // n[field] = value for each field, bound to the variable holding value in scope, else raw (a stale binding dropped).
+  async function setNumber(n, fields, value, scope) {
+    var v = await numberVar(scope, value);
+    fields.forEach(function (f) {
+      if (n.boundVariables && n.boundVariables[f] && !v) n.setBoundVariable(f, null);
+      n[f] = value;
+      if (v) n.setBoundVariable(f, v);
+    });
+  }
+
   // value: a Variable, 'VariableID:..', 'S:..' (paint style), '#hex', or a variable / paint style name.
   async function paintSource(value) {
     if (value && typeof value === 'object' && value.resolvedType) return { variable: value };
@@ -477,10 +517,10 @@
       n.layoutMode = AXIS[o.dir];
     }
     if (o.wrap) n.layoutWrap = 'WRAP';
-    if (o.gap != null) n.itemSpacing = o.gap;
+    if (o.gap != null) await setNumber(n, ['itemSpacing'], o.gap, 'GAP');
     if (o.pad != null) {
-      var p = padding(o.pad);
-      n.paddingTop = p[0]; n.paddingRight = p[1]; n.paddingBottom = p[2]; n.paddingLeft = p[3];
+      var p = padding(o.pad), sides = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+      for (var i = 0; i < 4; i++) await setNumber(n, [sides[i]], p[i], 'GAP');
     }
     if (o.align) n.counterAxisAlignItems = ALIGN[o.align] || o.align;
     if (o.justify) n.primaryAxisAlignItems = ALIGN[o.justify] || o.justify;
@@ -500,7 +540,10 @@
     f.fills = [];
     if (o.fill) await bindFill(f, o.fill);
     if (o.stroke) { await bindFill(f, o.stroke, 'strokes'); f.strokeWeight = o.strokeWeight || 1; }
-    if (o.radius != null) f.cornerRadius = o.radius;
+    if (o.radius != null) {
+      f.cornerRadius = o.radius;
+      if (await numberVar('CORNER_RADIUS', o.radius)) await setNumber(f, ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'], o.radius, 'CORNER_RADIUS');
+    }
     if (o.clip != null) f.clipsContent = o.clip;
     await autoLayout(f, Object.assign({}, o, { w: o.w != null ? o.w : auto ? 'hug' : null, h: o.h != null ? o.h : auto ? 'hug' : null }));
     place(f, o);
@@ -512,6 +555,14 @@
   // fill when it has no stroke.
   async function icon(svg, o) {
     o = o || {};
+    var set = null;
+    if (o.set) {
+      if (!o.name) throw new Error('icon: set needs a name, the Name variant');
+      set = figma.currentPage.findAll(function (n) { return n.type === 'COMPONENT_SET' && n.name === o.set; })[0] || null;
+      var had = set && set.children.filter(function (c) { return c.name === 'Name=' + o.name; })[0];
+      if (had) return had;
+      o = Object.assign({}, o, { component: true, name: 'Name=' + o.name, parent: set ? null : o.parent });
+    }
     var parent = await parentOf(o);
     var f = figma.createNodeFromSvg(svg);
     var paint = function (k) { return JSON.stringify([k.fills, k.strokes, k.strokeWeight]); };
@@ -543,6 +594,15 @@
       });
     }
     if (o.color) for (var i = 0; i < vs.length; i++) await bindFill(vs[i], o.color, vs[i].strokes.length ? 'strokes' : 'fills');
+    if (o.set && set) set.appendChild(f);
+    else if (o.set) {
+      set = figma.combineAsVariants([f], parent || figma.currentPage);
+      set.name = o.set;
+      set.layoutMode = 'HORIZONTAL';
+      set.itemSpacing = 8;
+      set.primaryAxisSizingMode = 'AUTO';
+      set.counterAxisSizingMode = 'AUTO';
+    }
     return f;
   }
   // A subtree's structure at every depth: "FRAME:H[TEXT,FRAME:H[TEXT]]".

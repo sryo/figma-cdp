@@ -18,15 +18,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
     'SKILL.md': 6514,
-    'figma-worker.md': 6984,
+    'figma-worker.md': 7097,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 27476,
+    'Build screens': 27538,
     'Copy/text edit': 15888,
     'Component/variant/design-system': 23256,
-    'Color/effects/prototype': 16198,
+    'Color/effects/prototype': 16260,
 }
 
 
@@ -167,6 +167,13 @@ class Docs(unittest.TestCase):
         self.assertRegex(row, r'(?i)align-self[^|]*(start|center|end)[^|]*HUG|HUG[^|]*align-self', 'an align-self opt-out is not HUG')
         self.assertRegex(row, r'(?i)inline-flex[^|]*inline-block|inline-block[^|]*inline-flex', 'inline-level flex items are not said to stretch too')
         self.assertIn('blockif', row, 'the row does not say a flex parent blockifies its items')
+
+    def test_helpers_bind_numbers_and_gather_icons_in_a_set(self):
+        d = docs()
+        worker = d['figma-worker.md']
+        self.assertRegex(worker, r'frame\([^\n]*FLOAT variable', 'the worker sheet does not say frame binds number variables')
+        self.assertRegex(worker, r'icon\(svg, \{[^}]*set', 'the worker sheet does not offer icon sets')
+        self.assertRegex(d['references/conventions.md'], r'Spacing, padding, gap \| `__fx\.frame`', 'conventions.md still binds spacing by hand')
 
     def test_rooms_are_preferred_unattended_and_never_fall_back(self):
         d = docs()

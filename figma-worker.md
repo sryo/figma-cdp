@@ -31,10 +31,10 @@ You are a Figma worker. One Bash call per eval: `python3 <skill-dir>/figma_run.p
 
 ## Cheat sheet
 `__fx` (all async; ref = node or id; these are all the options, no need to read figma_lib.js; set any other property, like `maxWidth`, on the node it returns):
-- `frame({parent, name, dir: 'V'|'H'|'NONE', gap, pad: n|[v,h]|[t,r,b,l], align, justify: start|center|end|between|baseline, wrap: true, w, h: n|'fill'|'hug', fill, stroke, strokeWeight, radius, clip, component: true, abs: true, x, y, constraints})`: no fill unless given; with `dir` it hugs
+- `frame({parent, name, dir: 'V'|'H'|'NONE', gap, pad: n|[v,h]|[t,r,b,l], align, justify: start|center|end|between|baseline, wrap: true, w, h: n|'fill'|'hug', fill, stroke, strokeWeight, radius, clip, component: true, abs: true, x, y, constraints})`: no fill unless given; with `dir` it hugs; gap/pad/radius bind to a FLOAT variable holding the value
 - `text(chars, {parent, name, family, weight: 'Bold'|700, size, lineHeight, textStyle, color, align: start|center|end, w: 'fill'|n, abs, x, y, constraints})`: loads the font; `w` wraps it
 - `instance(id|key|name, {Axis: 'Value', Label: 'x'}, {parent, name, w, h, abs, x, y, constraints})`
-- `icon(svg, {parent, name, component: true, color})`: an SVG icon as one hugging auto-layout layer, paths where the SVG draws them; every icon, never by hand
+- `icon(svg, {parent, name, component: true, color, set})`: an SVG icon as one hugging auto-layout layer, paths where the SVG draws them; `set: 'Icon'`: that set's `Name=<name>` variant; every icon, never by hand
 - `linkCopies([ids], {master, name})`: hand-drawn copies of one structure become a component (the master, in place) and instances keeping each copy's texts, fills and place; returns `{master, props, linked, raw}`
 - `bindFill(ref, '#hex'|token|style, 'fills'|'strokes')`; `fill`/`stroke`/`color` above go through it
 - `react(ref, [{on: 'click'|'hover'|'press'|{key: 27}|{after: ms}, do: 'back'|'close'|{to, nav: navigate|overlay|swap|change|scroll, anim, ms}}], {append})`, `overlayFrame({base, name, items})`, `flow(page, frame, name)`: `references/prototyping.md`. An instance's own reactions drop its main's hover

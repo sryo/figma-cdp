@@ -15,8 +15,8 @@ Bind only on an exact match. No match: write the source value raw and list it in
 | Source value | Figma |
 |---|---|
 | Color (token or literal) | `__fx.bindFill(node, value)`: binds the variable (else paint style) with that exact value, else paints raw. Strokes: `'strokes'` |
-| Spacing, padding, gap | `node.setBoundVariable('itemSpacing' / 'paddingLeft' ..., v)` when a FLOAT variable scoped `GAP` holds the value, else the number |
-| Corner radius | `setBoundVariable('topLeftRadius' ..., v)` with a `CORNER_RADIUS` variable, else `cornerRadius = n` |
+| Spacing, padding, gap | `__fx.frame` / `__fx.autoLayout` bind them to the FLOAT variable holding the value (scoped `GAP` first, then all scopes), else the number; by hand: `node.setBoundVariable('itemSpacing', v)` |
+| Corner radius | `__fx.frame` binds the corners to a `CORNER_RADIUS` (or all-scopes) variable, else `cornerRadius = n` |
 | Type (family, size, weight, line height) | `await text.setTextStyleIdAsync(style.id)` when a text style matches all four; else set them and list the text in assumptions if no style fits |
 | Shadow, blur | an effect style with the same values (`effectStyleId`), else `effects = [...]` |
 | Copy | the manifest string, verbatim, placeholders filled with realistic sample values |

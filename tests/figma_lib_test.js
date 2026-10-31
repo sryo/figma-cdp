@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 11, sha: '3d61b1d45589f986' };
+const PIN = { v: 12, sha: '4a17457062cac725' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -718,6 +718,49 @@ test('icon: an SVG as one auto-layout layer that keeps where its paths draw, cle
   assert.deepEqual(mixed.children.map((c) => [c.layoutPositioning, c.x, c.y, c.constraints.horizontal]),
     [['ABSOLUTE', 3, 2, 'SCALE'], ['ABSOLUTE', 3, 11, 'SCALE']], 'paths with different paints stay apart, pinned where they draw');
   assert.equal((await fx.audit(mixed.id)).text, '');
+});
+
+test('frame and autoLayout bind gap, padding and radius to the FLOAT variable holding the value', async () => {
+  const fx = fresh();
+  const { col, space } = tokens();
+  const gap16 = figma.variables.createVariable('gap/md', col, 'FLOAT');
+  gap16.setValueForMode('m1', 16);
+  gap16.scopes = ['GAP'];
+  const radius = figma.variables.createVariable('radius/md', col, 'FLOAT');
+  radius.setValueForMode('m1', 10);
+  radius.scopes = ['CORNER_RADIUS'];
+  const f = await fx.frame({ name: 'Card', dir: 'V', gap: 16, pad: 16, radius: 10 });
+  const bound = (k) => (f.boundVariables[k] || {}).id;
+  assert.equal(bound('itemSpacing'), gap16.id, 'a GAP-scoped variable wins over an all-scopes one');
+  for (const k of ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']) assert.equal(bound(k), gap16.id, k);
+  for (const k of ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius']) assert.equal(bound(k), radius.id, k);
+  assert.equal(f.itemSpacing, 16);
+  await fx.autoLayout(f, { gap: 13 });
+  assert.equal(f.itemSpacing, 13);
+  assert.equal(bound('itemSpacing'), undefined, 'a value no variable holds drops the stale binding');
+  assert.equal(bound('paddingTop'), gap16.id, 'fields the call leaves out keep theirs');
+  space.scopes = ['CORNER_RADIUS'];
+  const g = await fx.frame({ name: 'Plain', dir: 'H', gap: 24, radius: 3 });
+  assert.equal(g.boundVariables.itemSpacing, undefined);
+  assert.equal(g.boundVariables.topLeftRadius, undefined);
+  assert.equal(g.cornerRadius, 3);
+});
+
+test('icon: set gathers glyphs as Name variants of one auto-layout set, found again by name', async () => {
+  const fx = fresh();
+  const svg = (d) => '<svg width="20" height="20" fill="none" stroke="#111"><path d="' + d + '"/></svg>';
+  const plus = await fx.icon(svg('M10 4v12'), { set: 'Icon', name: 'plus' });
+  const set = plus.parent;
+  assert.deepEqual([plus.type, plus.name, set.type, set.name], ['COMPONENT', 'Name=plus', 'COMPONENT_SET', 'Icon']);
+  const search = await fx.icon(svg('M4 4h8'), { set: 'Icon', name: 'search' });
+  assert.equal(search.parent.id, set.id, 'the second glyph joins the same set');
+  assert.deepEqual(set.children.map((c) => c.name), ['Name=plus', 'Name=search']);
+  assert.equal(set.layoutMode !== 'NONE' && !!set.layoutMode, true, 'the set has auto layout');
+  assert.deepEqual([set.layoutSizingHorizontal || set.primaryAxisSizingMode, set.layoutSizingVertical || set.counterAxisSizingMode].map((m) => m === 'HUG' || m === 'AUTO'), [true, true]);
+  const again = await fx.icon(svg('M1 1h1'), { set: 'Icon', name: 'plus' });
+  assert.equal(again.id, plus.id, 'an existing name returns that variant');
+  assert.equal(set.children.length, 2);
+  assert.equal(figma.currentPage.findAll((n) => n.type === 'COMPONENT_SET').length, 1);
 });
 
 test('linkCopies: the best copy becomes the master in place, same-shape copies become instances that keep their differences', async () => {
