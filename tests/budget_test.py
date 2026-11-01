@@ -17,7 +17,7 @@ import os, re, sys, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6634,
+    'SKILL.md': 6580,
     'figma-worker.md': 7444,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
@@ -142,6 +142,12 @@ class Docs(unittest.TestCase):
                 heads = [h.strip().lower() for h in re.findall(r'^#+ (.+)$', docs()['references/' + ref], re.M)]
                 self.assertTrue(any(h.startswith(sec.lower()) or sec.lower().startswith(h) for h in heads), f'{rel} points at {ref} → {sec}, no such section')
 
+    def test_no_doc_sends_the_agent_to_the_retired_cdp_backend(self):
+        texts = {**docs(), **{rel: open(os.path.join(ROOT, rel)).read() for rel in ('README.md', 'GOALS.md')}}
+        retired = re.compile(r'agent-browser|FIGMA_CDP_PORT|DevToolsActivePort|remote-debugging|\b9222\b|FIGMA_BACKEND|Mode [AB]\b')
+        hits = [f'{rel}:{text[:m.start()].count(chr(10)) + 1}: {m.group(0)}' for rel, text in texts.items() for m in retired.finditer(text)]
+        self.assertEqual(hits, [], 'perch is the only backend')
+
     def test_a_repeated_pattern_has_a_recipe_that_links_the_copies(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
         self.assertIn('PATTERN the task touches becomes a component first. Recipe: `references/building.md` → Repeated patterns', plan)
@@ -246,7 +252,7 @@ class Docs(unittest.TestCase):
         for word in ('room', '--where', 'signed_out', 'locked'):
             self.assertIn(word, skill, f'SKILL.md Setup does not mention {word}')
         conn = d['references/connection.md']
-        self.assertRegex(conn, r'(?i)### Mode R[^\n]*room', 'connection.md has no room mode')
+        self.assertRegex(conn, r'(?i)###[^\n]*\broom', 'connection.md has no room section')
         self.assertRegex(conn, r'(?i)minimized or (the screen )?locked', 'connection.md does not say a room runs locked')
         self.assertIn('rooms signin', conn)
         self.assertRegex(d['figma-worker.md'], r'signed_out[^\n]*BLOCKED', 'the worker sheet does not stop on a signed-out room')

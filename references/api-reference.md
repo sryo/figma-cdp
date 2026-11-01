@@ -104,7 +104,7 @@ figma.viewport.canvasView: 'grid'|'single-asset'  // Figma Slides/Buzz only
 // (AnnotationsMixin on nodes → see api-components.md)
 ```
 
-> **`figma.ui.*` is omitted** — it's for plugins that render their own panel inside Figma. CDP automation workers never use it.
+> **`figma.ui.*` is omitted** — it's for plugins that render their own panel inside Figma. Workers driving the Plugin API from outside never use it.
 
 ## Base mixins (on every node)
 

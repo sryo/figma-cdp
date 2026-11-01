@@ -1,6 +1,6 @@
 # Figma REST API reference
 
-Read-only file operations and the comment workflow, without a browser session. Supplementary to the Plugin API: most figma-cdp work happens via `agent-browser` evals. Reach for REST when you need image rendering, comments, version history, or when no browser is available.
+Read-only file operations and the comment workflow, without a browser session. Supplementary to the Plugin API: most figma-cdp work happens via Plugin API evals through perch. Reach for REST when you need image rendering, comments, version history, or when no browser is available.
 
 For where to use REST inside a workflow, see:
 - `references/reading.md` → Pre-flight workflow → Via REST API

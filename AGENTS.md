@@ -2,7 +2,7 @@
 
 Architecture and invariants for the figma-cdp Claude Code skill.
 
-figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — code → mockup, the reverse direction of Figma MCP. It reaches a browser tab open on a Figma file through perch (AppleScript, the default on a Mac) or the `agent-browser` CLI over Chrome DevTools Protocol. The current runtime surface is `SKILL.md`; this file is the design doc anyone reads when modifying the skill itself.
+figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — code → mockup, the reverse direction of Figma MCP. It reaches a browser tab (or a perch room's tab) open on a Figma file through perch, over AppleScript on a Mac. The current runtime surface is `SKILL.md`; this file is the design doc anyone reads when modifying the skill itself.
 
 ## Test
 
@@ -10,7 +10,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 python3 tests/sleep/sleep.py check
 ```
 
-Every offline suite (`tests/cases/case.py` OFFLINE), the byte budget and the lessons replay, in under two minutes. No browser, perch or Figma: perch and agent-browser are stubbed under `tests/`. Each file's docstring has its own usage.
+Every offline suite (`tests/cases/case.py` OFFLINE), the byte budget and the lessons replay, in under two minutes. No browser, perch or Figma: perch is stubbed under `tests/perch_stub`. Each file's docstring has its own usage.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ coordinator reads the source → figma_source.py manifest → one recon eval
 (figma_run.py --lib: __fx.recon + __fx.inventory) → component plan → runs small
 work inline or dispatches workers via the Agent tool with figma-worker.md filled
 in → each eval is one Bash call (figma_run.py -e, run from
-the skill dir) → perch eval_js or agent-browser over CDP → Figma's Plugin API →
+the skill dir) → perch eval_js → Figma's Plugin API →
 JSON return → final gate: __fx.audit + figma_fidelity.py against the manifest.
 ```
 
@@ -30,41 +30,26 @@ JSON return → final gate: __fx.audit + figma_fidelity.py against the manifest.
 
 **Helpers run in place.** The coordinator and workers call `python3 <skill-dir>/figma_*.py` from the skill's base directory (pre-allowed as `Bash(python3 *figma_*.py *)`); helpers find their siblings (`figma_backend.py`, `figma_perch.mjs`, `figma_lib.js`, `figma_walker.js`, `figma_importer.js`) through their own real path, so nothing is copied to `/tmp`. Scripts go inline with `-e`, so write-and-run is one turn.
 
-**Connection modes.** Mode P (perch) is the default wherever perch is installed; SKILL.md's setup is one perch-first check and every CDP detail lives in `references/connection.md`. Mode A is attach to your running Chrome via the `chrome://inspect/#remote-debugging` toggle — preferred, uses the real logged-in Figma session, no profile copy. Mode B is launch a dedicated Chrome Canary with `--remote-debugging-port` and a profile copy — fallback for managed Chrome where the toggle is blocked. Chrome 136+ refuses `--remote-debugging-port` on the default user-data-dir (security hardening), which is what forces Mode B's profile-copy gymnastics. `FIGMA_CDP_PORT` env var binds both helpers to whichever port the chosen mode is using. Mode P skips CDP: `figma_run.py` hands scripts to `figma_perch.mjs`, which imports perch's `handleCall` and runs them with `eval_js {world:"main", awaitPromise:true}` over AppleScript, so Chrome never shows its remote-debugging prompt. The setup procedure for all three lives in `references/connection.md`.
+**Connection.** perch is the only backend: `figma_run.py` hands scripts to `figma_perch.mjs`, which imports perch's `handleCall` and runs them with `eval_js {world:"main", awaitPromise:true}` over AppleScript, so no browser needs a debugging port or shows a remote-debugging prompt. A perch room's tab runs unattended (minimized or locked). The setup lives in `references/connection.md`.
 
 ## Reference file organization
 
 - **Task-shaped on-demand:** `conventions.md` (value precedence, source → Figma tables, design defaults), `gotchas.md`, `building.md` (the one variant recipe), `copy.md`, `reading.md`, `execution.md`, `fidelity.md`, `capture.md`, `rest-api.md`.
-- **Coordinator-only setup:** `connection.md` (Mode A attach, Mode B Canary launch, troubleshooting) — loaded during setup; workers receive a working connection.
+- **Coordinator-only setup:** `connection.md` (perch, rooms, troubleshooting) — loaded during setup; workers receive a working connection.
 - **API reference split 5 ways** so workers load only what their task touches: `api-reference.md` (universal core — including GeometryMixin fills/strokes and the hex helper, so solid color work needs no extra file), `api-text.md`, `api-layout.md`, `api-components.md`, `api-styling.md`. Per-file "load for" descriptions and the per-task combo list live in `SKILL.md`.
 
 Don't add a reference file unless it would otherwise live as a too-large section in another file. Cross-link aggressively before splitting.
 
-## `agent-browser` dependency
+## perch
 
-`agent-browser` (vercel-labs) is a Rust CLI that wraps Chrome DevTools Protocol. We shell out to it rather than talking CDP ourselves because the binary handles WebSocket lifecycle, base64 input, exit-code propagation, and target routing cleanly. We pay ~200ms cold-start per invocation; `figma_run.py` with several scripts amortizes that across N sequential evals via the `batch` subcommand.
-
-The only subcommands we depend on:
-- `eval -b <base64>` — run a JS script in the page
-- `batch --json "<cmd1>" "<cmd2>" ...` — run multiple commands in one CLI invocation, results as a JSON array
-- `screenshot <path>` — full-page PNG capture
-- `open <url>` — navigate a tab (verified subcommand name; not `navigate`/`goto`)
-- `connect <port>` — bind a session to a CDP port (capture fast-path binds explicitly; a later bare `--cdp` does NOT retarget a bound session)
-- `--cdp <port>` — target port (default 9222, overridden by `FIGMA_CDP_PORT`)
-- `--session <name>` — per-worker browser tab/session isolation; the spike verified named sessions are isolated tab sets (the capture fast-path binds its own `--session capture`). `references/execution.md` → "When to use sessions vs shared state" prescribes it for parallel workers on *different* Figma files (same-file workers share one tab via namespaced `window.__batchState`)
-
-If any of these break, that's the integration boundary to fix. The other ~140 agent-browser subcommands are irrelevant to this skill.
-
-## perch backend
-
-`figma_perch.mjs` imports `server.js` from `PERCH_DIR` (default `~/Documents/perch`) and calls its exported `handleCall` in-process; no MCP session, no CDP. It depends on:
+`figma_perch.mjs` imports `server.js` from `PERCH_DIR` (default `~/.perch`, then `~/Documents/perch`) and calls its exported `handleCall` in-process; no MCP session, no CDP. It depends on:
 - `list_tabs {urlContains}` to find the file's tab (a room's tab wins, then a tab its window shows, among duplicates; several files open and no `--file` is an `ambiguous_tab` error)
-- `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script (already in the helpers' parse-first wrapper, `AUTO_ASYNC`, identical on both backends: a program yields its completion value, a script with top-level `await` or `return` runs as an async body) is wrapped as `return await (0, eval)(<source>)`, and a throw is caught in-page and reported as `✗ Evaluation error: ...`. Requests carry the script text (`sources`), never file paths
+- `eval_js {world:"main", awaitPromise:true, script, target:{tabId}}`; the script (already in the helpers' parse-first wrapper, `AUTO_ASYNC`: a program yields its completion value, a script with top-level `await` or `return` runs as an async body) is wrapped as `return await (0, eval)(<source>)`, and a throw is caught in-page and reported as `✗ Evaluation error: ...`. Requests carry the script text (`sources`), never file paths
 - `screenshot {target, maxWidth:0, format:"png"}` for `figma_run.py --screenshot` (the tab must be the one its window shows)
 - `new_tab {url}`, `wait {target, expression}` (readyState complete off the new tab's initial `about:blank`) and `close_tab {tabId}` for `figma_capture.py walk`
 - the `buildKick` export (`buildMainKick` before perch 5725447), which marks a perch new enough to have `world:"main"`; the helpers accept either
 
-Rooms (perch's `room:<name>:<id>` tabs, a Chromium in a VM over its DevTools endpoint) run with the Mac's windows minimized or its screen locked. A background room tab's timers aren't throttled, but it gets no `requestAnimationFrame`, so Figma never renders and `exportAsync` to PNG hangs; `figma_perch.mjs` sends `activate_tab` (CDP `Target.activateTarget` inside the room, no Mac focus) once per request on a room tab. `pickTab` prefers a room's tab on the file over a browser's, a timeout there gets no hidden-tab hint, and `tests/eval/run.py` defaults `--tab` to the file's one room tab. A room tab on Figma's sign-in page (perch's login-path test) stops the call with `signed_out` and the `rooms signin <name> <url>` command: when listing finds no room tab on the file, and when a pinned room tab's page is a sign-in page. It never falls back to a browser tab, so an unattended run fails loudly instead of landing on a window the locked screen stalls. `figma_run.py --where` prints the backend and tab a call uses.
+Rooms (perch's `room:<name>:<id>` tabs, a Chromium in a VM over its DevTools endpoint) run with the Mac's windows minimized or its screen locked. A background room tab's timers aren't throttled, but it gets no `requestAnimationFrame`, so Figma never renders and `exportAsync` to PNG hangs; `figma_perch.mjs` sends `activate_tab` (CDP `Target.activateTarget` inside the room, no Mac focus) once per request on a room tab. `pickTab` prefers a room's tab on the file over a browser's, a timeout there gets no hidden-tab hint, and `tests/eval/run.py` defaults `--tab` to the file's one room tab. A room tab on Figma's sign-in page (perch's login-path test) stops the call with `signed_out` and the `rooms signin <name> <url>` command: when listing finds no room tab on the file, and when a pinned room tab's page is a sign-in page. It never falls back to a browser tab, so an unattended run fails loudly instead of landing on a window the locked screen stalls. `figma_run.py --where` prints the tab a call uses.
 
 On a `room:` tab, `figma_perch.mjs` checks `typeof figma` before a script. If it is undefined and the snapshot has an exact Tools button or tab, it opens and closes that control once, then checks again. It never runs a plugin or takes the Mac's foreground. If the control is absent, the existing plugin-open hint remains.
 
@@ -76,7 +61,7 @@ On a `room:` tab, `figma_perch.mjs` checks `typeof figma` before a script. If it
 - Exit: after `FIGMA_PERCH_IDLE` seconds without a call (default 600); `{"op":"stop"}` lets calls in flight finish first. `FIGMA_PERCH_DAEMON=0` turns the daemon off. A daemon that can't start (no node, an unwritable dir, perch failing to load) falls back to the one-shot run.
 - The daemon's environment is the first caller's. Per-call settings go in the request (`file`, `FIGMA_PERCH_TAB` as `tab`).
 
-Backend choice: `FIGMA_BACKEND=cdp|perch` wins; else `FIGMA_CDP_PORT` set means CDP; else perch when it is usable; else CDP. Output and exit codes match the CDP path, so callers never branch on the backend: `figma_run.py` prints one script's result as one compact line of JSON on both (keys sorted, UTF-8, `1e-7`; its CDP branch re-prints agent-browser's indented result, since every result is re-read on each later turn), and several scripts' results as its CDP batch branch does (keys sorted, `\u` escapes, `origin` the full page URL), and integers past 2^53 come back as doubles. Errors keep perch's leading code (`timeout`, `stale_tab`, `tab_not_scriptable`, `no_tab`, `ambiguous_tab`, `no_perch`). A Plugin API error whose first line matches the helpers' `HINTS` table gets a `hint:` line with its fix (stderr for one script, under the error for several). `figma_run.py --stop` sends perch `stop:true`; on CDP it runs the scripts one at a time to stop at the same point. An awaited eval gets `--timeout` seconds (else `FIGMA_TIMEOUT`, else 100), clamped to 1-300 and passed to perch as `eval_js {timeout}` in ms; a value that isn't a number is refused before anything runs. A perch older than that option (no `AWAIT_MAX_MS` export) gets no `timeout` and awaits its own 30s, and the timeout hint says to update it. The daemon client waits for a reply up to (timeout + 70s) per script plus 30s, above perch's own cap of the await plus reading a long result. The perch path needs no base64 ceiling. The capture fast-path (`figma_capture.py`) picks its backend the same way and talks to the same daemon, both through `figma_backend.py`: `walk` is one `{op:"page", url, sources, settle}` request, which opens the URL with `new_tab` (a background tab), `wait`s for the load, runs the walker inline (no `eval`, so an eval-banning CSP still works) and `close_tab`s it; `import` is one `eval` request with `stop:true`, so the first failing eval ends the run as on CDP.
+`FIGMA_BACKEND`, if set, must be `perch`: any other value exits before anything runs, so a caller who asked for CDP isn't moved to perch silently. `figma_run.py` prints one script's result as one compact line of JSON (keys sorted, UTF-8, `1e-7`, since every result is re-read on each later turn), and several scripts' results each under a `== <label> ==` header as `{"origin", "result"}` (keys sorted, `\u` escapes, `origin` the full page URL); integers past 2^53 come back as doubles. Errors keep perch's leading code (`timeout`, `stale_tab`, `tab_not_scriptable`, `no_tab`, `ambiguous_tab`, `no_perch`). A Plugin API error whose first line matches the helpers' `HINTS` table gets a `hint:` line with its fix (stderr for one script, under the error for several). `figma_run.py --stop` sends perch `stop:true`. An awaited eval gets `--timeout` seconds (else `FIGMA_TIMEOUT`, else 100), clamped to 1-300 and passed to perch as `eval_js {timeout}` in ms; a value that isn't a number is refused before anything runs. A perch older than that option (no `AWAIT_MAX_MS` export) gets no `timeout` and awaits its own 30s, and the timeout hint says to update it. The daemon client waits for a reply up to (timeout + 70s) per script plus 30s, above perch's own cap of the await plus reading a long result. The capture fast-path (`figma_capture.py`) talks to the same daemon, both through `figma_backend.py`: `walk` is one `{op:"page", url, sources, settle}` request, which opens the URL with `new_tab` (a background tab), `wait`s for the load, runs the walker inline (no `eval`, so an eval-banning CSP still works) and `close_tab`s it; `import` is one `eval` request with `stop:true`, so the first failing eval ends the run.
 
 ## Design sync
 
@@ -90,7 +75,7 @@ A repo's DESIGN.md (Google's format, github.com/google-labs-code/design.md) owns
 
 `tests/eval/run.py` measures the skill end to end on a scratch Figma file that belongs to the evals. Per task rep, under a per-file `flock` in a fixed `/tmp/figma-eval-<uid>/` (never TMPDIR, which differs per session, so every caller queues on the same lock): setup resets the whole file (every page, variable collection and local style) and creates the page `eval/<task>/<n>`; the task's seed through this repo's `figma_run.py`; a headless `claude -p --output-format stream-json` session on the task prompt; the scorer against the page; the rep's pages removed unless `--keep`. The seeds, scorers (`lib.js`, which never uses the skill's own `figma_lib.js`) and `figma_run.py` always come from the repo running `run.py`, so a candidate skill can't move the goalposts.
 
-- **One tab.** `run.py` refuses to start when several tabs show the file and no `--tab` is given: setup and the session could each land on a different tab, one of them out of date. Sessions get `FIGMA_BACKEND=perch` (no `FIGMA_CDP_PORT`) and cannot call `agent-browser`, so a perch failure is an error, never a CDP fallback into another browser's copy of the file or the user's other files.
+- **One tab.** `run.py` refuses to start when several tabs show the file and no `--tab` is given: setup and the session could each land on a different tab, one of them out of date. Sessions cannot call `agent-browser` (`--disallowedTools`), which would reach whichever Chrome has a debugging port and the user's own files there.
 - **Reparse, don't rerun.** `tests/eval/reparse.py <results.json> <transcripts>` recomputes the session metrics of a run kept with `--transcripts`, for a change to how a transcript is read.
 - **Choosing a live run** (fium RULES L1–L4). Live runs cost millions of tokens, so:
   - `run.py` (its CLI is `plan.py`) without `--tasks` runs only what `fium scope <baseline refresh>..HEAD --affects tests/eval/affects.json` says the change can move, and prints the tasks and the expected tokens at baseline medians before it starts (L1). An explicit `--tasks` wins.
@@ -145,8 +130,6 @@ Cases start from one failure someone noticed. The sleep pass starts from everyth
 - **figma-worker.md is per-dispatch.** Every line is per-worker token cost. Compress hedging and meta-narration; preserve imperatives (READ before doing, find before creating, fix only what failed, don't rebuild).
 - **References stay task-shaped.** Don't merge files because they're conceptually related. Don't split files because they're long — split only when independent tasks would load disjoint subsets.
 - **Source-language framing stays generic.** Don't add per-language mapping tables (SwiftUI / Compose / Flutter / etc.). The `conventions.md` → "Source layout semantics → auto layout" table is the format — name the *kind* of source construct, not the language syntax. The skill should work with any source the user can throw at it. Carve-out: `references/capture.md`'s CSS→Figma table is the single allowed CSS-property table — computed CSS is the one normalized form every rendered page reduces to regardless of authoring framework, not a source language; the rule still bans per-source-language (SwiftUI/Compose/Flutter) tables.
-- **Helpers honor `FIGMA_CDP_PORT`.** New helpers must resolve the port in this order: `FIGMA_CDP_PORT` if set, then the browser's `DevToolsActivePort` file, then 9222. Never hardcode the port in a helper.
-- **Eval helpers keep one output shape across backends.** A change to the CDP output of `figma_run.py` lands on the perch path too, with a case in `tests/perch_backend_test.py`.
 - **`gotchas.md` uses WRONG/CORRECT pairs.** Each numbered gotcha earns its slot — only add ones that have actually bitten the skill. Nice-to-have caveats belong in the reference doc they're about, not in gotchas.
 - **Worker Loop step descriptions stay explicit.** DISCOVER, READ, PLAN, EXECUTE, VERIFY+RETRY, CHECKPOINT, REPORT — each gets a real sentence describing what the worker actually does there. Telegraphic compression loses the imperatives that drive correct behavior.
 - **No new references without table updates.** Any new `references/*.md` must land in `SKILL.md`'s references table with a distinct "load for" description. Orphans get pruned.
@@ -156,10 +139,9 @@ Cases start from one failure someone noticed. The sleep pass starts from everyth
 
 ## Ceiling — what's out of scope
 
-- **Live UI overlays in Figma.** Would need a real Figma plugin, not Plugin API via CDP. The Plugin API runs server-side in Figma's sandbox; it can mutate the document but can't render arbitrary UI in the user's viewport.
+- **Live UI overlays in Figma.** Would need a real Figma plugin, not the Plugin API driven from outside. The Plugin API runs server-side in Figma's sandbox; it can mutate the document but can't render arbitrary UI in the user's viewport.
 - **REST writes other than comments.** No current need; comments are the only POST. Other writes go through the Plugin API.
 - **Design event streams.** The only listener is figma_lib.js's REMOTE `nodechange` ring behind `__fx.stale`; the skill doesn't stream selection or document events to agents. Same-tab edits are all LOCAL, so workers' and the user's in-tab edits can't be told apart.
-- **Bypassing Chrome 136+'s default-profile restriction.** Mode B's profile-copy dance is the documented workaround; we don't try to defeat the security hardening any further.
-- **Port discovery beyond `DevToolsActivePort` in Mode A.** Chrome assigns a new debugging port each launch; the helpers handle that by falling back to the `DevToolsActivePort` file when `FIGMA_CDP_PORT` is unset. Anything past that file — scanning Chrome processes, probing ports — is out of scope; the docs spell out the fallback's limits.
-- **Recursing into cross-origin iframes during live-page capture.** Would need CDP frame-target routing beyond the agent-browser surface we depend on; cross-origin iframes are captured as named placeholder frames only.
-- **Native-fidelity accessibility capture.** The walker emits a semantic layer (`role`/`axName`/`interactable`) computed in-page, which drives layer naming and component instantiation; a native `Accessibility.getFullAXTree` join over the agent-browser CDP surface is the documented accuracy upgrade (`references/capture.md` → Semantic layer), not built in v1.
+- **Hosts other than a Mac.** perch drives browsers over AppleScript, so the skill runs on a Mac (a perch room runs in a VM there).
+- **Recursing into cross-origin iframes during live-page capture.** Would need DevTools frame-target routing, which perch's AppleScript path lacks; cross-origin iframes are captured as named placeholder frames only.
+- **Native-fidelity accessibility capture.** The walker emits a semantic layer (`role`/`axName`/`interactable`) computed in-page, which drives layer naming and component instantiation; a native `Accessibility.getFullAXTree` join over a DevTools connection is the documented accuracy upgrade (`references/capture.md` → Semantic layer), not built in v1.

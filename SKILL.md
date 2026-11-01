@@ -1,7 +1,7 @@
 ---
 name: figma-cdp
-description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API through perch (AppleScript) or agent-browser (CDP). Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks or DESIGN.md sync."
-allowed-tools: Bash(agent-browser:*), Bash(python3 *figma_*.py *)
+description: "Code → Figma mockups. The reverse of Figma MCP, which goes design → code. Use this to build screens in Figma, edit copy and layouts, or convert UI code into a Figma file. Drives the Plugin API through perch (AppleScript). Triggers on Figma URLs, building or editing UI in Figma, code-to-Figma conversion, copy work, and design system tasks or DESIGN.md sync."
+allowed-tools: Bash(python3 *figma_*.py *)
 ---
 
 # Figma design automation
@@ -10,7 +10,7 @@ You coordinate: read the source and the file, plan, run small work inline, dispa
 
 ## Setup
 
-`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or CDP setup: `references/connection.md`; if it still fails, stop and report the error. Never work around it with browser MCP tools, clicks, screenshots or exported code. Pass `--file` (or export `FIGMA_FILE`) on every helper call. A perch room's tab on the file wins and runs locked (prefer it unattended); `--where` names the tab; a signed-out room stops (`signed_out`), never falling back. Split outputs in one Bash call with `echo ---` (zsh runs `====` as a command).
+`<skill-dir>` is the folder holding this SKILL.md. Run every helper from there. Check: `python3 <skill-dir>/figma_run.py --file <figma-url> -e 'typeof figma'` → `"object"`. Failure or setup: `references/connection.md`; if it still fails, stop and report the error. Never work around it with browser MCP tools, clicks, screenshots or exported code. Pass `--file` (or export `FIGMA_FILE`) on every helper call. A perch room's tab on the file wins and runs locked (prefer it unattended); `--where` names the tab; a signed-out room stops (`signed_out`), never falling back. Split outputs in one Bash call with `echo ---` (zsh runs `====` as a command).
 
 ## Flow
 
@@ -40,7 +40,7 @@ Specs are self-contained: verified ids, exact end state, assertions, no TBDs; [R
 | `references/reading.md` | Recon, inventory, deep reads |
 | `references/building.md` | Creating nodes, variant recipe, layout recipes |
 | `references/copy.md` | Text edits, fonts |
-| `references/connection.md` | Setup, perch/CDP modes, troubleshooting |
+| `references/connection.md` | Setup, perch rooms, troubleshooting |
 | `references/execution.md` | Helpers, `__fx`, batching, state, verification, rollback |
 | `references/fidelity.md` | Source manifest and fidelity check |
 | `references/rest-api.md` | REST renders and comments |

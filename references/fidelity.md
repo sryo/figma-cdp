@@ -1,6 +1,6 @@
 # Fidelity check: Figma against the source
 
-Two helpers compare a built subtree with the implementation it mirrors, deterministically. They run from the skill directory next to `figma_run.py`; `figma_fidelity.py` runs its eval through it, so it works on either backend.
+Two helpers compare a built subtree with the implementation it mirrors, deterministically. They run from the skill directory next to `figma_run.py`; `figma_fidelity.py` runs its eval through it.
 
 ## 1. Source manifest, once, before dispatch
 
@@ -67,11 +67,10 @@ spacing [cap:12] 1:51: padding/gap [0, 0] → padding/itemSpacing [0, 8]
 
 Kinds: `position` (against the parent, > 2 px), `spacing` (every child shifted alike: the parent's padding or gap), `size`, `color` (fill or text color, ΔE2000 > 2.3), `font-size`, `font-weight`, `font-family`, `line-height`, `letter-spacing`, `text`, `radius`, `opacity`, `visibility`, `missing-node` and `extra-node` (with a `weight`: their share of the root's area). `--waive` counts, rather than lists, rows under elements the walker flagged for a documented capture loss. `--json` gives each row's `css_prop` and Figma `prop`, which is what to look up when the importer has no mapping for it (`tests/api/figma_api.mjs lookup <css_prop>` in the dev repo).
 
-To find a loss no property check knows about (a blend mode, a gradient, a mask), add a full-page screenshot of the walked page:
+To find a loss no property check knows about (a blend mode, a gradient, a mask), add a screenshot of the walked page: open the URL in a tab its window shows (perch `new_tab {url}`), then screenshot that tab. It covers what the window shows; cells below it are skipped.
 
 ```bash
-agent-browser --session capture connect <cdp-port> && agent-browser --session capture open <url>
-agent-browser --session capture screenshot --full /tmp/figma_page.png      # a background tab: takes no focus
+FIGMA_PERCH_TAB=<tabId> python3 <skill-dir>/figma_run.py --screenshot /tmp/figma_page.png
 python3 <skill-dir>/figma_fidelity.py --elements /tmp/figma_capture_<slug>.json <rootId> --file <figma-url> --pixels /tmp/figma_page.png --crops /tmp/figma_crops
 ```
 

@@ -1,13 +1,13 @@
 # Execution: eval patterns
 
-The eval patterns for all automation against Figma's Plugin API, through perch or `agent-browser`.
-Connection setup lives in `references/connection.md` (Mode P perch, Mode A attach, Mode B Canary launch, troubleshooting).
+The eval patterns for all automation against Figma's Plugin API, through perch.
+Connection setup lives in `references/connection.md` (perch, rooms, troubleshooting).
 
-`agent-browser` commands and the `python3 <skill-dir>/figma_*.py` helper calls are pre-allowed in Claude Code (`Bash(agent-browser:*)`, `Bash(python3 *figma_*.py *)`); other agents may ask once. Every script below runs as `python3 <skill-dir>/figma_run.py --file <url> -e '<script>'`.
+The `python3 <skill-dir>/figma_*.py` helper calls are pre-allowed in Claude Code (`Bash(python3 *figma_*.py *)`); other agents may ask once. Every script below runs as `python3 <skill-dir>/figma_run.py --file <url> -e '<script>'`.
 
 ## Eval methods
 
-Run the helpers in place from the skill directory (`<skill-dir>` below); they find `figma_perch.mjs` next to themselves, so nothing is copied to `/tmp`. Both modes take the same arguments and print the same output. Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — agents flag them for approval even with permissions set.
+Run the helpers in place from the skill directory (`<skill-dir>` below); they find `figma_perch.mjs` next to themselves, so nothing is copied to `/tmp`. Don't use heredocs (`<<`), pipes (`|`), or input redirects (`<`) in Bash — agents flag them for approval even with permissions set.
 
 ### Inline script (one turn per eval)
 
@@ -19,26 +19,22 @@ await figma.loadFontAsync({ family: "Inter", style: "Regular" });
 return { name: page.name, frames: page.children.length };'
 ```
 
-- **Result.** Printed as one line of JSON, keys sorted. A plain script returns its completion value (its last expression), as CDP's `Runtime.evaluate` does. A script with top-level `await` or `return` runs as an async function body instead, so its result is what it `return`s; no IIFE needed.
+- **Result.** Printed as one line of JSON, keys sorted. A plain script returns its completion value (its last expression). A script with top-level `await` or `return` runs as an async function body instead, so its result is what it `return`s; no IIFE needed.
 - **Scope.** Each script's top-level `const`/`let` stay in that script; share state across evals through `window.__batchState` (below).
 - **Quoting.** The script sits in single quotes, so write JS strings with `"` or backticks; a `'` ends the shell string.
 - **Other sources.** A path to a `.js` file (written with the Write tool) works the same, and `-` reads the script from stdin.
-- **File.** `--file <figma-url-or-key>` picks the tab in Mode P (required when several Figma files are open); `FIGMA_FILE` is its default.
-- **Timeout.** In Mode P a script that awaits gets 100s (under the Bash tool's own 120s), or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file. A script that times out keeps running; the error names `--recover <id>` for its result (Lost replies and timeouts below).
-
-In Mode A/B the helper base64-encodes the script for `agent-browser eval -b` (port: `FIGMA_CDP_PORT`, else `DevToolsActivePort`, else 9222); in Mode P it runs through perch.
+- **File.** `--file <figma-url-or-key>` picks the tab (required when several Figma files are open); `FIGMA_FILE` is its default.
+- **Timeout.** A script that awaits gets 100s (under the Bash tool's own 120s), or `--timeout <seconds>` (1 to 300) for a longer job such as a big export or `loadAllPagesAsync` on a large file. A script that times out keeps running; the error names `--recover <id>` for its result (Lost replies and timeouts below).
 
 ### Batched evals
 
-For ≥3 sequential evals with no intermediate user feedback or state inspection, give them to one `figma_run.py` call — one `agent-browser` batch saves ~200ms per extra script (CLI cold-start). Scripts are `-e '<js>'`, `.js` paths, or `-` (stdin, once), run in the order given:
+For ≥3 sequential evals with no intermediate user feedback or state inspection, give them to one `figma_run.py` call: one perch request for all of them. Scripts are `-e '<js>'`, `.js` paths, or `-` (stdin, once), run in the order given:
 
 ```bash
 python3 <skill-dir>/figma_run.py -e 'window.__batchState = { ids: [] }; return "ready"' /tmp/step2.js -e 'return window.__batchState.ids'
 ```
 
 With two or more scripts, each result prints under a `== <label> ==` header (the file's basename, `-e[n]` for the nth inline script, `stdin`) as `{"origin": ..., "result": ...}`, or `Evaluation error: ...` (with a `hint:` line under a known error). `--stop` ends the batch at the first script that throws, returns nothing or returns `{error}`; the rest don't run and the exit code is 1. Use it whenever a step builds on the one before. The batch shares one browser tab, so `window.__batchState` persists across the steps the same way it does between separate `figma_run.py` calls.
-
-For evals whose base64 payload approaches macOS `ARG_MAX` (~256KB per arg), switch to `agent-browser batch`'s stdin JSON mode directly — see `agent-browser batch --help`; Mode P has no such cap.
 
 When NOT to batch: when step N needs to read the result of step N-1 before deciding what step N+1 should do, or when parallel workers each have their own chain (each parallel worker calls `figma_run.py` for its own chain; you don't batch across workers).
 
@@ -118,15 +114,9 @@ Preview at SCALE 0.5: a 1280-wide screen comes back 640 wide, a quarter of the i
 })()
 ```
 
-### Screenshot via agent-browser
+### Screenshot of the tab
 
-For full-page screenshots without Plugin API:
-
-```bash
-agent-browser --cdp "${FIGMA_CDP_PORT:-9222}" screenshot /tmp/figma_screenshot.png
-```
-
-On either backend (and the only way in Mode P): `python3 <skill-dir>/figma_run.py --screenshot /tmp/figma_screenshot.png`. In Mode P the tab must be the one its window shows.
+Without Plugin API: `python3 <skill-dir>/figma_run.py --screenshot /tmp/figma_screenshot.png`. The tab must be the one its window shows.
 
 ## Parallelization
 
@@ -157,16 +147,14 @@ Workers in one tab can't see each other's writes as they happen, so the helpers 
 
 Each script runs under a request id in the page's ledger (`window.__fxRuns`, the last 50). When the daemon drops a reply, the helper resends the same request once: a script that finished answers from the ledger, one that never ran runs now, and nothing runs twice. A timeout, or a script still running at the resend, names its id: `figma_run.py --file <url> --recover <id>` waits for it (up to `--timeout`) and prints its result; don't poll it with `sleep` (results over 32 KB aren't kept; read the state instead).
 
-### When to use sessions vs shared state
+### Workers on one file or several
 
-- **Shared state (`window.__batchState`):** Workers on the **same file**, different frames/pages. All evals share one browser tab context.
-- **Sessions (`--session worker-a`):** Workers on **different Figma files**. Each session gets its own browser tab with separate Plugin API context.
-
-For same-file parallel work, `window.__batchState` with namespaced keys is correct. Sessions would require opening the same file in multiple tabs.
+- **Same file**, different frames/pages: all evals share the file's tab, so share state through `window.__batchState` with namespaced keys.
+- **Different files**: each worker passes its own `--file`; each file's tab has its own Plugin API context.
 
 ## Error handling
 
-A script that throws exits with code 1 and prints the error to stderr, the same on both backends. When the message is a known Plugin API error, a `hint:` line under it names the fix and the gotcha behind it:
+A script that throws exits with code 1 and prints the error to stderr. When the message is a known Plugin API error, a `hint:` line under it names the fix and the gotcha behind it:
 
 ```
 ✗ Evaluation error: Error: in set_layoutSizingHorizontal: FILL can only be set on children of auto-layout frames

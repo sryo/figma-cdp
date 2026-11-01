@@ -11,9 +11,7 @@ mkdir -p ~/.claude/skills && ln -sfn ~/.agents/skills/figma-cdp ~/.claude/skills
 
 One copy serves Codex, GitHub Copilot and Claude Code. Restart your agent if it doesn't pick up the skill.
 
-You need a Figma file open in your browser, plus one of:
-- On a Mac, [perch](https://github.com/sryo/perch): faster, works in Chrome, Arc or Safari, and no remote-debugging prompt.
-- Otherwise agent-browser, which your agent can install. The first run asks you to turn on remote debugging in Chrome.
+You need a Mac with [perch](https://github.com/sryo/perch) and a Figma file open in Chrome, Arc or Safari, or in a perch room.
 
 Optional: for image rendering or comments, give your agent a [Figma personal access token](https://www.figma.com/developers/api#access-tokens).
 

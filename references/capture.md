@@ -6,45 +6,18 @@ Load when the source is a live URL to import into Figma: a rendered web page bec
 
 - The user gives a public web URL and wants it in Figma.
 - Replaces the screenshot-reconstruction slow path in `references/reading.md`.
-- Not for: authenticated pages on CDP (see Session choreography → limitation), code repos (use the no-source-URL branch — read the code, don't render it).
+- Not for: code repos (use the no-source-URL branch — read the code, don't render it).
 
-## Session choreography
+## Walk, then import
 
-The helper does both halves and picks its backend as `figma_run.py` does (`FIGMA_BACKEND`, else CDP when `FIGMA_CDP_PORT` is set, else perch when usable). The spec crosses between them as a **`/tmp` file**, never a shared tab:
+The helper does both halves through perch, as `figma_run.py` does. The spec crosses between them as a **`/tmp` file**, never a shared tab:
 
 ```bash
 python3 <skill-dir>/figma_capture.py walk <url> [wait_ms]                 # → /tmp/figma_capture_<slug>.json
 python3 <skill-dir>/figma_capture.py import /tmp/figma_capture_<slug>.json --componentize --components '<json-or-path>'   # into the Figma tab
 ```
 
-### perch (default)
-
-`walk` opens the URL in a new background tab (perch `new_tab`) of `--app <browser>` (or `FIGMA_CAPTURE_APP`), else of a perch room that is up (no focus taken, works with the screen locked), else of the frontmost browser. A Mac browser other than Safari needs the user's focus grant to open a tab; without one the walk stops with `needs_focus`, opens nothing and never retries elsewhere: bring up a room (`rooms up <name>`) or have the user run `perch focus allow 15m`. Then it waits for the load plus `wait_ms` (default 2000), runs `figma_walker.js` there with `eval_js {world:"main", awaitPromise:true}`, and closes the tab. The walker runs inline, not through `eval`, so a page whose CSP bans `eval` still walks; one whose CSP bans inline scripts fails with `tab_not_scriptable`. The tab shares the browser's logins, so authenticated pages capture too. `import` sends every eval in one `figma_perch.mjs` request to the Figma tab (`--file <url-or-key>` or `FIGMA_FILE` when several files are open); the first eval that fails ends it. Chrome-family browsers and Safari walk in the background; Arc runs page JS only in the tab its window shows, so an Arc walk fails with `tab_not_visible` unless `--show` (takes focus): name another browser instead. Both take `--timeout <seconds>` (or `FIGMA_TIMEOUT`, 1 to 300, default 120) per eval. No base64 ceiling applies. `FIGMA_CAPTURE_PREP=<file.js>` runs that script in the tab before the walker (perch only), for page fixes the walker can't make itself, such as swapping system fonts for ones Figma has; the walker's result is the last one returned.
-
-### CDP
-
-Empirically verified (Canary 151 @ CDP 9333). Do exactly this; the routing rules below are not assumptions.
-
-**Bind, don't `--cdp`-retarget.** `agent-browser connect <port>` binds the default session to that port. Once bound, a later bare `--cdp <otherport>` is **ignored** — the call still hits the originally-bound port. To retarget, run `connect <port>` again. The capture helper MUST NOT assume `--cdp` retargets a live session; it `connect`s explicitly.
-
-```bash
-agent-browser connect "${FIGMA_CDP_PORT:-9222}"   # binds the default session
-```
-
-**Two isolated sessions, never one shared tab.**
-
-- **Source page** runs in `--session capture` — its own isolated tab set. A `--session capture` eval always hits the capture tab regardless of what the default session's active tab is doing.
-- **Figma import** runs in the **default** session on the Figma tab (Mode A — the user's existing logged-in tab).
-
-They never collide.
-
-`walk` connects the capture session, `open`s the URL (`open`, not `navigate`/`goto`), waits `wait_ms` (default 2000) for the page to settle, then evals `figma_walker.js` — an async IIFE that agent-browser awaits. Asset fetches run inside the source tab during that eval; the envelope returns over the CDP WebSocket, so ARG_MAX never constrains the walker's output, only the importer's input (which the helper chunks).
-
-**Active-tab nondeterminism warning.** A sessionless `eval` runs in whatever tab is marked `→` in `agent-browser tab list` (last opened or last selected). With a Figma tab AND a source tab both open in the default session this is **nondeterministic**. Never run a capture eval sessionless when a Figma tab is open — that's the whole reason the source page lives in `--session capture`.
-
-**Public-vs-authenticated limitation.** An isolated `--session capture` context does **not** share the user's Chrome cookies/login, so captures cover **public/unauthenticated** pages. An authenticated page would need the walk to run as a second tab *inside* the logged-in default context (select it by index before the walker eval, accepting the active-tab nondeterminism that brings) — a documented limitation, not supported.
-
-**Close before import.** Close the capture session before the first importer eval so only the Figma tab is live in the default session. After capture, confirm the default session still binds the Figma tab (`agent-browser eval "typeof figma"` → `"object"`).
+`walk` opens the URL in a new background tab (perch `new_tab`) of `--app <browser>` (or `FIGMA_CAPTURE_APP`), else of a perch room that is up (no focus taken, works with the screen locked), else of the frontmost browser. A Mac browser other than Safari needs the user's focus grant to open a tab; without one the walk stops with `needs_focus`, opens nothing and never retries elsewhere: bring up a room (`rooms up <name>`) or have the user run `perch focus allow 15m`. Then it waits for the load plus `wait_ms` (default 2000), runs `figma_walker.js` there with `eval_js {world:"main", awaitPromise:true}`, and closes the tab. The walker runs inline, not through `eval`, so a page whose CSP bans `eval` still walks; one whose CSP bans inline scripts fails with `tab_not_scriptable`. The tab shares the browser's logins, so authenticated pages capture too. `import` sends every eval in one `figma_perch.mjs` request to the Figma tab (`--file <url-or-key>` or `FIGMA_FILE` when several files are open); the first eval that fails ends it. Chrome-family browsers and Safari walk in the background; Arc runs page JS only in the tab its window shows, so an Arc walk fails with `tab_not_visible` unless `--show` (takes focus): name another browser instead. Both take `--timeout <seconds>` (or `FIGMA_TIMEOUT`, 1 to 300, default 100) per eval. `FIGMA_CAPTURE_PREP=<file.js>` runs that script in the tab before the walker, for page fixes the walker can't make itself, such as swapping system fonts for ones Figma has; the walker's result is the last one returned.
 
 ## Spec format
 
@@ -179,7 +152,7 @@ Assets are deduped by resolved URL, so many nodes may reference one key through 
 
 ## Semantic layer (role / axName / interactable)
 
-The walker computes a lightweight semantic layer in-page (no CDP join). `role` is the explicit `role` attribute if the author set one (open string — `search`, `note`, `tab`, `menuitem` all seen live), else the IMPLICIT-ROLE by tag:
+The walker computes a lightweight semantic layer in-page (no native accessibility-tree join). `role` is the explicit `role` attribute if the author set one (open string — `search`, `note`, `tab`, `menuitem` all seen live), else the IMPLICIT-ROLE by tag:
 
 - `button`→button, `a` (only with `href`; bare `a` → null), `nav`→navigation, `header`→banner, `footer`→contentinfo, `main`→main, `aside`→complementary, `ul`/`ol`→list, `li`→listitem, `h1..h6`→heading (+ `level`), `textarea`→textbox, `select`→combobox, `img`→img, `table`→table, `form`→form, `section`→region, `article`→article, `label`→label.
 - `input` by `type`: checkbox→checkbox, radio→radio, button/submit/reset/image→button, range→slider, hidden→null, else (incl. default)→textbox.
@@ -189,7 +162,7 @@ The walker computes a lightweight semantic layer in-page (no CDP join). `role` i
 
 #### Accuracy upgrade path — native AXTree join (NOT built in this phase)
 
-This in-page role map is a deliberate v1. The fidelity upgrade is a native `Accessibility.getFullAXTree` join over the agent-browser CDP surface, keyed by `backendNodeId`, replacing the heuristic `role`/`axName` with Chrome's computed accessibility tree (which resolves `<label for>`, `aria-owns`, name-computation precedence, and the full ARIA role taxonomy). That join is the documented next rung, **not implemented here** — the in-page map ships first because it is self-contained in the one walker eval with no CDP dependency.
+This in-page role map is a deliberate v1. The fidelity upgrade is a native `Accessibility.getFullAXTree` join keyed by `backendNodeId`, which needs a DevTools connection to the page that perch's AppleScript path doesn't have, replacing the heuristic `role`/`axName` with Chrome's computed accessibility tree (which resolves `<label for>`, `aria-owns`, name-computation precedence, and the full ARIA role taxonomy). That join is the documented next rung, **not implemented here** — the in-page map ships first because it is self-contained in the one walker eval.
 
 ## Import loop
 
@@ -199,14 +172,14 @@ The helper runs the whole deterministic loop — never hand-roll chunk evals. Af
 python3 <skill-dir>/figma_capture.py import /tmp/figma_capture_<slug>.json --componentize --components '{"button":"1:2","input":"1:7"}'
 ```
 
-On CDP it targets the default session (`--cdp`, same port resolution as `figma_run.py`); on perch, the Figma tab `figma_run.py` would pick. It evals, in order:
+It targets the Figma tab `figma_run.py` would pick. It evals, in order:
 
 1. **Reset** — deletes the capture keys of `window.__batchState` (`captureIds`, `captureRects`, `captureLayout`, `captureReport`, `captureFonts`, `captureAssets`, `captureProps`) and seeds `captureAssets = {}`. Every import starts clean.
 2. **Assets** — per asset, one eval setting `captureAssets[key]` to the metadata (`kind, mime, w, h, error` — no bytes), then the `b64` / `svg` string appended in ≤150 KB pieces (`a.b64 = (a.b64 || '') + piece`). The importer reads only finished objects.
 3. **Node chunks** — consecutive nodes packed by JSON size (≤150 KB per chunk, a node is never split, order preserved). Each eval is `window.__captureSpec = {nodes, flagged, components, meta};` followed by `figma_importer.js`. `flagged`, `components`, and `meta` repeat in every chunk; `meta.title` names the root `[cap:0] <title>`.
 4. **Report** — the last eval's return printed as JSON, then `created=N flagged=N fontsFallenBack=N components=N instantiated=N warnings=N`.
 
-On CDP every eval's base64 stays under 300 KB (macOS ARG_MAX headroom). An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab; `--chunk-bytes N` shrinks the node-chunk budget to exercise cross-chunk state. `node tests/import_replay.js <spec.json> [--componentize]` replays those dry-run evals against a stub Plugin API (font-before-characters and sizing rules enforced) and prints the report — the no-Figma smoke check after touching the importer; `python3 tests/importer_test.py` asserts sizing, constraints and componentize on `tests/capture_spec.json`.
+An eval whose result is missing, carries `error`, or exits non-zero stops the run with the error printed and exit 1 — fix and re-run (the reset makes a re-run safe). `--dry-run <dir>` writes each eval to `<dir>/NN_<kind>.js` instead of running it — inspect chunking without a Figma tab; `--chunk-bytes N` shrinks the node-chunk budget to exercise cross-chunk state. `node tests/import_replay.js <spec.json> [--componentize]` replays those dry-run evals against a stub Plugin API (font-before-characters and sizing rules enforced) and prints the report — the no-Figma smoke check after touching the importer; `python3 tests/importer_test.py` asserts sizing, constraints and componentize on `tests/capture_spec.json`.
 
 ### Componentize (`--componentize`)
 
@@ -362,7 +335,7 @@ Each drop down a rung is one divergence-report entry.
 
 ## Risks and limitations
 
-- **Cross-origin iframes.** Captured as a single empty **placeholder** frame named `[capture:iframe <origin>]`; the walker cannot recurse into them — CDP frame-target routing is beyond the agent-browser surface we depend on (AGENTS.md Ceiling). Same-origin iframes are walked inline in layout space.
+- **Cross-origin iframes.** Captured as a single empty **placeholder** frame named `[capture:iframe <origin>]`; the walker cannot recurse into them: that needs DevTools frame-target routing, which perch's AppleScript path doesn't have (AGENTS.md Ceiling). Same-origin iframes are walked inline in layout space.
 - **Images, svg, canvas — CORS-bound.** Pixels cross over only when the source tab can read them: a cross-origin `<img>` whose server blocks `fetch` falls back to a canvas draw, and a tainted canvas yields `error:"tainted"` — an empty box tagged `[capture:image tainted]` on the cleanup list. Same for `timeout` / `too-large` / `decode` / `fetch`. `<video>` contributes its poster only; `<canvas>` is a snapshot.
 - **Fonts.** Real families are tried first through the ladder; anything missing in Figma degrades toward Inter and is reported in `fontsFallenBack`. Generic families (sans-serif, serif, monospace, system-ui, …) map to Inter directly and are not reported as substitutions. Variable-font axes, optical sizes, and weights outside the 100–900 names are not matched.
 - **Mixed content.** Text sitting directly beside block-level siblings is lost — the inline-text test requires every rendered child to be inline, and a container node carries no text. Wrap-free CMS markup (`<div>Hello <p>…</p></div>`) drops the bare "Hello".
