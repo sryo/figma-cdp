@@ -17,8 +17,8 @@ import os, re, sys, unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 FILE_CAPS = {
-    'SKILL.md': 6580,
-    'figma-worker.md': 7444,
+    'SKILL.md': 6675,
+    'figma-worker.md': 7663,
 }
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
@@ -141,6 +141,15 @@ class Docs(unittest.TestCase):
             for ref, sec in re.findall(r'`references/([a-z-]+\.md)` → ([A-Z][\w-]*(?: [\w-]+)*)', text):
                 heads = [h.strip().lower() for h in re.findall(r'^#+ (.+)$', docs()['references/' + ref], re.M)]
                 self.assertTrue(any(h.startswith(sec.lower()) or sec.lower().startswith(h) for h in heads), f'{rel} points at {ref} → {sec}, no such section')
+
+    def test_the_coordinator_reads_a_render_only_on_concerns(self):
+        d = docs()
+        step = next(l for l in d['SKILL.md'].splitlines() if '**Statuses.**' in l)
+        self.assertRegex(step, r'render only (on|when)[^.;]*DONE_WITH_CONCERNS', 'step 7 does not skip a DONE worker\'s render')
+        self.assertIn('DONE carries its gate numbers and PNG path', step)
+        report = d['figma-worker.md'].split('### 6. REPORT', 1)[1].split('\n## ', 1)[0]
+        self.assertRegex(report, r'(?i)gate numbers[^\n]*assertions[^\n]*audit[^\n]*fidelity', 'the worker report has no gate numbers')
+        self.assertRegex(report, r'figma_run\.py --file <url> --screenshot /tmp/figma_<NS>\.png', 'the worker report has no render path')
 
     def test_no_doc_sends_the_agent_to_the_retired_cdp_backend(self):
         texts = {**docs(), **{rel: open(os.path.join(ROOT, rel)).read() for rel in ('README.md', 'GOALS.md')}}

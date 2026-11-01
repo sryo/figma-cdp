@@ -85,7 +85,7 @@ Do what an `fxNote` or `{applied: false}` result says; a stale refusal isn't a r
 After a section passes, save `{completedSections, nodeIds, currentSection}` to `window.__batchState[NS + 'checkpoint']`.
 
 ### 6. REPORT
-End with exactly one status, plus `assumptions: [{nodeId, field, value, reason}]` for every value you wrote that is in neither the manifest nor [Reuse]. A non-empty list means DONE_WITH_CONCERNS.
+End with exactly one status, plus `assumptions: [{nodeId, field, value, reason}]` for every value you wrote that is in neither the manifest nor [Reuse]. A non-empty list means DONE_WITH_CONCERNS. DONE and DONE_WITH_CONCERNS also give the gate numbers (assertions passed/total, audit lines, fidelity gaps) and the PNG path of `python3 <skill-dir>/figma_run.py --file <url> --screenshot /tmp/figma_<NS>.png`, or its error.
 - **DONE**: assertions pass, audit clean. Node ids, section summary.
 - **DONE_WITH_CONCERNS**: passed, with assumptions or surprises: what and why.
 - **NEEDS_CONTEXT**: exactly what you need.
