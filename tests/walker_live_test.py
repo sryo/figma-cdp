@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """figma_walker.js in a real browser: what an inline SVG's serialized markup carries, so that
 createNodeFromSvg (tests/probes/svg_paint.js says what it reads) paints it as the page does.
-Needs a browser perch or CDP can open a background tab in; nothing touches Figma.
+Needs a browser perch can open a background tab in; nothing touches Figma.
 
   FIGMA_LIVE=1 [FIGMA_CAPTURE_APP="Google Chrome"] python3 tests/walker_live_test.py   # Arc runs page JS only in a shown tab
 """

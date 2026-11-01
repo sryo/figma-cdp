@@ -3,7 +3,7 @@
 
   python3 figma_fidelity.py <manifest.json> <rootId> [--file <figma-url-or-key>] [--timeout <s>] [--json] [--scope <screen.html>]
 
-One eval through figma_run.py (next to this script, so CDP or perch as it picks) collects the
+One eval through figma_run.py (next to this script) collects the
 subtree's text, resolved solid colors, fonts, auto-layout spacing, radii and the component
 sets behind it. The report lists, per kind, what differs from the manifest:
   missing copy / invented copy      source strings no text layer shows; text layers no source string has

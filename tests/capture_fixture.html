@@ -2,9 +2,7 @@
 <!--
   Self-contained fixture for figma_walker.js (no network requests). Run the walker against it:
 
-    agent-browser --session captest open "file://$PWD/tests/capture_fixture.html"
-    agent-browser --session captest eval -b "$(base64 -i figma_walker.js)" --json > /tmp/walk.json
-    agent-browser --session captest close
+    python3 figma_capture.py walk "file://$PWD/tests/capture_fixture.html" 0
 -->
 <html lang="en">
 <head>

@@ -4,38 +4,32 @@
   walk <url> [wait_ms] [--timeout <seconds>]
       Opens the URL in a tab of its own, waits wait_ms (default 2000) for it to settle,
       runs figma_walker.js there (an async eval whose envelope comes back whole) and
-      persists it to /tmp/figma_capture_<slug>.json.
-      cdp: binds an isolated `--session capture` to the CDP port (connect explicitly —
-      a bare --cdp does not retarget a bound session) and `open`s the URL in it.
-      perch: a new tab (perch new_tab) in --app, else a perch room that is up, else the frontmost browser,
-      closed after the walk; a Mac browser without the user's focus grant stops it (needs_focus).
+      persists it to /tmp/figma_capture_<slug>.json. The tab is a new one (perch new_tab) in
+      --app, else a perch room that is up, else the frontmost browser, closed after the walk; a
+      Mac browser without the user's focus grant stops it (needs_focus).
   import <spec.json> [--components <json-or-path>] [--componentize] [--chunk-bytes N]
          [--file <figma-url-or-key>] [--timeout <seconds>] [--dry-run <dir>]
       Replays the spec into the Figma tab: a reset eval, the assets streamed in
       ≤150 KB pieces, then node chunks (≤150 KB of JSON each, nodes never split) each
       followed by figma_importer.js; the first eval that fails ends the run. Prints the
-      final report JSON plus a one-line summary. cdp: the DEFAULT session's tab, one
-      eval per call. perch: every eval in one figma_perch.mjs request. --componentize
+      final report JSON plus a one-line summary. Every eval goes in one figma_perch.mjs
+      request. --componentize
       marks repeated subtrees first (componentize below), so each group imports as one
       COMPONENT plus instances. --dry-run writes every eval to <dir>/NN_<kind>.js
       instead of running it.
 
-Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
-else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
-~/.perch, then ~/Documents/perch); else cdp.
-CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
-perch tab: --file (or FIGMA_FILE) names the Figma file; needed when several are open.
-perch await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 100.
-cdp walks public/unauthenticated pages only (the capture session has no Chrome login);
-a perch walk runs in the user's browser, with its logins.
+perch: eval_js world:"main" from the perch at PERCH_DIR (default ~/.perch, then
+~/Documents/perch); FIGMA_BACKEND, if set, must be perch.
+Tab: --file (or FIGMA_FILE) names the Figma file; needed when several are open.
+Await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 100.
+A walk runs in the user's browser (or a room), with its logins.
 """
-import argparse, base64, hashlib, json, os, re, subprocess, sys
+import argparse, hashlib, json, os, re, subprocess, sys
 
-from figma_backend import (Dropped, backend, cdp_port, daemon_exchange, daemon_sock, js_int, perch_dir,
-                           start_daemon, timeout_seconds)
+from figma_backend import Dropped, daemon_exchange, daemon_sock, js_int, require_perch, start_daemon, timeout_seconds
 
 PIECE_BYTES = 150_000   # asset piece and node chunk budget, measured on the JSON text
-EVAL_B64_MAX = 300_000  # per-eval base64 ceiling on cdp (ARG_MAX headroom)
+EVAL_MAX = 225_000      # node chunk ceiling: one eval's source, importer and envelope included
 BATCH_KEYS = ['captureIds', 'captureEdge', 'captureRects', 'captureLayout',
               'captureReport', 'captureFonts', 'captureAssets', 'captureProps']
 
@@ -69,13 +63,6 @@ def perch_call(req, wait):
 
 # ------------------------------------------------------- evals
 
-def agent_browser(args, session=None):
-    target = ['--session', session] if session else ['--cdp', cdp_port()]
-    try:
-        return subprocess.run(['agent-browser', *target, *args], capture_output=True, text=True)
-    except FileNotFoundError:
-        sys.exit('agent-browser not found — npm i -g agent-browser && agent-browser install')
-
 def read_sibling(name):
     try:
         with open(sibling(name), 'rb') as f:
@@ -98,16 +85,6 @@ def checked(result):
         return None, str(result['error'])[:400]
     return result, None
 
-def eval_result(r):
-    """Unwrap `agent-browser eval --json` output into (result, error)."""
-    try:
-        out = json.loads(r.stdout)
-    except ValueError:
-        return None, (r.stdout + r.stderr).strip()[:400] or f'exit {r.returncode}'
-    if r.returncode != 0 or not out.get('success') or out.get('error'):
-        return None, str(out.get('error') or r.stderr.strip() or f'exit {r.returncode}')[:400]
-    return checked((out.get('data') or {}).get('result'))
-
 def perch_results(out):
     """A figma_perch.mjs reply as [(result, error)], one per script that ran, then
     (None, fatal) when perch stopped the run."""
@@ -120,35 +97,25 @@ def perch_results(out):
 # ---------------------------------------------------------------- walk
 
 def walk(a):
-    if backend() == 'perch':
-        timeout = timeout_seconds(a.timeout)
-        try:
-            settle = max(0, round(float(a.wait_ms)))
-        except ValueError:
-            sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
-        walker = read_sibling('figma_walker.js').decode()
-        srcs = [walker]
-        if os.environ.get('FIGMA_CAPTURE_PREP'):
-            srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
-        req = {'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
-               'timeout': round(timeout * 1000), 'show': a.show}
-        if a.app:
-            req['app'] = a.app
-        out = perch_call(req, wait=settle / 1000 + timeout + 130)
-        for w in out.get('warnings') or []:
-            print(f'figma_capture.py: {w}', file=sys.stderr)
-        result, err = perch_results(out)[-1]
-        if err and out.get('app'):
-            err = f"in {out['app']}: {err}"
-    else:
-        walker_b64 = base64.b64encode(read_sibling('figma_walker.js')).decode()
-        cap = lambda *args: agent_browser(list(args), session='capture')
-        if cap('connect', cdp_port()).returncode != 0:
-            sys.exit(f'figma_capture.py: could not connect capture session to CDP {cdp_port()}')
-        if cap('open', a.url).returncode != 0:
-            sys.exit(f'figma_capture.py: could not open {a.url} in capture session')
-        cap('wait', a.wait_ms)
-        result, err = eval_result(cap('eval', '-b', walker_b64, '--json'))
+    timeout = timeout_seconds(a.timeout)
+    try:
+        settle = max(0, round(float(a.wait_ms)))
+    except ValueError:
+        sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
+    walker = read_sibling('figma_walker.js').decode()
+    srcs = [walker]
+    if os.environ.get('FIGMA_CAPTURE_PREP'):
+        srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
+    req = {'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
+           'timeout': round(timeout * 1000), 'show': a.show}
+    if a.app:
+        req['app'] = a.app
+    out = perch_call(req, wait=settle / 1000 + timeout + 130)
+    for w in out.get('warnings') or []:
+        print(f'figma_capture.py: {w}', file=sys.stderr)
+    result, err = perch_results(out)[-1]
+    if err and out.get('app'):
+        err = f"in {out['app']}: {err}"
     if err:
         sys.exit(f'figma_capture.py: walker failed — {err}')
     if not isinstance(result, dict) or 'nodes' not in result:
@@ -306,18 +273,6 @@ def componentize(nodes):
                 n['rep'] = {'m': master} if k == 0 else {'src': master + k, 'in': m}
             covered.update(m + k for m in members)
 
-def run_cdp(evals):
-    """Each eval's (result, error) in order, stopping after the first error."""
-    for n, (kind, src) in enumerate(evals):
-        b64 = base64.b64encode(src.encode()).decode()
-        if len(b64) >= EVAL_B64_MAX:
-            sys.exit(f'figma_capture.py: eval {n} ({kind}) base64 is {len(b64)} ≥ {EVAL_B64_MAX} — '
-                     'a single node or asset piece exceeds the eval ceiling')
-        row = eval_result(agent_browser(['eval', '-b', b64, '--json']))
-        yield row
-        if row[1]:
-            return
-
 def run_perch(evals, file, timeout):
     sources = [src for _, src in evals]
     out = perch_call({'op': 'eval', 'file': file or '', 'sources': sources, 'timeout': round(timeout * 1000),
@@ -341,9 +296,9 @@ def import_spec(a):
         sys.exit('figma_capture.py: --chunk-bytes must be a positive byte count')
     if a.componentize:
         componentize(nodes)
-    budget = min(a.chunk_bytes, EVAL_B64_MAX * 3 // 4 - len(importer) - len(js(envelope)) - 64)
+    budget = min(a.chunk_bytes, EVAL_MAX - len(importer) - len(js(envelope)) - 64)
     if budget <= 0:
-        sys.exit('figma_capture.py: figma_importer.js leaves no room for nodes under the eval ceiling')
+        sys.exit('figma_capture.py: figma_importer.js leaves no room for nodes under the chunk ceiling')
 
     evals = [('reset', reset_eval())]
     evals += list(asset_evals(spec.get('assets') or {}))
@@ -361,7 +316,7 @@ def import_spec(a):
         print(f'dry-run: {len(evals)} evals written to {a.dry_run}')
         return
 
-    rows = run_perch(evals, a.file, timeout_seconds(a.timeout)) if backend() == 'perch' else run_cdp(evals)
+    rows = run_perch(evals, a.file, timeout_seconds(a.timeout))
     last = None
     for n, (result, err) in enumerate(rows):
         if err:
@@ -384,7 +339,7 @@ def main():
     w.add_argument('url')
     w.add_argument('wait_ms', nargs='?', default='2000')
     w.add_argument('--app', default=os.environ.get('FIGMA_CAPTURE_APP'),
-                   help='browser to open the page tab in (perch backend; default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one)')
+                   help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one)')
     w.add_argument('--show', action='store_true',
                    help='Arc only: show the page tab, taking focus; other browsers run it in the background')
     i = sub.add_parser('import', help='replay a spec into the Figma tab')
@@ -394,12 +349,13 @@ def main():
                    help='import each group of 3+ identical-shape subtrees as one component plus instances')
     i.add_argument('--chunk-bytes', type=int, default=PIECE_BYTES, metavar='N',
                    help='node chunk budget, bytes of JSON (smaller only to exercise cross-chunk state)')
-    i.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key (perch backend)')
+    i.add_argument('--file', default=os.environ.get('FIGMA_FILE'), help='Figma file URL or key')
     i.add_argument('--dry-run', metavar='DIR', help='write each eval to DIR/NN_<kind>.js instead of running')
     for sp in (w, i):
         sp.add_argument('--timeout', metavar='SECONDS',
-                        help='how long an eval may await, 1 to 300 (perch backend; default FIGMA_TIMEOUT, else 100)')
+                        help='how long an eval may await, 1 to 300 (default FIGMA_TIMEOUT, else 100)')
     args = p.parse_args()
+    require_perch()
     walk(args) if args.cmd == 'walk' else import_spec(args)
 
 

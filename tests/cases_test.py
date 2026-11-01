@@ -35,7 +35,7 @@ class Cases(unittest.TestCase):
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, '2026-10-30.jsonl'), 'a') as f:
             for e in entries:
-                f.write(json.dumps({'ts': '', 'tool': 'figma_run.py', 'backend': 'perch', 'label': '-e[1]', 'sha': '', 'script': 'x', **e}) + '\n')
+                f.write(json.dumps({'ts': '', 'tool': 'figma_run.py', 'label': '-e[1]', 'sha': '', 'script': 'x', **e}) + '\n')
 
     def case(self, *args, code=0):
         r = subprocess.run([sys.executable, CASE, *args], capture_output=True, text=True,

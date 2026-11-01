@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Figma Plugin API scripts via agent-browser (CDP) or perch.
+"""Run Figma Plugin API scripts in the Figma tab through perch.
 
 Runs scripts in the Figma tab, in the order given, and prints their results. Run
 it from the skill directory; nothing needs copying.
@@ -12,21 +12,19 @@ it from the skill directory; nothing needs copying.
 A script is a file, stdin (-, once), or inline (-e / --js). Its result is its
 completion value; a script with top-level await or return runs as an async
 function body, and its result is what it returns. One script prints its result
-as compact JSON. Several run in one call (one perch request, one agent-browser
-batch: no per-eval cold start) and share the tab's globals; each result prints
-under a '== <label> ==' header (the file's basename, 'stdin', or '-e[n]' for the
-nth inline script) as agent-browser batch prints it.
+as compact JSON. Several run in one call (one perch request: no per-eval cold
+start) and share the tab's globals; each result prints under a '== <label> =='
+header (the file's basename, 'stdin', or '-e[n]' for the nth inline script) as
+{"origin": <the page URL>, "result": <value>}.
 
-Backend: FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set;
-else perch when a perch with eval_js world:"main" is at PERCH_DIR (default
-~/.perch, then ~/Documents/perch), which needs no remote debugging; else cdp.
-CDP port: FIGMA_CDP_PORT if set, else the browser's DevToolsActivePort file, else 9222.
-perch tab: --file (default FIGMA_FILE) names the file; needed when several are open. A room's
+perch: eval_js world:"main" from the perch at PERCH_DIR (default ~/.perch, then
+~/Documents/perch); FIGMA_BACKEND, if set, must be perch.
+Tab: --file (default FIGMA_FILE) names the file; needed when several are open. A room's
 tab on the file (perch rooms, `room:<name>:<id>`) wins over a browser's: it runs with the window
 minimized or the screen locked. A room on Figma's sign-in page stops the call (signed_out), never
-falling back to a browser. FIGMA_PERCH_TAB pins a tab. --where prints the backend and tab a call
+falling back to a browser. FIGMA_PERCH_TAB pins a tab. --where prints the tab a call
 would use (it runs only a no-op there).
-perch await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 100 (under the 120 s a
+Await: --timeout <seconds> (or FIGMA_TIMEOUT), 1 to 300, default 100 (under the 120 s a
 Bash tool call gets by default, so a timeout comes back as an error with its request id).
 --lib: figma_lib.js goes in front of the first script, installing window.__fx once per tab.
 --stop: end at the first script that throws, returns nothing, or returns {error}; later
@@ -37,9 +35,9 @@ else edited this worker's frame since its last eval.
 --recover <request-id>: the result of a script that timed out or whose reply was lost, from
 the page's ledger: waits up to --timeout seconds while the script is still running.
 """
-import base64, hashlib, json, os, re, subprocess, sys, time, uuid
+import hashlib, json, os, re, subprocess, sys, time, uuid
 
-from figma_backend import Dropped, backend, cdp_port, daemon_exchange, daemon_sock, js_int, start_daemon, timeout_seconds
+from figma_backend import Dropped, daemon_exchange, daemon_sock, js_int, require_perch, start_daemon, timeout_seconds
 
 PROG = 'figma_run.py'
 USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] [--stop] [--ns <prefix>] (<js_file> | - | -e '<js>')...\n"
@@ -102,7 +100,7 @@ def perch(req, timeout=100.0, rids=()):
             sys.exit(f"perch: {out['fatal']}")
     return out
 
-# Every script runs as this program on both backends. It parses the script before running any of
+# Every script runs as this program. It parses the script before running any of
 # it. A script that parses as a program runs as one: its value is its completion value, as CDP's
 # Runtime.evaluate gives it (awaited when a promise), and indirect eval keeps its let/const to
 # itself. A script that parses only as an async function body (top-level await or return) runs as
@@ -231,7 +229,7 @@ def journal(rid, file, label, source, ok, out):
             if time.time() - os.path.getmtime(os.path.join(d, name)) > 14 * 86400:
                 os.remove(os.path.join(d, name))
         text = out if isinstance(out, str) else json.dumps(out, default=str)
-        entry = {'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'rid': rid, 'tool': PROG, 'backend': backend(),
+        entry = {'ts': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'rid': rid, 'tool': PROG,
                  'file': file or '', 'label': label, 'sha': hashlib.sha256(source.encode()).hexdigest()[:12],
                  'script': source[:20000], 'ok': ok, 'result' if ok else 'error': text[:4000]}
         if not ok:
@@ -301,32 +299,12 @@ def load(scripts):
     return out
 
 
-def agent_browser_batch(cmds):
-    try:
-        r = subprocess.run(['agent-browser', '--cdp', cdp_port(), 'batch', '--json'] + cmds,
-                           capture_output=True, text=True)
-    except FileNotFoundError:
-        print('agent-browser not found — npm i -g agent-browser && agent-browser install',
-              file=sys.stderr)
-        sys.exit(1)
-    try:
-        return r, json.loads(r.stdout)
-    except ValueError:
-        return r, None
-
-def stops(res):
-    """--stop ends a batch at a script that failed, returned nothing, or returned {error}, as perch does."""
-    v = res.get('result', {}).get('result') if res.get('success') else None
-    return v is None or isinstance(v, dict) and 'error' in v
-
 opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--screenshot', '--ns', '--recover'), ('--lib', '--where', '--stop'))
 shot, rec = opts['--screenshot'], opts['--recover']
+require_perch()
 if opts['--where']:
     if specs or shot or rec:
         usage('--where takes no script')
-    if backend() != 'perch':
-        print(f'cdp port {cdp_port()}')
-        sys.exit(0)
     head = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': ['null']})['tab']
     room = re.match(r'room:([^:]+):', head['tabId'])
     note = f'room {room[1]}: runs minimized or locked' if room else \
@@ -366,11 +344,11 @@ def fail(error):
 def stopped(ran):
     return f"--stop: script {ran} of {len(scripts)} failed, returned nothing or returned {{error}}; the rest did not run"
 
-if len(scripts) > 1 and backend() == 'perch':
+if len(scripts) > 1:
     out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources, 'stop': opts['--stop']},
                 timeout=timeout_seconds(opts['--timeout']), rids=rids)
-    # As agent-browser batch prints: a success is {origin: the page URL, result} with keys
-    # sorted and non-ASCII escaped, a failure its error.
+    # A success is {origin: the page URL, result} with keys sorted and non-ASCII escaped, a
+    # failure its error.
     out['results'] = [{'ok': False, 'error': ledger_error(r['value'])} if r['ok'] and ledger_error(r['value']) else r
                       for r in out['results']]
     for (label, src), r_id, res in zip(scripts, rids, out['results']):
@@ -386,103 +364,16 @@ if len(scripts) > 1 and backend() == 'perch':
         sys.exit(stopped(len(out['results'])))
     sys.exit(0 if all(r['ok'] for r in out['results']) else 1)
 
-if len(scripts) > 1:
-    cmds = [f'eval -b {base64.b64encode(src.encode()).decode()}' for src in sources]
-    if sum(len(c) for c in cmds) > 200_000:
-        print('payload >200KB — use agent-browser batch stdin JSON mode '
-              '(see references/execution.md → Batched evals), or the perch backend', file=sys.stderr)
-        sys.exit(1)
-    if opts['--stop']:
-        # agent-browser runs a whole batch, so run the scripts one at a time and stop where perch would.
-        results = []
-        for c in cmds:
-            r, one = agent_browser_batch([c])
-            if not isinstance(one, list):
-                results = None
-                break
-            results += one
-            if stops(one[0]):
-                break
-    else:
-        r, results = agent_browser_batch(cmds)
-    marked = False
-    if isinstance(results, list):
-        for (label, src), r_id, res in zip(scripts, rids, results):
-            marker = ledger_error((res.get('result') or {}).get('result')) if res.get('success') else None
-            if marker:
-                res, marked = {'success': False, 'error': f'Evaluation error: {marker}'}, True
-            print(f'== {label} ==')
-            body = res.get('result') if res.get('success') else res.get('error')
-            journal(r_id, opts['--file'], label, src, bool(res.get('success')), body)
-            print('' if body is None else body if isinstance(body, str) else json.dumps(body))
-            if not res.get('success') and hint(str(body)):
-                print(hint(str(body)))
-    else:
-        print(r.stdout, end='')
-    if r.stderr:
-        print(r.stderr, end='', file=sys.stderr)
-    if isinstance(results, list) and len(results) < len(scripts):
-        sys.exit(stopped(len(results)))
-    sys.exit(r.returncode or int(marked))
-
-if backend() == 'perch':
-    if shot:
-        perch({'op': 'screenshot', 'file': opts['--file'] or '', 'path': os.path.abspath(shot)})
-        print(f"✓ Screenshot saved to {shot}")
-        sys.exit(0)
-    ask = lambda: perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
-                        timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
-    res = until_finished(ask, lambda res: res['ok'] and ledger_error(res['value']))
-    err = timeout_note(res['error'], rid) if not res['ok'] else ledger_error(res['value'])
-    log(err is None, err or res['value'])
-    if err:
-        fail(err)
-    print(compact(res['value']))
-    sys.exit(0)
-
 if shot:
-    cmd = ['screenshot', shot]
-else:
-    b64 = base64.b64encode(sources[0].encode()).decode()
-    if len(b64) > 200_000:
-        print('payload >200KB — use agent-browser batch stdin JSON mode '
-              '(see references/execution.md → Batched evals), or the perch backend', file=sys.stderr)
-        sys.exit(1)
-    cmd = ['eval', '-b', b64]
-
-def agent_browser():
-    r = subprocess.run(['agent-browser', '--cdp', cdp_port(), *cmd], capture_output=True, text=True)
-    try:
-        r.value = json.loads(r.stdout, parse_int=js_int) if not r.returncode and not shot else None
-    except ValueError:
-        r.value = None
-    return r
-
-try:
-    r = until_finished(agent_browser, lambda r: ledger_error(r.value))
-except FileNotFoundError:
-    print('agent-browser not found — npm i -g agent-browser && agent-browser install',
-          file=sys.stderr)
-    sys.exit(1)
-
-if r.returncode and not shot:
-    log(False, r.stderr or r.stdout)
-if r.returncode or shot:
-    print(r.stdout, end='')
-    if r.stderr:
-        print(r.stderr, end='', file=sys.stderr)
-        if r.returncode and hint(r.stderr):
-            print(hint(r.stderr), file=sys.stderr)
-    sys.exit(r.returncode)
-# agent-browser indents its result; print it as the perch branch does.
-value = r.value
-if value is None and r.stdout.strip() != 'null':
-    print(r.stdout, end='')
-    sys.exit(r.returncode)
-log(not ledger_error(value), ledger_error(value) or value)
-if ledger_error(value):
-    fail(ledger_error(value))
-print(compact(value))
-if r.stderr:
-    print(r.stderr, end='', file=sys.stderr)
+    perch({'op': 'screenshot', 'file': opts['--file'] or '', 'path': os.path.abspath(shot)})
+    print(f"✓ Screenshot saved to {shot}")
+    sys.exit(0)
+ask = lambda: perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
+                    timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
+res = until_finished(ask, lambda res: res['ok'] and ledger_error(res['value']))
+err = timeout_note(res['error'], rid) if not res['ok'] else ledger_error(res['value'])
+log(err is None, err or res['value'])
+if err:
+    fail(err)
+print(compact(res['value']))
 sys.exit(0)

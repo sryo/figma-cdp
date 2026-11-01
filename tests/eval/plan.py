@@ -137,13 +137,12 @@ def main():
     if not os.path.isfile(os.path.join(a.skill_dir, 'SKILL.md')):
         sys.exit(f'--skill-dir {a.skill_dir} has no SKILL.md')
     key = file_key(a.file)
-    if os.environ.get('FIGMA_BACKEND', 'perch') == 'perch':
-        tabs = file_tabs(key)
-        a.tab = default_tab(tabs, a.tab)
-        problem = tab_problem(tabs, a.tab)
-        if problem:
-            sys.exit(f'run.py: {problem}')
-        print(f'run.py: tab {a.tab or tabs[0]["tabId"]}', file=sys.stderr)
+    tabs = file_tabs(key)
+    a.tab = default_tab(tabs, a.tab)
+    problem = tab_problem(tabs, a.tab)
+    if problem:
+        sys.exit(f'run.py: {problem}')
+    print(f'run.py: tab {a.tab or tabs[0]["tabId"]}', file=sys.stderr)
     names = [t for t in a.tasks.split(',') if t]
     with open(os.path.join(HERE, 'baseline.json')) as f:
         baseline = json.load(f)

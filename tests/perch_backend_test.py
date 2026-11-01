@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests for the perch backend of figma_run.py / figma_capture.py.
+"""Offline tests for figma_run.py / figma_capture.py on perch, their only backend.
 
 No browser and no perch: PERCH_DIR points at tests/perch_stub, whose server.js
 runs each script in Node against a stub `figma` global.
@@ -10,7 +10,6 @@ import json, os, re, shutil, socket, stat, subprocess, sys, tempfile, threading,
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STUB = os.path.join(ROOT, 'tests', 'perch_stub')
-AGENT_BROWSER_STUB = os.path.join(ROOT, 'tests', 'agent_browser_stub')
 TWO_FILES = [
     {'app': 'Google Chrome', 'tabId': 'chrome:1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One – Figma'},
     {'app': 'Google Chrome', 'tabId': 'chrome:2', 'url': 'https://www.figma.com/design/BBB222/Two?node-id=1-2', 'title': 'Two – Figma'},
@@ -74,7 +73,7 @@ class Harness(unittest.TestCase):
     def helper_env(self, env):
         e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
              'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon, 'FIGMA_CDP_HOME': self.tmp.name}
-        for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'AGENT_BROWSER_STUB_LOG', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
+        for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
                   'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
             e.pop(k, None)
@@ -96,7 +95,7 @@ class PerchBackend(Harness):
 
     # ---- figma_run.py
 
-    def test_expression_result_matches_agent_browser_output(self):
+    def test_expression_result_is_its_json(self):
         r = self.run_helper('figma_run.py', self.js('a.js', 'figma.currentPage.name'))
         self.assertEqual((r.returncode, r.stdout), (0, '"Page 1"\n'), r.stderr)
         ev = self.calls('eval_js')[0]['args']
@@ -117,7 +116,7 @@ class PerchBackend(Harness):
         self.assertEqual(r.stdout, '{"a":{"c":{},"d":[]},"big":1e+21,"f":0.5,'
                          '"huge":1.2345678901234567e+19,"s":"ñ 😀","tiny":1e-7,"z":1}\n')
 
-    def test_batch_output_matches_agent_browser_print(self):
+    def test_batch_prints_origin_and_result_per_script(self):
         r = self.run_helper('figma_run.py', '-e', '1', self.js('a.js', '({ z: 1, a: ["ñ", 1e-7] })'))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.splitlines()[3], '{"origin": "https://www.figma.com/design/AAA111/Stub?node-id=0-1", '
@@ -175,7 +174,7 @@ class PerchBackend(Harness):
         self.assertEqual(r.returncode, 0, r.stderr[:300])
         self.assertEqual(len(json.loads(r.stdout)), 3_000_000)
 
-    def test_payload_over_cdp_cap_runs_on_perch(self):
+    def test_a_large_script_runs(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '/*' + 'p' * 300_000 + '*/ 1'))
         self.assertEqual((r.returncode, r.stdout), (0, '1\n'), r.stderr[:300])
 
@@ -589,42 +588,25 @@ class PerchBackend(Harness):
         self.assertIn('figma_lib.js not found next to figma_run.py', r.stderr)
         self.assertEqual(self.calls(), [])
 
-    def test_lib_sends_the_same_source_over_cdp(self):
-        log = os.path.join(self.tmp.name, 'ab.jsonl')
-        cdp = {'FIGMA_BACKEND': 'cdp', 'FIGMA_CDP_PORT': '9', 'AGENT_BROWSER_STUB_LOG': log,
-               'PATH': AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH']}
-        a, b = self.js('a.js', 'figma.currentPage.name'), self.js('b.js', '2')
-        for args in (('figma_run.py', '--lib', a), ('figma_run.py', '--lib', a, b)):
-            self.assertEqual(self.run_helper(*args).returncode, 0)
-            self.assertEqual(self.run_helper(*args, **cdp).returncode, 0)
-        # Each call picks its own request id; the rest of the source is the same.
-        rid = lambda src: re.sub(r'\}\)\("[0-9a-f]{12}", ', '})("<rid>", ', src)
-        with open(log) as f:
-            self.assertEqual([rid(json.loads(l)['src']) for l in f], [rid(s) for s in self.sent_sources()])
-
     # ---- backend choice
 
-    def test_unknown_backend(self):
-        r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_BACKEND='ws')
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("FIGMA_BACKEND must be 'cdp' or 'perch'", r.stderr)
-
-    def test_auto_picks_perch_when_it_has_main_world(self):
-        r = self.run_helper('figma_run.py', self.js('a.js', '"auto"'), FIGMA_BACKEND='')
-        self.assertEqual((r.returncode, r.stdout), (0, '"auto"\n'), r.stderr)
-
-    def test_auto_keeps_cdp_when_its_port_is_set(self):
-        r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_BACKEND='', FIGMA_CDP_PORT='9',
-                            PATH=self.tmp.name)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn('agent-browser not found', r.stderr)
+    def test_a_backend_other_than_perch_is_refused_before_running(self):
+        for value in ('cdp', 'ws'):
+            r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_BACKEND=value)
+            self.assertEqual(r.returncode, 1, value)
+            self.assertIn(f"FIGMA_BACKEND={value}: perch is the only backend; unset FIGMA_BACKEND", r.stderr)
         self.assertEqual(self.calls(), [])
 
-    def test_auto_falls_back_to_cdp_without_perch(self):
-        r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_BACKEND='',
-                            PERCH_DIR=os.path.join(self.tmp.name, 'none'), PATH=self.tmp.name)
+    def test_runs_on_perch_with_no_backend_set_or_a_cdp_port(self):
+        for env in ({'FIGMA_BACKEND': ''}, {'FIGMA_BACKEND': '', 'FIGMA_CDP_PORT': '9'}):
+            r = self.run_helper('figma_run.py', self.js('a.js', '"perch"'), **env)
+            self.assertEqual((r.returncode, r.stdout), (0, '"perch"\n'), f'{env}: {r.stderr}')
+
+    def test_no_perch_is_named_with_where_it_looked(self):
+        none = os.path.join(self.tmp.name, 'none')
+        r = self.run_helper('figma_run.py', self.js('a.js', '1'), FIGMA_BACKEND='', PERCH_DIR=none)
         self.assertEqual(r.returncode, 1)
-        self.assertIn('agent-browser not found', r.stderr)
+        self.assertIn(f'no_perch: no perch at {none}', r.stderr)
 
     def test_perch_without_main_world_is_named(self):
         old = os.path.join(self.tmp.name, 'oldperch')
@@ -660,48 +642,25 @@ class PerchBackendOneShot(PerchBackend):
     daemon = '0'
 
 
-class SameOutputOnBothBackends(Harness):
-    """The cdp branch, run against tests/agent_browser_stub, prints what the perch branch prints."""
-
-    def both(self, script, *args, stdin=None):
-        cdp = self.run_helper(script, *args, stdin=stdin, FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9',
-                              PATH=AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH'])
-        perch = self.run_helper(script, *args, stdin=stdin)
-        # Stack frames name each backend's own wrapper; the lines above them must match.
-        strip = lambda s: re.sub(r'(?m)^\s+at .*\n?', '', s)
-        self.assertEqual((cdp.returncode, strip(cdp.stdout)), (perch.returncode, strip(perch.stdout)),
-                         f'{script} {args}\ncdp stderr: {cdp.stderr}\nperch stderr: {perch.stderr}')
-        self.assertEqual(strip(cdp.stderr).splitlines()[:1], strip(perch.stderr).splitlines()[:1])
-
-    def test_figma_run(self):
-        self.both('figma_run.py', '-e', '({ z: 1, a: { d: [], c: {} }, s: "ñ 😀", tiny: 1e-7, big: 1e21, f: 0.5 })')
-        self.both('figma_run.py', self.js('a.js', 'const n = 2;\n(async () => ({ n }))()'))
-        self.both('figma_run.py', '-', stdin='await figma.loadAllPagesAsync();\nreturn figma.root.children.length')
-        self.both('figma_run.py', '-e', 'const g = async x => await x;\ng(5)')
-        self.both('figma_run.py', '-e', 'void 0')
-        self.both('figma_run.py', '-e', 'await 0;\nthrow new Error("late")')
-        self.both('figma_run.py', '-e', 'throw new Error("Node not found")')
-        self.both('figma_run.py', '-e', 'throw new Error("The node with id 1:2 does not exist")')
+class Journal(Harness):
+    """figma_run.py appends every eval to the journal tests/cases/case.py reads."""
 
     def journal(self):
         d = os.path.join(self.tmp.name, 'journal')
         return [json.loads(l) for f in sorted(os.listdir(d)) for l in open(os.path.join(d, f))] if os.path.isdir(d) else []
 
-    def test_journal_keeps_each_eval_on_both_backends(self):
-        for backend in ('cdp', 'perch'):
-            env = dict(FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9', PATH=AGENT_BROWSER_STUB + os.pathsep + os.environ['PATH']) if backend == 'cdp' else {}
-            self.run_helper('figma_run.py', '-e', '1 + 1', **env)
-            self.run_helper('figma_run.py', '-e', 'throw new Error("unloaded font Inter")', **env)
-            self.run_helper('figma_run.py', '-e', '"a"', '-e', 'throw new Error("odd")', **env)
-            got = [(e['tool'], e['label'], e['ok'], e.get('result') or e['error'][:40], e.get('hint') is not None) for e in self.journal()]
-            self.assertEqual([g[:3] for g in got], [('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[1]', False),
-                                                   ('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[2]', False)], backend)
-            self.assertEqual(got[0][3], '2', backend)
-            self.assertIn('unloaded font', got[1][3], backend)
-            self.assertEqual([g[4] for g in got if not g[2]], [True, False], backend)
-            e = self.journal()[0]
-            self.assertEqual((e['script'], e['backend'], len(e['rid'])), ('1 + 1', backend, 12))
-            os.rename(os.path.join(self.tmp.name, 'journal'), os.path.join(self.tmp.name, 'journal-' + backend))
+    def test_journal_keeps_each_eval(self):
+        self.run_helper('figma_run.py', '-e', '1 + 1')
+        self.run_helper('figma_run.py', '-e', 'throw new Error("unloaded font Inter")')
+        self.run_helper('figma_run.py', '-e', '"a"', '-e', 'throw new Error("odd")')
+        got = [(e['tool'], e['label'], e['ok'], e.get('result') or e['error'][:40], e.get('hint') is not None) for e in self.journal()]
+        self.assertEqual([g[:3] for g in got], [('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[1]', False),
+                                               ('figma_run.py', '-e[1]', True), ('figma_run.py', '-e[2]', False)])
+        self.assertEqual(got[0][3], '2')
+        self.assertIn('unloaded font', got[1][3])
+        self.assertEqual([g[4] for g in got if not g[2]], [True, False])
+        e = self.journal()[0]
+        self.assertEqual((e['script'], len(e['rid'])), ('1 + 1', 12))
 
     def test_journal_off_and_old_days_dropped(self):
         d = os.path.join(self.tmp.name, 'journal')
@@ -715,43 +674,9 @@ class SameOutputOnBothBackends(Harness):
         self.assertFalse(os.path.exists(old))
         self.assertEqual(len(self.journal()), 1)
 
-    def test_lib(self):
-        self.both('figma_run.py', '--lib', '-e', '[typeof __fx.audit, __fx.v > 0]')
-        self.both('figma_run.py', '--lib', '-e', 'const x = )', '-e', 'typeof __fx.recon')
-
-    def test_figma_run_many_scripts(self):
-        self.both('figma_run.py', '-e', 'window.__batchState = { n: 1 }; "ñ"', self.js('b.js', 'const a = 1; a'),
-                  '-e', 'const a = 2;\nreturn __batchState.n + a', '-', stdin='await 0;\nreturn [1e-7, null]')
-        self.both('figma_run.py', '-e', 'globalThis.__n = 0', '-e', '__n++; JSON.parse("{")', '-e', '__n')
-        self.both('figma_run.py', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
-        self.both('figma_run.py', '-e', '1', '-e', 'throw new Error("Cannot read properties of null")')
-        self.both('figma_run.py', '--stop', '-e', '1', '-e', '({ error: "x" })', '-e', '3')
-        self.both('figma_run.py', '--stop', '-e', '1', '-e', 'throw new Error("mid")', '-e', '3')
-        self.both('figma_run.py', '-e', 'globalThis.__m = 1;\nawait (Promise.resolve());\n__m', '-e', '__m',
-                  '-e', 'await 0;\nreturn )', '-e', 'const x = )')
-
-
-FAKE_AGENT_BROWSER = r"""#!/usr/bin/env python3
-# Stand-in for `agent-browser --cdp <port> eval -b <b64>`: runs $FAKE_AB_PRELUDE, then the
-# script, in Node against tests/figma_stub.js, and prints the result as agent-browser does.
-import base64, json, os, subprocess, sys
-src = base64.b64decode(sys.argv[sys.argv.index('-b') + 1]).decode()
-prelude = open(os.environ['FAKE_AB_PRELUDE']).read() if os.environ.get('FAKE_AB_PRELUDE') else 'void 0'
-runner = ('globalThis.figma = require(%s).createFigma();'
-          '(async () => { await (0, eval)(%s); const v = await (0, eval)(%s);'
-          ' process.stdout.write(JSON.stringify(v === undefined ? null : v)); })()'
-          '.catch((e) => { process.stderr.write(String(e)); process.exit(1); });'
-          % (json.dumps(os.environ['FAKE_AB_STUB']), json.dumps(prelude), json.dumps(src)))
-r = subprocess.run(['node', '-e', runner], capture_output=True, text=True)
-if r.returncode:
-    sys.stderr.write('✗ ' + r.stderr)
-    sys.exit(1)
-print(json.dumps(json.loads(r.stdout), indent=2, sort_keys=True, ensure_ascii=False))
-"""
-
 
 class Fidelity(Harness):
-    """figma_fidelity.py reads one eval through figma_run.py, so its report is the same on both backends."""
+    """figma_fidelity.py reads the subtree in one eval through figma_run.py."""
 
     SEED = ("(async function () {\n"
             "  await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });\n"
@@ -761,7 +686,7 @@ class Fidelity(Harness):
             "  var u = figma.createText(); u.characters = 'Made up'; f.appendChild(u);\n"
             "  return f.id;\n})()")
 
-    def test_report_is_the_same_on_cdp_and_perch(self):
+    def test_report_reads_the_subtree_in_one_eval(self):
         seed = self.js('seed.js', self.SEED)
         manifest = self.js('m.json', json.dumps({
             'copy': [{'text': 'Hello there', 'src': 'a.html:1'}, {'text': 'Gone text', 'src': 'a.html:2'}],
@@ -770,16 +695,7 @@ class Fidelity(Harness):
         self.assertEqual(r.returncode, 0, r.stderr)
         root = json.loads(r.stdout)
         perch = self.run_helper('figma_fidelity.py', manifest, root, PERCH_STUB_FIGMA='full')
-        fake = os.path.join(self.tmp.name, 'bin', 'agent-browser')
-        os.makedirs(os.path.dirname(fake))
-        with open(fake, 'w') as f:
-            f.write(FAKE_AGENT_BROWSER)
-        os.chmod(fake, 0o755)
-        cdp = self.run_helper('figma_fidelity.py', manifest, root, FIGMA_BACKEND='cdp', FIGMA_CDP_PORT='9222',
-                              FAKE_AB_PRELUDE=seed, FAKE_AB_STUB=os.path.join(ROOT, 'tests', 'figma_stub.js'),
-                              PATH=os.path.dirname(fake) + os.pathsep + os.environ['PATH'])
-        self.assertEqual((perch.returncode, cdp.returncode), (0, 0), perch.stderr + cdp.stderr)
-        self.assertEqual(perch.stdout, cdp.stdout)
+        self.assertEqual(perch.returncode, 0, perch.stderr)
         self.assertIn('missing copy (1): "Gone text" a.html:2', perch.stdout)
         self.assertIn('invented copy (1): "Made up"', perch.stdout)
         self.assertIn('off-manifest spacing (1): 18 ×1', perch.stdout)
@@ -1384,7 +1300,7 @@ class CapturePerch(Harness):
         self.assertEqual(r.returncode, 1)
         self.assertIn('figma_capture.py: eval 0 (reset) failed — stale_tab: the tab closed', r.stderr)
 
-    def test_import_has_no_eval_ceiling_on_perch(self):
+    def test_import_has_no_eval_ceiling(self):
         huge = dict(SPEC, nodes=[dict(n, text='y' * 400_000) if n['i'] == 2 else n for n in SPEC['nodes']])
         r = self.capture('import', self.spec(huge), PERCH_STUB_FIGMA='full')
         self.assertEqual(r.returncode, 0, r.stderr[:400])
@@ -1392,17 +1308,17 @@ class CapturePerch(Harness):
 
     # ---- backend choice
 
-    def test_capture_follows_the_helpers_backend_choice(self):
-        r = self.capture('import', self.spec(), FIGMA_BACKEND='ws')
+    def test_capture_refuses_a_backend_other_than_perch(self):
+        r = self.capture('import', self.spec(), FIGMA_BACKEND='cdp')
         self.assertEqual(r.returncode, 1)
-        self.assertIn("FIGMA_BACKEND must be 'cdp' or 'perch'", r.stderr)
-        for env in ({'FIGMA_BACKEND': 'cdp'}, {'FIGMA_BACKEND': '', 'FIGMA_CDP_PORT': '9'},
-                    {'FIGMA_BACKEND': '', 'PERCH_DIR': os.path.join(self.tmp.name, 'none')}):
-            r = self.capture('walk', 'https://example.com/x', '0', PATH=self.tmp.name, **env)
-            self.assertEqual(r.returncode, 1)
-            self.assertIn('agent-browser not found', r.stderr)
+        self.assertIn('FIGMA_BACKEND=cdp: perch is the only backend; unset FIGMA_BACKEND', r.stderr)
+        r = self.capture('walk', 'https://example.com/x', '0', FIGMA_BACKEND='cdp')
+        self.assertIn('FIGMA_BACKEND=cdp: perch is the only backend; unset FIGMA_BACKEND', r.stderr)
         self.assertEqual(self.calls(), [])
-        _, _, r = self.walk('auto', '0', FIGMA_BACKEND='')
+        r = self.capture('walk', 'https://example.com/x', '0', FIGMA_BACKEND='', PERCH_DIR=os.path.join(self.tmp.name, 'none'))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no_perch', r.stderr)
+        _, _, r = self.walk('auto', '0', FIGMA_BACKEND='', FIGMA_CDP_PORT='9')
         self.assertEqual(r.returncode, 0, r.stderr)
 
 

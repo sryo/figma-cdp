@@ -1,25 +1,15 @@
-"""Backend choice and the perch daemon client figma_run.py and figma_capture.py share.
+"""The perch daemon client figma_run.py and figma_capture.py share.
 
-backend(): FIGMA_BACKEND=cdp|perch if set; else cdp when FIGMA_CDP_PORT is set; else perch when
-a perch with eval_js world:"main" is at PERCH_DIR (default ~/.perch, then ~/Documents/perch);
-else cdp. The daemon is figma_perch.mjs `serve` behind a unix socket, started on first use.
+perch, at PERCH_DIR (default ~/.perch, then ~/Documents/perch), is the only backend. The daemon
+is figma_perch.mjs `serve` behind a unix socket, started on first use.
 """
-import fcntl, hashlib, json, os, re, socket, stat, subprocess, sys, time
+import fcntl, hashlib, json, os, socket, stat, subprocess, sys, time
 
-def cdp_port():
-    p = os.environ.get('FIGMA_CDP_PORT')
-    if p:
-        return p
-    for d in ('Library/Application Support/Google/Chrome',
-              '.config/google-chrome',
-              'Library/Application Support/BraveSoftware/Brave-Browser',
-              'Library/Application Support/Google/Chrome Canary'):
-        try:
-            with open(os.path.expanduser(f'~/{d}/DevToolsActivePort')) as f:
-                return str(int(f.readline()))
-        except (OSError, ValueError):
-            pass
-    return '9222'
+def require_perch():
+    """Exit before anything runs when FIGMA_BACKEND names a backend other than perch."""
+    b = os.environ.get('FIGMA_BACKEND', '')
+    if b and b.lower() != 'perch':
+        sys.exit(f'FIGMA_BACKEND={b}: perch is the only backend; unset FIGMA_BACKEND')
 
 def perch_dir():
     # ~/.perch is where perch's installer puts it; ~/Documents/perch is a dev checkout.
@@ -28,26 +18,8 @@ def perch_dir():
     dirs = [os.path.expanduser(d) for d in ('~/.perch', '~/Documents/perch')]
     return next((d for d in dirs if os.path.isfile(os.path.join(d, 'server.js'))), dirs[0])
 
-def perch_ready():
-    try:
-        with open(os.path.join(perch_dir(), 'server.js')) as f:
-            # buildKick marks eval_js world:"main" (perch 5725447 on); buildMainKick, the perch before it.
-            return re.search(r'\bbuild(Main)?Kick\b', f.read()) is not None
-    except OSError:
-        return False
-
-def backend():
-    b = os.environ.get('FIGMA_BACKEND', '').lower()
-    if b in ('cdp', 'perch'):
-        return b
-    if b:
-        sys.exit(f"FIGMA_BACKEND must be 'cdp' or 'perch', not '{b}'")
-    if os.environ.get('FIGMA_CDP_PORT'):
-        return 'cdp'
-    return 'perch' if perch_ready() else 'cdp'
-
 def js_int(s):
-    """JSON from the page is JS numbers: an integer past 2^53 is a double, as agent-browser prints it."""
+    """JSON from the page is JS numbers: an integer past 2^53 is a double."""
     n = int(s)
     return n if -2**53 <= n <= 2**53 else float(s)
 

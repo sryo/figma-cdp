@@ -34,7 +34,7 @@ CLASSES = ['env', 'harness', 'source-extract', 'helper-bug', 'doc-wrong', 'api-u
            'api-limit', 'agent-ignored-doc']
 STATUSES = ['open', 'claimed', 'parked', 'merged', 'wontfix', 'out-of-scope', 'dup']
 ENV = re.compile(r"^(perch: )?(timeout|stale_tab|tab_not_visible|tab_not_scriptable|no_tab|ambiguous_tab|no_perch|perch_daemon|no_browser"
-                 r"|window_offscreen|dialog_open)\b|figma is undefined|agent-browser not found|node not found", re.M)
+                 r"|window_offscreen|dialog_open)\b|figma is undefined|node not found", re.M)
 PLAN = re.compile(r'paid plan|with your current plan|limited to \d+ modes? only|requires? an? (paid|professional|organization|enterprise)|upgrade (your|to)|not available on (your|the) plan', re.I)
 
 
@@ -153,7 +153,7 @@ def cmd_new(a):
             continue
     case = {'id': cid, 'created': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'skill_rev': skill_rev(), 'symptom': symptom,
             'expected': a.expected or '', 'error': error or '', 'hint': (entry or {}).get('hint'), 'signature': sig,
-            'file': (entry or {}).get('file', ''), 'backend': (entry or {}).get('backend', ''),
+            'file': (entry or {}).get('file', ''),
             'journal': ([entry] if entry else []), 'context': context, 'class': None, 'proposed_class': None,
             'repro_level': None, 'repro_path': None, 'status': 'dup' if dup else 'open', 'dup_of': dup, 'claim': None}
     save(case)

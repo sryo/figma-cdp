@@ -1,5 +1,5 @@
 // DOM → capture envelope {meta, flagged, assets, nodes}. Runs in the SOURCE page
-// under agent-browser, which awaits the returned promise; figma_capture.py
+// through perch's eval_js, which awaits the returned promise; figma_capture.py
 // persists the result. No Figma API here. Schema: references/capture.md.
 (async function () {
   var XHTML = 'http://www.w3.org/1999/xhtml';
