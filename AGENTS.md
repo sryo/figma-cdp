@@ -115,7 +115,7 @@ When the skill fails, or a build doesn't match its source, the question is wheth
 
 ### Sleep pass
 
-Cases start from one failure someone noticed. The sleep pass starts from everything the sessions since the last pass left behind (`docs/sleep-loop.md` has the design and its first findings). Run it after a working session or a live eval run, offline, never against a Figma tab:
+Cases start from one failure someone noticed. The sleep pass starts from everything the sessions since the last pass left behind (fium RULES.md S has the method). Run it after a working session or a live eval run, offline, never against a Figma tab:
 
 1. `python3 tests/sleep/sleep.py mine` reads the Claude Code transcripts of figma-cdp, perch and avis (main sessions and subagents) and the eval journal since the last pass; `--source <run.py --transcripts dir>` mines one eval run instead.
 2. `sleep.py digest --mark` clusters the signals and picks the top clusters by impact plus a few random new ones. `relapse` (a lesson's signature came back after it was learned) ranks first: the consolidated fix isn't working, so move it to the point of use.
