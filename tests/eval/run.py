@@ -2,7 +2,7 @@
 """Run the skill's eval tasks against a live Figma file and score the result.
 
   python3 tests/eval/run.py --file <figma-url> [--skill-dir <dir>] [--tasks a,b] [--reps N]
-                            [--out results.json] [--keep] [--tab <perch tabId>] [--model <m>]
+                            [--out ~/.fium/runs/figma-cdp/results.json] [--keep] [--tab <perch tabId>] [--model <m>]
 
 Per task rep, holding a per-file lock (parallel callers on one file queue):
   1. a fresh page "eval/<task>/<n>" (leftovers of an earlier run with that name go first)

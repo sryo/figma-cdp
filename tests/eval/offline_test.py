@@ -481,6 +481,23 @@ class Gate(unittest.TestCase):
             self.assertEqual(gate.gate(base, write('worse.json', res(copy=0.9))), 1, 'a quality drop blocks')
 
 
+class Runs(unittest.TestCase):
+    """A live run's results land outside the repo, in fium's runs folder (fium RULES K2)."""
+
+    def test_results_default_to_fium_home_runs_named_after_the_main_checkout(self):
+        old = os.environ.get('FIUM_HOME')
+        os.environ['FIUM_HOME'] = home = tempfile.mkdtemp()
+        try:
+            common = subprocess.run(['git', '-C', HERE, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                                    capture_output=True, text=True).stdout.strip()
+            self.assertEqual(plan.runs_dir(), os.path.join(home, 'runs', os.path.basename(os.path.dirname(common))))
+        finally:
+            if old is None:
+                os.environ.pop('FIUM_HOME')
+            else:
+                os.environ['FIUM_HOME'] = old
+
+
 class Scope(unittest.TestCase):
     """run.py's default --tasks: what fium scope says the change since the baseline can move."""
 

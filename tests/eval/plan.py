@@ -2,7 +2,7 @@
 """Choose, price and start a live eval run; run.py does each rep.
 
   python3 tests/eval/run.py --file <figma-url> [--skill-dir <dir>] [--tasks a,b] [--reps N]
-                            [--out results.json] [--keep] [--tab <perch tabId>] [--model <m>]
+                            [--out ~/.fium/runs/figma-cdp/results.json] [--keep] [--tab <perch tabId>] [--model <m>]
 
 (run.py's entry point is this module's main.) Without --tasks it runs the tasks fium scope reads
 from affects.json for the change since baseline.json was last refreshed, and prints them with the
@@ -117,13 +117,21 @@ def git_rev(d):
         return '', False
 
 
+def runs_dir():
+    """fium's runs folder for this repo, named after its main checkout so a worktree's runs land there too."""
+    common = subprocess.run(['git', '-C', HERE, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                            capture_output=True, text=True).stdout.strip()
+    return os.path.join(os.environ.get('FIUM_HOME') or os.path.expanduser('~/.fium'), 'runs',
+                        os.path.basename(os.path.dirname(common)))
+
+
 def main():
     ap = argparse.ArgumentParser(prog='run.py', description=run.__doc__.split('\n\n')[0])
     ap.add_argument('--file', required=True, help='scratch Figma file URL')
     ap.add_argument('--skill-dir', default=ROOT, help='copy of the skill to measure (default: this repo)')
     ap.add_argument('--tasks', default='', help='comma-separated task ids (default: the tasks fium scope says the change since the baseline can move)')
     ap.add_argument('--reps', type=int, default=3)
-    ap.add_argument('--out', default='results.json')
+    ap.add_argument('--out', default=os.path.join(runs_dir(), 'results.json'))
     ap.add_argument('--keep', action='store_true', help="leave each rep's pages in the file")
     ap.add_argument('--tab', help='perch tabId of the Figma tab (FIGMA_PERCH_TAB); default: the file\'s one room tab')
     ap.add_argument('--model', help='model for the session (default: the CLI default)')
@@ -172,6 +180,7 @@ def main():
             brief = {k: rec.get(k) for k in ('passed', 'wall_s', 'tokens_total', 'cost_usd', 'error') if k in rec}
             print(f"{task['id']} {n}/{a.reps} {json.dumps(brief)}", file=sys.stderr)
         out['tasks'][task['id']] = summarize(reps)
+        os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
         with open(a.out, 'w') as f:
             json.dump(out, f, indent=1)
             f.write('\n')
