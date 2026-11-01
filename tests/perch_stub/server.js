@@ -13,6 +13,7 @@
 //   PERCH_STUB_OLD    "1" plays a perch from before eval_js {timeout} (no AWAIT_MAX_MS)
 //   PERCH_STUB_HIDDEN "1" gives scripts a `document` whose visibilityState is "hidden"
 //   PERCH_STUB_FRONT  the browser new_tab opens in when the call names none (default Google Chrome)
+//   PERCH_STUB_REDIRECT  changes the new tab's URL at load; Safari's original handle then goes stale
 //   PERCH_STUB_NO_FOCUS  no focus grant: new_tab in a Mac browser other than Safari and activate_tab on a
 //                     browser tab answer needs_focus; rooms are exempt
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
@@ -64,6 +65,7 @@ export async function handleCall(name, args = {}) {
     if (args.world !== "main" || !args.awaitPromise) return fail("stub: expected world main + awaitPromise");
     const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
     if (!tab && process.env.PERCH_STUB_TABS_FILE) return fail(`stale_tab: tab ${args.target.tabId} is gone; re-run list_tabs`);
+    if (tab?.app === "Safari" && tab.openedUrl && tab.url !== tab.openedUrl) return fail(`stale_tab: Safari tab ${tab.tabId} navigated; re-run list_tabs`);
     if (process.env.PERCH_STUB_DELAY) await new Promise((r) => setTimeout(r, Number(process.env.PERCH_STUB_DELAY)));
     if (args.timeout != null && (typeof args.timeout !== "number" || args.timeout < 1000 || args.timeout > 300000)) {
       return fail(`bad_args: eval_js timeout is in milliseconds (1000 to 300000); got ${args.timeout}`);
@@ -89,7 +91,7 @@ export async function handleCall(name, args = {}) {
     const app = args.app || process.env.PERCH_STUB_FRONT || "Google Chrome";
     // perch 955a79b: a new tab in a Mac browser other than Safari takes focus, so it needs the grant.
     if (process.env.PERCH_STUB_NO_FOCUS && !/^room:/.test(app) && app !== "Safari") return fail("needs_focus: new_tab would bring the browser to the front, and the user has not allowed perch to take focus; nothing was sent");
-    const tab = { app, tabId: `${app.split(" ").pop().toLowerCase()}:${++openSeq}`, url: "about:blank", title: "", loads: url };
+    const tab = { app, tabId: `${app.split(" ").pop().toLowerCase()}:${++openSeq}`, url: "about:blank", title: "", loads: url, openedUrl: url };
     opened.push(tab);
     return text(JSON.stringify({ app: tab.app, tabId: tab.tabId }));
   }
@@ -105,13 +107,14 @@ export async function handleCall(name, args = {}) {
     if (!tab) return fail(`stale_tab: tab ${(args.target || {}).tabId} is gone; re-run list_tabs`);
     if (args.expression == null) return text(JSON.stringify({ ok: true, waited: false }));
     const holds = () => new Function("location", "document", `return (${args.expression})`)(new URL(tab.url), { readyState: "complete" });
-    if (!holds() && tab.loads) { tab.url = tab.loads; delete tab.loads; }
+    if (!holds() && tab.loads) { tab.url = process.env.PERCH_STUB_REDIRECT || tab.loads; delete tab.loads; }
     if (!holds()) return fail(`timeout: wait timed out after ${args.timeout}ms`);
     return text(JSON.stringify({ ok: true, waited: true, value: true }));
   }
   if (name === "close_tab") {
     const i = opened.findIndex((t) => t.tabId === args.tabId);
     if (i < 0) return fail(`stale_tab: tab ${args.tabId} is gone; re-run list_tabs`);
+    if (opened[i].app === "Safari" && opened[i].url !== opened[i].openedUrl) return fail(`stale_tab: Safari tab ${args.tabId} navigated; close_tab cannot prove its identity`);
     opened.splice(i, 1);
     return text(JSON.stringify({ ok: true, closed: args.tabId }));
   }

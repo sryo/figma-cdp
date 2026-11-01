@@ -272,15 +272,19 @@ async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
     const rest = Math.max(0, Number(settle) || 0);
     if (rest) await new Promise((r) => setTimeout(r, rest));
     for (const src of srcs) {
-      try {
-        results.push(await runEval(handleCall, tab, src, ms, true));
-      } catch (e) {
-        return { ...headOf(tab), app: where, warnings, results, fatal: perchFatal(e, ms) };
-      }
+      results.push(await runEval(handleCall, tab, src, ms, true));
     }
     return { ...headOf(tab), app: where, warnings, results };
+  } catch (e) {
+    return { ...headOf(tab), app: where, warnings, results, fatal: perchFatal(e, ms) };
   } finally {
-    try { await call(handleCall, "close_tab", { tabId }); } catch {}
+    try {
+      const { text } = await call(handleCall, "close_tab", { tabId });
+      const closed = JSON.parse(text.split("\n")[0]);
+      if (closed.ok === false) throw new Error(closed.error || "perch refused to close the tab");
+    } catch (e) {
+      warnings.push(`capture tab ${tabId} may still be open in ${where}: ${e.message}; close it manually`);
+    }
   }
 }
 
