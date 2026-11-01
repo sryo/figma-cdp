@@ -107,6 +107,11 @@ class Runner(Harness):
         self.assertEqual(read(path[:-3] + '.json'), {'lib': False, 'limits': {'X.y': 'readonly'}})
         self.assertEqual(self.probe(path).returncode, 0, 'pinned: no drift on the next run')
 
+    def test_every_probe_result_sits_beside_its_probe(self):
+        stray = [os.path.basename(f) for f in glob.glob(os.path.join(PROBES, '*.json'))
+                 if os.path.basename(f) != 'stub_citations.json' and not os.path.exists(f[:-len('.json')] + '.js')]
+        self.assertEqual(stray, [])
+
     def test_record_writes_one_verdict_file_per_member(self):
         self.scratch()
         out = os.path.join(self.tmp.name, 'verdicts')
