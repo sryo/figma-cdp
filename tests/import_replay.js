@@ -8,7 +8,7 @@
 // --stub-components a,b first builds a component per category (a text inside, named after
 // it) and passes them as --components.
 //
-//   node tests/importer_stub.js /tmp/figma_capture_<slug>.json [--componentize] [--chunk-bytes N]
+//   node tests/import_replay.js /tmp/figma_capture_<slug>.json [--componentize] [--chunk-bytes N]
 //     [--stub-components cat,...] [--dump tree.json]
 const fs = require('fs');
 const os = require('os');

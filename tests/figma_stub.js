@@ -1,4 +1,4 @@
-// A stub Figma Plugin API for offline runs: the importer smoke run (tests/importer_stub.js),
+// A stub Figma Plugin API for offline runs: the importer smoke run (tests/import_replay.js),
 // the perch stub's `figma` global when PERCH_STUB_FIGMA=full, and the eval seeds/scorers
 // (tests/eval/offline_test.py). It records a node tree and enforces the rules of the real
 // sandbox that scripts most often break: fonts loaded before fontName/characters, FILL

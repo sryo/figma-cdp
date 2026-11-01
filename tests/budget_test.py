@@ -128,6 +128,14 @@ class Docs(unittest.TestCase):
         for phrase in ('check design drift', "sync <project>'s design to Figma", 'themes: [light, dark]', 'omitted:'):
             self.assertIn(phrase, sec)
 
+    def test_every_tests_path_the_docs_name_exists(self):
+        texts = {**docs(), 'AGENTS.md': open(os.path.join(ROOT, 'AGENTS.md')).read()}
+        missing = [f'{rel}: {p}' for rel, text in texts.items()
+                   for span in re.findall(r'`([^`\n]+)`', text)
+                   for p in re.findall(r'(?<![\w/.])(tests/[\w./-]+\.(?:py|mjs|jsonl|json|js|html))(?!\w)', span)
+                   if not os.path.exists(os.path.join(ROOT, p))]
+        self.assertEqual(missing, [])
+
     def test_section_pointers_resolve(self):
         for rel, text in docs().items():
             for ref, sec in re.findall(r'`references/([a-z-]+\.md)` → ([A-Z][\w-]*(?: [\w-]+)*)', text):

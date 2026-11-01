@@ -2,7 +2,7 @@
 """Offline tests for the capture import: figma_capture.py's componentize pass and
 figma_importer.js's sizing, constraints and component output.
 
-No Figma: tests/importer_stub.js replays `figma_capture.py import --dry-run` evals against
+No Figma: tests/import_replay.js replays `figma_capture.py import --dry-run` evals against
 the stub Plugin API in tests/figma_stub.js and dumps the resulting node tree.
 tests/capture_spec.json is a hand-built walker spec mirroring tests/capture_fixture.html.
 
@@ -24,10 +24,10 @@ def load_spec():
 def run_stub(spec_path, *flags):
     with tempfile.TemporaryDirectory() as d:
         dump = os.path.join(d, 'tree.json')
-        r = subprocess.run(['node', os.path.join(ROOT, 'tests', 'importer_stub.js'), spec_path,
+        r = subprocess.run(['node', os.path.join(ROOT, 'tests', 'import_replay.js'), spec_path,
                             '--dump', dump, *flags], capture_output=True, text=True)
         if r.returncode != 0:
-            raise AssertionError(f'importer_stub exit {r.returncode}\n{r.stdout}\n{r.stderr}')
+            raise AssertionError(f'import_replay exit {r.returncode}\n{r.stdout}\n{r.stderr}')
         with open(dump) as f:
             out = json.load(f)
     byId = {}
