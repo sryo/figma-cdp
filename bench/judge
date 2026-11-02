@@ -1,0 +1,26 @@
+# What judges a change: a change may add a file here (a red commit's new task, scorer or probe) but never edit
+# or delete one. fium try reads it, with fium's defaults (bench, tests, noise and baseline files) on top;
+# tests/judge_guard.py reads only these lines, for the commits that change the skill.
+# The eval runner and what it prices, scopes and gates with.
+tests/eval/run.py
+tests/eval/session.py
+tests/eval/plan.py
+tests/eval/gate.py
+tests/eval/reparse.py
+tests/eval/affects.json
+tests/eval/ops/*
+# Scorers, tasks, seeds and the fixtures they read.
+tests/eval/scorers/*
+tests/eval/tasks/*
+tests/eval/seeds/*
+tests/eval/fixtures/*
+tests/eval/lib.js
+tests/eval/source.py
+# The noise band and the baseline a run is compared with.
+tests/eval/noise.json
+tests/eval/baseline.json
+# The always-loaded byte caps and the docs-change pricing.
+tests/budget_test.py
+tests/token_estimate.py
+# A probe's expected verdicts.
+tests/probes/*.json

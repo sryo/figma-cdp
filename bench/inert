@@ -4,3 +4,5 @@ docs/*
 bench/inert
 # bench/learn.json, which only fium learn reads.
 bench/learn.json
+# bench/judge, which only fium try and tests/judge_guard.py read.
+bench/judge

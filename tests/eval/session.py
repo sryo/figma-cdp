@@ -82,7 +82,9 @@ def parse_stream(lines):
     Process metrics say how the session got there, which moves even when the end state doesn't:
     lost_replies (a helper said a reply was lost or timed out and offered --recover), recover_uses,
     retries (a call repeating one that had failed) and unhinted_errors (a failed call with no
-    `hint:` line). `errors` keeps the failed calls' text, for a case to quote."""
+    `hint:` line). `errors` keeps the failed calls' text, for a case to quote. The init event names
+    the model and Claude Code version that made the run; wall_s is the result event's duration_ms,
+    the session's own time without the CLI's cold start."""
     init, result, calls, failed, skill_seen, text, turns, msgs = None, None, 0, 0, False, '', 0, set()
     uses, failed_inputs, errors = {}, set(), []
     proc = {'lost_replies': 0, 'recover_uses': 0, 'retries': 0, 'unhinted_errors': 0}
@@ -130,6 +132,9 @@ def parse_stream(lines):
     m = {'tool_calls': calls, 'failed_tool_calls': failed, **proc, 'errors': errors}
     if init:
         m['skill_listed'] = SKILL in (init.get('skills') or [])
+        for k in ('model', 'claude_code_version'):
+            if init.get(k):
+                m[k] = str(init[k])
     if result:
         mu = result.get('modelUsage') or {}
         tok = {'input_tokens': 'inputTokens', 'output_tokens': 'outputTokens',
@@ -149,6 +154,8 @@ def parse_stream(lines):
         # segment when background agents report back; usage and cost are cumulative).
         m['turns'] = len(msgs) or turns
         m['session_error'] = bool(result.get('is_error'))
+        if result.get('duration_ms') is not None:
+            m['wall_s'] = round(float(result['duration_ms']) / 1000, 2)
         text = result.get('result') or ''
     else:
         m['session_error'] = True

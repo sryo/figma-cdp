@@ -647,7 +647,7 @@ class Stream(unittest.TestCase):
         finally:
             run.warm = saved
         self.assertEqual(calls, [(ROOT, 'perch')])
-        self.assertEqual(m['wall_s'], 0.25, 'from the fake transcript\'s duration_ms')
+        self.assertEqual(m['wall_s'], 0.01, 'from the fake transcript\'s duration_ms')
         self.assertGreater(m['startup_s'], 0)
         self.assertIn('startup_s', run.COST)
 
@@ -667,7 +667,7 @@ class Stream(unittest.TestCase):
             self.assertEqual(once, reparse.reparse(copy.deepcopy(res), d))
             self.assertEqual(once, reparse.reparse(copy.deepcopy(once), d))
             rep = once['tasks']['layout']['reps'][0]
-            self.assertEqual((rep['wall_s'], rep['startup_s']), (0.25, 2.75), 'an old wall_s keeps its startup share')
+            self.assertEqual((rep['wall_s'], rep['startup_s']), (0.01, 2.99), 'an old wall_s keeps its startup share')
 
     def test_no_result_event_is_a_session_error(self):
         m, _ = session.parse_stream(['{"type":"system","subtype":"init","skills":[]}', 'not json'])

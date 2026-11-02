@@ -6,8 +6,9 @@
   python3 tests/eval/gate.py --fium <run.json>          the run in fium's format, on stdout
 
 Writes both runs in fium's run format (fium RULES K2), then runs `fium compare` with
-tests/eval/noise.json. Per
-task and rep metric: wall time is time and token counts are tokens (noisy kinds); turns, tool calls,
+tests/eval/noise.json. Each run is stamped with the model and Claude Code version its transcripts
+name (else meta's --model), so a run on another model is not comparable. Per
+task and rep metric: wall and startup time are time and token counts are tokens (noisy kinds); turns, tool calls,
 failed calls and unhinted errors are noisy counts, the other cost metrics exact counts; scorer
 metrics and passed are quality, higher unless the scorer lists them lower, and noisy when the
 run's reps disagree (passed stays exact). Dollars and a task's saturated metrics are left out.
@@ -61,7 +62,7 @@ def fium(run):
             vals = [v for v in vals if isinstance(v, (int, float))]
             if not vals or k in ('rep', 'cost_usd') or k in sat:
                 continue
-            if k == 'wall_s':
+            if k in ('wall_s', 'startup_s'):
                 kind, d = 'time', 'lower'
             elif k.endswith('tokens') or k == 'tokens_total':
                 kind, d = 'tokens', 'lower'
@@ -74,7 +75,25 @@ def fium(run):
                 e = {'dir': d, 'kind': kind, 'noisy': True, 'samples': vals}
             out[f'{task}.{k}'] = e
     meta = run.get('meta') or {}
-    return {'commit': meta.get('rev'), 'dirty': bool(meta.get('dirty')), 'metrics': out, 'limits': {}}
+    res = {'commit': meta.get('rev'), 'dirty': bool(meta.get('dirty')), 'metrics': out, 'limits': {}}
+    e = env(run)
+    if e:
+        res['env'] = e
+    return res
+
+
+def env(run):
+    """{model, claude_code_version} from the reps' transcripts; reps that disagree list every value,
+    which no other run matches."""
+    reps = [r for t in run['tasks'].values() for r in t.get('reps', [])]
+    out = {}
+    for k in ('model', 'claude_code_version'):
+        seen = sorted({r[k] for r in reps if r.get(k)})
+        if seen:
+            out[k] = '+'.join(seen)
+    if 'model' not in out and (run.get('meta') or {}).get('model'):
+        out['model'] = run['meta']['model']
+    return out
 
 
 def parse_rule(text):

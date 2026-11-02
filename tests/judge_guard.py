@@ -4,16 +4,31 @@
   python3 tests/judge_guard.py [<rev-range>]     # default main..HEAD; exit 1 on a violation
 
 A commit violates when it touches a skill file (SKILL.md, figma-worker.md, references/, the
-figma_* helpers) and also modifies or deletes an existing judge file: the eval scorers, tasks,
-lib.js, source.py and fixtures, gate.py, reparse.py, noise.json, baseline.json, or a probe's expected verdicts
-(tests/probes/<name>.json). Adding a judge file is allowed, so a case's red commit can bring a
+figma_* helpers) and also modifies or deletes an existing judge file: a path bench/judge's globs
+match (the eval runner, scorers, tasks, seeds, fixtures, noise and baseline, the byte budget, a
+probe's expected verdicts), the file fium try reads, or bench/judge itself. Adding a judge file is allowed, so a case's red commit can bring a
 new task, scorer or probe. A commit whose message has a `Judge-Change: <why>` line passes; that
 line is for a human-reviewed change of the judges (a baseline refresh, a scorer fix).
 """
-import re, subprocess, sys
+import os, re, subprocess, sys
+from fnmatch import fnmatch
 
 SKILL = re.compile(r'^(SKILL\.md|figma-worker\.md|references/|figma_[^/]+\.(js|mjs|py)$)')
-JUDGE = re.compile(r'^tests/(eval/(scorers/|tasks/|fixtures/|lib\.js$|source\.py$|gate\.py$|reparse\.py$|noise\.json$|baseline\.json$)|probes/[^/]+\.json$)')
+
+
+def judges(repo):
+    """bench/judge's globs (one per line, # comments), with the file itself."""
+    p = os.path.join(repo, 'bench', 'judge')
+    try:
+        with open(p) as f:
+            lines = [l.strip() for l in f if l.strip() and not l.startswith('#')]
+    except OSError:
+        sys.exit(f'judge guard: no {p}')
+    return ['bench/judge'] + [l for l in lines if l != '!defaults']
+
+
+def is_judge(path, globs):
+    return any(fnmatch(path, g) for g in globs)
 
 
 def git(repo, *args):
@@ -22,7 +37,7 @@ def git(repo, *args):
 
 def violations(repo='.', rev_range='main..HEAD'):
     """[(sha, subject, [judge files it edits])] for the commits in rev_range that break the rule."""
-    out = []
+    out, js = [], judges(repo)
     for sha in git(repo, 'rev-list', '--no-merges', rev_range).split():
         msg = git(repo, 'log', '-1', '--format=%B', sha)
         if re.search(r'^Judge-Change:\s*\S', msg, re.M):
@@ -30,7 +45,7 @@ def violations(repo='.', rev_range='main..HEAD'):
         rows = [l.split('\t') for l in git(repo, 'diff-tree', '--no-commit-id', '-r', '--name-status', '-M', sha).splitlines() if l]
         # A rename counts as editing (or removing) the old path.
         touched = [r[-1] for r in rows] + [r[1] for r in rows if r[0].startswith('R')]
-        edited = sorted({r[1] for r in rows if r[0][0] in 'MDR' and JUDGE.match(r[1])})
+        edited = sorted({r[1] for r in rows if r[0][0] in 'MDR' and is_judge(r[1], js)})
         if edited and any(SKILL.match(p) for p in touched):
             out.append((sha[:12], msg.split('\n', 1)[0], edited))
     return out

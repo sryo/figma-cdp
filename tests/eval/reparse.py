@@ -5,7 +5,8 @@
 
 For a change in how session.parse_stream reads a transcript: earlier runs get the new numbers
 without running again. Each rep's transcript is <dir>/<task>-<rep>.jsonl, as run.py --transcripts
-writes it; a rep without one keeps its numbers. wall_s is not in the transcript and stays."""
+writes it; a rep without one keeps its numbers. wall_s comes from the transcript's duration_ms; a rep
+timed before that keeps the difference from its process wall time as startup_s."""
 import argparse, json, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,6 +22,8 @@ def reparse(res, tx):
             with open(p) as f:
                 m, _ = session.parse_stream(f.read().splitlines())
             m.pop('session_error', None)
+            if 'wall_s' in m and 'startup_s' not in rep and 'wall_s' in rep:
+                rep['startup_s'] = round(max(0.0, rep['wall_s'] - m['wall_s']), 2)
             rep.update(m)
         res['tasks'][task] = run.summarize(t['reps'])
     return res

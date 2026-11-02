@@ -29,7 +29,7 @@ events = [
     {'type': 'assistant', 'parent_tool_use_id': 't2', 'message': {'content': [
         {'type': 'tool_use', 'id': 't3', 'name': 'Read', 'input': {}}]}},
     {'type': 'user', 'parent_tool_use_id': 't2', 'message': {'content': [{'type': 'tool_result', 'tool_use_id': 't3', 'content': 'ok'}]}},
-    {'type': 'result', 'subtype': 'success', 'is_error': False, 'num_turns': 4, 'duration_ms': 250, 'result': answer,
+    {'type': 'result', 'subtype': 'success', 'is_error': False, 'num_turns': 4, 'duration_ms': 10, 'result': answer,
      'total_cost_usd': 0.5, 'usage': {'input_tokens': 1},
      'modelUsage': {'opus': {'inputTokens': 100, 'outputTokens': 50, 'cacheReadInputTokens': 1000, 'cacheCreationInputTokens': 200},
                     'haiku': {'inputTokens': 10, 'outputTokens': 5, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0}}},

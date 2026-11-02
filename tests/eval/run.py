@@ -8,7 +8,9 @@ Per task rep, holding a per-file lock (parallel callers on one file queue):
   1. a fresh page "eval/<task>/<n>" (leftovers of an earlier run with that name go first)
   2. the task's seed, run through this repo's figma_run.py
   3. a headless `claude -p` session on the task prompt, pinned to --skill-dir's copy of the
-     skill (session.py has the mechanism); wall time, tokens, cost, turns, tool calls and
+     skill (session.py has the mechanism), with the perch daemon that copy's helpers use warmed
+     first; wall time (the session's own duration_ms; startup_s is the rest of the process's
+     time, the CLI's cold start), tokens, cost, turns, tool calls and
      failed tool calls come from its stream-json transcript, subagents included, with the process
      metrics (lost replies, --recover uses, retries, unhinted errors) and the failed calls' text
   4. the task's scorer against the page ({metrics, lower, passed, notes}; notes say why, and
@@ -30,7 +32,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import session, source  # noqa: E402
 from figma_lock import file_lock, lock_path  # noqa: E402,F401
 
-COST = ['wall_s', 'tokens_total', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
+COST = ['wall_s', 'startup_s', 'tokens_total', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens',
         'cost_usd', 'turns', 'tool_calls', 'failed_tool_calls', 'lost_replies', 'recover_uses', 'retries', 'unhinted_errors']
 
 
@@ -86,6 +88,16 @@ def session_env(a):
     return env
 
 
+def warm(a, env):
+    """One call through the skill copy's figma_run.py with the session's env, so the daemon its
+    first eval would start (the socket hashes that copy's figma_perch.mjs) is up before the clock."""
+    env = dict(env, FIGMA_CDP_JOURNAL='0')
+    r = subprocess.run([sys.executable, os.path.join(a.skill_dir, 'figma_run.py'), '--file', a.file, '--where'],
+                       capture_output=True, text=True, env=env)
+    if r.returncode != 0:
+        print(f'  warming perch failed: {(r.stderr or r.stdout).strip()[:300]}', file=sys.stderr)
+
+
 def run_session(task, ctx, a, tmp):
     url = a.file.split('?')[0] + '?node-id=' + ctx['pageId'].replace(':', '-')
     prompt = (task['prompt'].replace('{FILE_URL}', url).replace('{PAGE}', ctx['pageName'])
@@ -99,7 +111,7 @@ def run_session(task, ctx, a, tmp):
     env = session_env(a)
     # The session's eval journal (figma_run.py) stays with the run, out of the user's ~/.figma-cdp.
     env['FIGMA_CDP_HOME'] = os.path.join(a.transcripts, f"{ctx['task']}-{ctx['rep']}") if a.transcripts else tmp
-    lines = []
+    warm(a, env)
     t0 = time.monotonic()
     p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
@@ -116,7 +128,10 @@ def run_session(task, ctx, a, tmp):
         with open(os.path.join(a.transcripts, f"{ctx['task']}-{ctx['rep']}.jsonl"), 'w') as f:
             f.write(out)
     m, answer = session.parse_stream(lines)
-    m['wall_s'] = round(wall, 2)
+    if 'wall_s' in m:
+        m['startup_s'] = round(max(0.0, wall - m['wall_s']), 2)
+    else:
+        m['wall_s'] = round(wall, 2)
     if timed_out:
         m['session_error'] = True
         m['error'] = f'session timed out after {a.session_timeout}s'

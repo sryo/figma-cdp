@@ -197,6 +197,11 @@ class Guard(unittest.TestCase):
         for p in ('SKILL.md', 'figma_lib.js', 'tests/gates_test.py', 'tests/eval/offline_test.py', 'tests/probes/svg_paint.js'):
             self.assertFalse(judge_guard.is_judge(p, js), p)
         write(self.repo, 'bench/judge', 'tests/eval/baseline.json\n')
+        self.commit('fix and narrow the judges', 'figma_lib.js')
+        self.assertEqual([v[2] for v in judge_guard.violations(self.repo)], [['bench/judge']], 'bench/judge judges too')
+        git(self.repo, 'reset', '-q', '--hard', 'main')
+        write(self.repo, 'bench/judge', 'tests/eval/baseline.json\n')
+        git(self.repo, 'commit', '-qam', 'narrow the judges\n\nJudge-Change: reviewed')
         self.commit('fix and edit the scorer', 'figma_lib.js', 'tests/eval/scorers/effects.js')
         self.assertEqual(judge_guard.violations(self.repo), [], "the repo's own bench/judge decides")
 
