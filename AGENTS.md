@@ -7,7 +7,7 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 ## Test
 
 ```bash
-python3 tests/sleep/sleep.py check
+python3 tests/cases/case.py offline
 ```
 
 A change is done when `fium done` says so: it runs every How we know row of GOALS.md where the change started and now, and shows each number under its goal. The agent evals are costly: state their tokens first, then `EVAL_FILE=<scratch file> EVAL_TASKS=<the tasks plan.py scopes> fium done --costly`.
@@ -115,16 +115,16 @@ When the skill fails, or a build doesn't match its source, the question is wheth
 4. **Fix test-first.** `case.py claim <case>` makes `.claude/worktrees/case-<case>` on branch `case/<case>` (a 4 h lease; `--steal` after it). Commit the failing test first (offline if it can be, else a probe, else an eval task with good and bad offline states), then the fix. Generalize: no case-specific names, ids or copy in docs. `case.py verify <case> --file <scratch-url>` runs the gates, cheapest first, and stops at the first failure: (1) the offline suites, (2) `budget_test.py`, (3) the judge guard on every commit of the branch, (4) the case's probe, (5) `run.py` at 1 rep on the repro task plus the tasks `tests/eval/affects.json` maps the changed files to, (6) a paired base/candidate run at 3 reps, gated by `gate.py --tasks` and, for an eval repro, `--require <task>:pass_rate>=0.67 --gain <task>:pass_rate>=0.34`. Without `--file` it stops after gate 3 (exit 3); `--dry-run` prints the commands. Gates 5-6 spend tokens and hold the scratch lock for the length of the reps. Main is the installed skill (`~/.claude/skills/figma-cdp` links here), so nothing merges to main before the gates pass.
 5. **Close.** `case.py close <case> --status merged --commit <sha> --reason "..."` writes `tests/ledger/<case>.json`; commit it with the fix. A case is `merged` only when the original symptom is gone, not just the minimized repro. `parked` / `wontfix` rows record why, so the next session doesn't retry the same hypothesis.
 
-### Sleep pass
+### Learning from past sessions
 
-Cases start from one failure someone noticed. The sleep pass starts from everything the sessions since the last pass left behind (fium RULES.md S has the method). Run it after a working session or a live eval run, offline, never against a Figma tab:
+Cases start from one failure someone noticed. `fium learn` starts from everything the sessions since the last pass left behind (fium RULES.md S has the method). Run it after a working session or a live eval run, offline, never against a Figma tab:
 
-1. `python3 tests/sleep/sleep.py mine` reads the Claude Code transcripts of figma-cdp, perch and avis (main sessions and subagents) and the eval journal since the last pass; `--source <run.py --transcripts dir>` mines one eval run instead.
-2. `sleep.py digest --mark` clusters the signals and picks the top clusters by impact plus a few random new ones. `relapse` (a lesson's signature came back after it was learned) ranks first: the consolidated fix isn't working, so move it to the point of use.
+1. `fium learn mine` reads the Claude Code transcripts of figma-cdp, perch and avis (main sessions and subagents) and the eval journal since the last pass, as `bench/learn.json` lists them; `--source <run.py --transcripts dir>` mines one eval run instead.
+2. `fium learn digest --mark` clusters the signals and picks the top clusters by impact plus a few random new ones. `relapse` (a lesson's signature came back after it was learned) ranks first: the consolidated fix isn't working, so move it to the point of use.
 3. Each pick goes through the case loop above, or straight to a test-first fix when the cause is plain: an error hint, a helper fix, a doc rule where the agent makes the call, an eval case, or a memory for a user correction. perch findings become proposals in perch's own repo.
-4. `sleep.py learn` records each fix in `tests/sleep/lessons.jsonl` with its signature and evidence; `replay` (in the offline suites) keeps every lesson true afterwards, so a trimmed doc or a rewritten helper can't forget it. `learn` refuses a lesson whose fix hasn't landed, and one that only says X doesn't work: say what to do instead, or the claim outlives the fix.
-   `sleep.py digest --stale` lists the hint rows and lessons that never fired across every source, with their file and line: candidates to prune, each with a lean live check of the task it serves.
-5. `sleep.py check [--candidate <run.json>]` runs the offline suites, budget and replay, and `tests/eval/gate.py` (fium compare) against the baseline when there is a live run. A change that doesn't pass is dropped, not forced in.
+4. `fium learn keep` records each fix in `tests/lessons.jsonl` with its signature and evidence; `fium learn replay` (in the offline suites) keeps every lesson true afterwards, so a trimmed doc or a rewritten helper can't forget it. `keep` refuses a lesson whose fix hasn't landed, and one that only says X doesn't work: say what to do instead, or the claim outlives the fix.
+   `fium learn digest --stale` lists the hint rows and lessons that never fired across every source, with their file and line: candidates to prune, each with a lean live check of the task it serves.
+5. `fium learn check [--candidate <run.json>]` runs `case.py offline` (the suites, replay and budget), and `tests/eval/gate.py` (fium compare) against the baseline when there is a live run. A change that doesn't pass is dropped, not forced in.
 
 ## Rules for changes
 

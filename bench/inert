@@ -2,3 +2,5 @@
 # docs/, which the skill never loads (its runtime docs are references/).
 docs/*
 bench/inert
+# bench/learn.json, which only fium learn reads.
+bench/learn.json

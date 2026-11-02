@@ -11,6 +11,7 @@ source, sort out why, fix it test-first on its own branch, and record the outcom
   python3 tests/cases/case.py packet <case>         # packet.md: gates, spend, diff, always-loaded bytes, symptom check
   python3 tests/cases/case.py close <case> --status merged|wontfix|parked|out-of-scope --reason "<why>" [--commit <sha>]
   python3 tests/cases/case.py list | stats
+  python3 tests/cases/case.py offline [--dry-run]     # every offline suite, the lessons replay and the byte budget
 
 Cases live in ~/.figma-cdp/inbox/<case>/ (FIGMA_CDP_HOME moves it), outside the repo, since they
 quote the user's own files: case.json (fields) and notes.md (expected, actual, oracle, routes).
@@ -26,6 +27,7 @@ REPO = os.environ.get('FIGMA_CDP_REPO') or os.path.dirname(os.path.dirname(HERE)
 HOME = os.environ.get('FIGMA_CDP_HOME') or os.path.expanduser('~/.figma-cdp')
 INBOX, JOURNAL = os.path.join(HOME, 'inbox'), os.path.join(HOME, 'journal')
 LEDGER = os.path.join(REPO, 'tests', 'ledger')
+FIUM = os.environ.get('FIUM', os.path.expanduser('~/Documents/fium/fium'))
 LOSSES = os.path.join(REPO, 'tests', 'known_losses.json')
 LEASE_S = 4 * 3600
 
@@ -272,7 +274,7 @@ def cmd_claim(a):
 # Gate 1. perch_backend_test.py is most of its time and runs only when a perch-side file changed.
 OFFLINE = [['node', '--test', 'tests/figma_lib_test.js', 'tests/snapshot_test.js', 'tests/api_test.mjs'],
            ['tests/cases_test.py'], ['tests/probe_test.py'], ['tests/gates_test.py'], ['tests/drift_test.py'], ['tests/importer_test.py'], ['tests/source_test.py'],
-           ['tests/fidelity_test.py'], ['tests/sync_test.py'], ['tests/fidelity_elements_test.py'], ['tests/pixels_test.py'], ['tests/eval/offline_test.py'], ['tests/sleep_test.py'], ['tests/perch_backend_test.py']]
+           ['tests/fidelity_test.py'], ['tests/sync_test.py'], ['tests/fidelity_elements_test.py'], ['tests/pixels_test.py'], ['tests/eval/offline_test.py'], [FIUM, 'learn', 'replay'], ['tests/perch_backend_test.py']]
 PERCH_SIDE = re.compile(r'^(figma_run\.py|figma_backend\.py|figma_capture\.py|figma_perch\.mjs|tests/perch_)')
 
 
@@ -340,6 +342,17 @@ def baseline_model():
         return read(os.path.join(os.path.dirname(HERE), 'eval', 'baseline.json'))['meta'].get('model') or None
     except (OSError, ValueError, KeyError):
         return None
+
+
+def cmd_offline(a):
+    """Every offline suite, the lessons replay and the byte budget, from the repo root, stopping at the first failure."""
+    py = sys.executable
+    for cmd in [s if s[0] == 'node' else [py] + s for s in OFFLINE] + [[py, 'tests/budget_test.py']]:
+        print('$ ' + ' '.join(cmd), flush=True)
+        if not a.dry_run and subprocess.run(cmd, cwd=REPO).returncode:
+            die(f"offline suite failed: {' '.join(cmd)}")
+    if not a.dry_run:
+        print('every offline suite passed')
 
 
 def cmd_verify(a):
@@ -503,6 +516,7 @@ def main():
     p.add_argument('--status', required=True, choices=['merged', 'wontfix', 'parked', 'out-of-scope'])
     p.add_argument('--reason', required=True); p.add_argument('--commit')
     sub.add_parser('list'); sub.add_parser('stats')
+    sub.add_parser('offline').add_argument('--dry-run', action='store_true')
     a = ap.parse_args()
     globals()['cmd_' + a.cmd](a)
 

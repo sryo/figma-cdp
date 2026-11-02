@@ -43,6 +43,13 @@ class Cases(unittest.TestCase):
         self.assertEqual(r.returncode, code, r.stderr)
         return json.loads(r.stdout) if r.stdout.strip().startswith('{') else (r.stdout + r.stderr)
 
+    def test_offline_runs_every_suite_the_budget_and_fiums_lessons_replay(self):
+        out = subprocess.run([sys.executable, CASE, 'offline', '--dry-run'], capture_output=True, text=True, cwd=ROOT)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        for want in ('tests/figma_lib_test.js', 'tests/cases_test.py', 'tests/eval/offline_test.py', 'tests/budget_test.py', 'learn replay'):
+            self.assertIn(want, out.stdout)
+        self.assertNotIn('sleep', out.stdout)
+
     def test_new_from_the_last_failed_eval_keeps_its_script_and_context(self):
         self.journal({'rid': 'a1', 'file': 'K', 'ok': True, 'result': '1'},
                      {'rid': 'b2', 'file': 'K', 'ok': False, 'error': 'Error: in set_overlayPositionType: node 12:34 "Menu" rejected 3 values', 'hint': None},

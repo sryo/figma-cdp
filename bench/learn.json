@@ -1,0 +1,11 @@
+{
+  "projects": ["figma-cdp", "perch", "avis"],
+  "journals": ["~/.figma-cdp/journal"],
+  "hints": ["figma_run.py"],
+  "hint_consts": ["figma_perch.mjs"],
+  "known": ["tests/ledger", "~/.figma-cdp/inbox"],
+  "lessons": "tests/lessons.jsonl",
+  "gates": [["python3", "tests/cases/case.py", "offline"]],
+  "live_gate": ["python3", "tests/eval/gate.py"],
+  "baseline": "tests/eval/baseline.json"
+}
