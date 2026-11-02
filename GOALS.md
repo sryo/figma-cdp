@@ -26,7 +26,7 @@ You point your agent at your app's code, some HTML or a description, and it buil
 | 4 | offline suites and lessons replay pass | `tests/cases/case.py offline` | `python3 tests/cases/case.py offline` |
 | 5 | `wall_s` | `tests/eval/gate.py`: `<task>.wall_s` | costly: `out=$(mktemp -d)/results.json && python3 tests/eval/run.py --file "${EVAL_FILE:?set EVAL_FILE to the scratch Figma file}" --tasks "${EVAL_TASKS:?set EVAL_TASKS to the tasks plan.py scopes}" --reps "${EVAL_REPS:-2}" --out "$out" >&2 && python3 tests/eval/gate.py --fium "$out" > "$out.fium.json" && echo "$out.fium.json"` |
 
-Caps: `q3 k2 n2 b2 t1` (how firm each kind of number is: 3 hard, must end the same or better; 2 semi-hard, past its margin you choose; 1 semi-hard with a 10% margin; 0 soft, no limit; fium RULES.md K6)
+Caps: `all=ask quality=hard time=ask+10%`
 
 ## Non-goals
 - Live UI overlays in Figma, design event streams, and REST writes other than comments (AGENTS.md, Ceiling).
