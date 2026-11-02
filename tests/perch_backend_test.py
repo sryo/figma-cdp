@@ -75,7 +75,7 @@ class Harness(unittest.TestCase):
              'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon, 'FIGMA_CDP_HOME': self.tmp.name}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
-                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
+                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
             e.pop(k, None)
         e.update(env)
         return e
@@ -1166,6 +1166,15 @@ class CapturePerch(Harness):
         url, _, r = self.walk('page', '0', FIGMA_CAPTURE_APP='Safari')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Safari'})
+
+    def test_safari_redirect_refuses_unproven_close_and_reports_the_tab(self):
+        _, _, r = self.walk('page', '0', FIGMA_CAPTURE_APP='Safari',
+                            PERCH_STUB_REDIRECT='https://example.com/elsewhere')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('stale_tab: Safari tab', r.stderr)
+        self.assertIn('may still be open in Safari', r.stderr)
+        self.assertIn('close it manually', r.stderr)
+        self.assertEqual(len(self.calls('close_tab')), 1)
 
     def test_walk_ignores_a_show_env_var(self):
         # Showing is a per-call flag: an env var would stay on in a daemon started with it.

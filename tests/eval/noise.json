@@ -1,4 +1,8 @@
 {
+ "rel": {
+  "recon.output_tokens": 0.24,
+  "recon.wall_s": 0.61
+ },
  "abs": {
   "app-screens.failed_tool_calls": 1,
   "app-screens.input_tokens": 5,

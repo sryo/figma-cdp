@@ -6,7 +6,7 @@
   python3 tests/eval/gate.py --fium <run.json>          the run in fium's format, on stdout
 
 Writes both runs in fium's run format (fium RULES K2), then runs `fium compare` with
-tests/eval/noise.json and the Price: trailers since the baseline's rev, read from this repo. Per
+tests/eval/noise.json and this repo's metric caps. Per
 task and rep metric: wall time is time and token counts are tokens (noisy kinds); turns, tool calls,
 failed calls and unhinted errors are noisy counts, the other cost metrics exact counts; scorer
 metrics and passed are quality, higher unless the scorer lists them lower, and noisy when the
@@ -112,12 +112,9 @@ def notes(run, task):
     return seen
 
 
-def command(base_path, run_path, rev):
-    """fium compare on two exported runs, with this repo's noise file and Price: trailers since rev."""
-    cmd = [FIUM, 'compare', base_path, run_path, '--noise', NOISE, '--repo', REPO]
-    if rev and subprocess.run(['git', '-C', REPO, 'cat-file', '-e', rev + '^{commit}'], capture_output=True).returncode == 0:
-        cmd += ['--since', rev]
-    return cmd
+def command(base_path, run_path):
+    """fium compare on two exported runs, with this repo's noise file and metric caps."""
+    return [FIUM, 'compare', base_path, run_path, '--noise', NOISE, '--repo', REPO]
 
 
 def scope_command(rev, to):
@@ -158,7 +155,7 @@ def gate(baseline, candidate, tasks=None, require=(), gain=()):
             with open(p, 'w') as f:
                 json.dump(fium(run), f)
             paths.append(p)
-        r = subprocess.run(command(*paths, base.get('meta', {}).get('rev')) + ['--json'], capture_output=True, text=True)
+        r = subprocess.run(command(*paths) + ['--json'], capture_output=True, text=True)
         try:
             rows = json.loads(r.stdout)
         except ValueError:
