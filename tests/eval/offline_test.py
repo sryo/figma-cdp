@@ -450,7 +450,8 @@ class Gate(unittest.TestCase):
             for k in ('failed_tool_calls', 'unhinted_errors', 'lost_replies'):
                 self.assertEqual(noise['abs'].get(f'{t}.{k}'), 1, f'{t}.{k}')
             self.assertEqual(noise['abs'].get(f'{t}.input_tokens'), 5, 'uncached input moves by a few tokens a run')
-        self.assertEqual(noise.get('rel', {}), {}, 'rel stays at fium\'s 10% default until an A/A run measures it')
+        self.assertEqual(noise.get('rel', {}), {'recon.output_tokens': 0.24, 'recon.wall_s': 0.61},
+                         'recon noise comes from two five-rep unchanged-code live runs')
 
     def test_gate_uses_this_repos_noise_and_metric_caps(self):
         import gate
