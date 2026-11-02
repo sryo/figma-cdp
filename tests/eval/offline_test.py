@@ -452,14 +452,13 @@ class Gate(unittest.TestCase):
             self.assertEqual(noise['abs'].get(f'{t}.input_tokens'), 5, 'uncached input moves by a few tokens a run')
         self.assertEqual(noise.get('rel', {}), {}, 'rel stays at fium\'s 10% default until an A/A run measures it')
 
-    def test_gate_reads_price_trailers_from_this_repo(self):
+    def test_gate_uses_this_repos_noise_and_metric_caps(self):
         import gate
-        cmd = gate.command('/tmp/b.json', '/tmp/r.json', '4f754e9')
+        cmd = gate.command('/tmp/b.json', '/tmp/r.json')
         self.assertEqual(cmd[:4], [gate.FIUM, 'compare', '/tmp/b.json', '/tmp/r.json'])
         self.assertEqual(cmd[cmd.index('--repo') + 1], os.path.dirname(os.path.dirname(HERE)))
-        self.assertEqual(cmd[cmd.index('--since') + 1], '4f754e9')
         self.assertEqual(cmd[cmd.index('--noise') + 1], gate.NOISE)
-        self.assertNotIn('--since', gate.command('/tmp/b.json', '/tmp/r.json', None))
+        self.assertNotIn('--since', cmd, 'the installed fium compare CLI does not accept --since')
 
     def test_gate_is_fium_price_compare_with_the_noise_file(self):
         import gate
