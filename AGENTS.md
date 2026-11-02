@@ -84,7 +84,7 @@ A repo's DESIGN.md (Google's format, github.com/google-labs-code/design.md) owns
   - SKILL.md and figma-worker.md move the trio (recon, effects, fidelity-edit); app-screens runs only when a case targets it. A file no rule matches runs everything.
   - A task's own judge files (its tasks/, scorers/ and seeds/ file and the fixture it reads) move only the tasks that use them, since reparse can't re-score a tree it never kept; a scorer change also refreshes that task's baseline, in its own commit, with a `Judge-Change:` line. Shared eval code (lib.js, source.py, run.py, fixtures/expect.json) moves every task.
   - Other tooling, tests and project docs map to `none` (`bench/inert` lists the files no run reads). Re-judge such a change offline: `reparse.py` on kept transcripts, then `gate.py` on the runs you have. `run.py` refuses to start a run for it.
-  - 2 reps, a third only when they disagree; 3 to refresh a baseline (L2). Batch fixes into one run, read kept transcripts first, and give a routing-only change one smoke rep (L3). After 5 runs in a row with no keep, stop or change approach (L4).
+  - 2 reps, a third only when they disagree; 3 to refresh a baseline (L2). Batch fixes into one run, read kept transcripts first, and give a routing-only change one smoke rep (L2). After 5 runs in a row with no keep, stop or change approach (`fium try` counts them).
   - `tests/token_estimate.py [<rev>]` prices a docs change before any run: always-loaded bytes / 4 x median turns over the mapped tasks.
   - State each run's expected tokens when asking for it, and never in dollars.
 
