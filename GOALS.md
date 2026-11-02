@@ -16,15 +16,17 @@ You point your agent at your app's code, some HTML or a description, and it buil
 5. **Fast.** A screen is built in as little wall time as the steps above allow.
 
 ## How we know
-| Goal | Metric | Where |
-|---|---|---|
-| 1 | each task's scorer: diffs fixed, copy kept, `inventedCopy`, `hardcodedPaints`, `boundPaintShare`; `pass_rate` | `tests/eval/gate.py` |
-| 2 | `quality()`: `autoLayoutShare`, `instanceRatio`, `duplicateComponents`, `detachedLike`, `defaultNames`, `absoluteStacks` | `tests/eval/gate.py` |
-| 3 | tokens and their parts, turns, tool calls; always-loaded bytes | `tests/eval/gate.py`, `tests/budget_test.py` |
-| 4 | failed tool calls, retries, lost replies, unhinted errors | `tests/eval/gate.py` |
-| 5 | `wall_s` | `tests/eval/gate.py` |
+| Goal | Metric | Where | Run |
+|---|---|---|---|
+| 1 | each task's scorer: diffs fixed, copy kept, `inventedCopy`, `hardcodedPaints`, `boundPaintShare`; `pass_rate` | `tests/eval/gate.py` | costly: `out=$(mktemp -d)/results.json && python3 tests/eval/run.py --file "${EVAL_FILE:?set EVAL_FILE to the scratch Figma file}" --tasks "${EVAL_TASKS:?set EVAL_TASKS to the tasks plan.py scopes}" --out "$out" >&2 && python3 tests/eval/gate.py --fium "$out" > "$out.fium.json" && echo "$out.fium.json"` |
+| 2 | `quality()`: `autoLayoutShare`, `instanceRatio`, `duplicateComponents`, `detachedLike`, `defaultNames`, `absoluteStacks` | `tests/eval/gate.py`: `<task>.autoLayoutShare`, `<task>.instanceRatio`, `<task>.duplicateComponents`, `<task>.detachedLike`, `<task>.defaultNames`, `<task>.absoluteStacks` | costly: `out=$(mktemp -d)/results.json && python3 tests/eval/run.py --file "${EVAL_FILE:?set EVAL_FILE to the scratch Figma file}" --tasks "${EVAL_TASKS:?set EVAL_TASKS to the tasks plan.py scopes}" --out "$out" >&2 && python3 tests/eval/gate.py --fium "$out" > "$out.fium.json" && echo "$out.fium.json"` |
+| 3 | tokens and their parts, turns, tool calls | `tests/eval/gate.py`: `<task>.tokens_total`, `<task>.<part>tokens`, `<task>.turns`, `<task>.tool_calls` | costly: `out=$(mktemp -d)/results.json && python3 tests/eval/run.py --file "${EVAL_FILE:?set EVAL_FILE to the scratch Figma file}" --tasks "${EVAL_TASKS:?set EVAL_TASKS to the tasks plan.py scopes}" --out "$out" >&2 && python3 tests/eval/gate.py --fium "$out" > "$out.fium.json" && echo "$out.fium.json"` |
+| 3 | always-loaded bytes (SKILL.md + figma-worker.md) | `tests/budget_test.py` | `python3 tests/budget_test.py && cat SKILL.md figma-worker.md \| wc -c` |
+| 4 | failed tool calls, retries, lost replies, unhinted errors | `tests/eval/gate.py`: `<task>.failed_tool_calls`, `<task>.retries`, `<task>.lost_replies`, `<task>.unhinted_errors`, `<task>.recover_uses` | costly: `out=$(mktemp -d)/results.json && python3 tests/eval/run.py --file "${EVAL_FILE:?set EVAL_FILE to the scratch Figma file}" --tasks "${EVAL_TASKS:?set EVAL_TASKS to the tasks plan.py scopes}" --out "$out" >&2 && python3 tests/eval/gate.py --fium "$out" > "$out.fium.json" && echo "$out.fium.json"` |
+| 4 | offline suites and lessons replay pass | `tests/sleep/sleep.py check` | `python3 tests/sleep/sleep.py check` |
+| 5 | `wall_s` | `tests/eval/gate.py`: `<task>.wall_s` | costly: `out=$(mktemp -d)/results.json && python3 tests/eval/run.py --file "${EVAL_FILE:?set EVAL_FILE to the scratch Figma file}" --tasks "${EVAL_TASKS:?set EVAL_TASKS to the tasks plan.py scopes}" --out "$out" >&2 && python3 tests/eval/gate.py --fium "$out" > "$out.fium.json" && echo "$out.fium.json"` |
 
-Caps: `q3 k2 n2 b2 t1` (how firm each kind of number is: 3 never grows, 2 needs the owner's price, 1 may grow 10%, 0 only reported; fium RULES.md K6)
+Caps: `q3 k2 n2 b2 t1` (how firm each kind of number is: 3 hard, must end the same or better; 2 semi-hard, past its margin you choose; 1 semi-hard with a 10% margin; 0 soft, no limit; fium RULES.md K6)
 
 ## Non-goals
 - Live UI overlays in Figma, design event streams, and REST writes other than comments (AGENTS.md, Ceiling).
