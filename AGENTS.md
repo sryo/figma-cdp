@@ -10,6 +10,8 @@ figma-cdp drives Figma's Plugin API (`figma.*` global) from outside Figma — co
 python3 tests/sleep/sleep.py check
 ```
 
+A change is done when `fium done` says so: it runs every How we know row of GOALS.md where the change started and now, and shows each number under its goal. The agent evals are costly: state their tokens first, then `EVAL_FILE=<scratch file> EVAL_TASKS=<the tasks plan.py scopes> fium done --costly`.
+
 Every offline suite (`tests/cases/case.py` OFFLINE), the byte budget and the lessons replay, in under two minutes. No browser, perch or Figma: perch is stubbed under `tests/perch_stub`. Each file's docstring has its own usage.
 
 ## Architecture
