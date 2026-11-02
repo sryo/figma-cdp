@@ -4,7 +4,7 @@
   python3 tests/eval/run.py --file <figma-url> [--skill-dir <dir>] [--tasks a,b] [--reps N]
                             [--out ~/.fium/runs/figma-cdp/results.json] [--keep] [--tab <perch tabId>] [--model <m>]
 
-(run.py's entry point is this module's main.) Without --tasks it runs the tasks fium scope reads
+(run.py's entry point is this module's main.) Without --tasks it runs the tasks fium affects reads
 from affects.json for the change since baseline.json was last refreshed, and prints them with the
 expected tokens at baseline medians before it starts; a change that moves no task gets no run. It
 checks the perch tab first: the file's one room tab by default, or the --tab given. Everything here
@@ -30,12 +30,12 @@ def file_key(url):
 FIUM = os.environ.get('FIUM', os.path.expanduser('~/Documents/fium/fium'))
 
 
-def scope_command(rev):
-    return [FIUM, 'scope', f'{rev}..HEAD', '--repo', ROOT, '--affects', os.path.join(HERE, 'affects.json'), '--json']
+def affects_command(rev):
+    return [FIUM, 'affects', f'{rev}..HEAD', '--repo', ROOT, '--rules', os.path.join(HERE, 'affects.json'), '--json']
 
 
 def scoped(scope):
-    """fium scope's answer as task ids: '*' is every default task."""
+    """fium affects's answer as task ids: '*' is every default task."""
     return [t['id'] for t in load_tasks([])] if scope['tasks'] == '*' else list(scope['tasks'])
 
 
@@ -44,17 +44,17 @@ def expected_tokens(tasks, reps, baseline):
 
 
 def default_tasks(baseline):
-    """The tasks the change since baseline.json was last refreshed can move (fium scope over
+    """The tasks the change since baseline.json was last refreshed can move (fium affects over
     affects.json), or None when fium is missing, so every default task runs."""
     rev = subprocess.run(['git', '-C', ROOT, 'log', '-1', '--format=%h', '--', 'tests/eval/baseline.json'],
                          capture_output=True, text=True).stdout.strip() or baseline.get('meta', {}).get('rev')
     if not rev or not os.path.exists(FIUM):
         return None, rev
-    r = subprocess.run(scope_command(rev), capture_output=True, text=True)
+    r = subprocess.run(affects_command(rev), capture_output=True, text=True)
     try:
         return scoped(json.loads(r.stdout)), rev
     except (ValueError, KeyError):
-        sys.exit(f'run.py: fium scope failed: {(r.stderr or r.stdout).strip()[:300]}')
+        sys.exit(f'run.py: fium affects failed: {(r.stderr or r.stdout).strip()[:300]}')
 
 
 def load_tasks(names):
@@ -129,7 +129,7 @@ def main():
     ap = argparse.ArgumentParser(prog='run.py', description=run.__doc__.split('\n\n')[0])
     ap.add_argument('--file', required=True, help='scratch Figma file URL')
     ap.add_argument('--skill-dir', default=ROOT, help='copy of the skill to measure (default: this repo)')
-    ap.add_argument('--tasks', default='', help='comma-separated task ids (default: the tasks fium scope says the change since the baseline can move)')
+    ap.add_argument('--tasks', default='', help='comma-separated task ids (default: the tasks fium affects says the change since the baseline can move)')
     ap.add_argument('--reps', type=int, default=3)
     ap.add_argument('--out', default=os.path.join(runs_dir(), 'results.json'))
     ap.add_argument('--keep', action='store_true', help="leave each rep's pages in the file")
@@ -159,8 +159,8 @@ def main():
         if names == []:
             sys.exit(f'run.py: the change since {rev} moves no eval task (affects.json): re-judge it offline with '
                      'reparse.py and gate.py on kept runs, or pass --tasks')
-        print(f"run.py: tasks from fium scope since {rev}: {', '.join(names)}" if names is not None
-              else 'run.py: no fium scope; every default task', file=sys.stderr)
+        print(f"run.py: tasks from fium affects since {rev}: {', '.join(names)}" if names is not None
+              else 'run.py: no fium affects; every default task', file=sys.stderr)
     tasks = load_tasks(names or [])
     print(f"run.py: {', '.join(t['id'] for t in tasks)} x {a.reps} reps, about "
           f"{expected_tokens([t['id'] for t in tasks], a.reps, baseline) / 1e6:.1f}M tokens at baseline medians", file=sys.stderr)

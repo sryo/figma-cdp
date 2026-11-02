@@ -498,7 +498,7 @@ class Runs(unittest.TestCase):
 
 
 class Scope(unittest.TestCase):
-    """run.py's default --tasks: what fium scope says the change since the baseline can move."""
+    """run.py's default --tasks: what fium affects says the change since the baseline can move."""
 
     def test_scope_picks_the_tasks_and_prices_them(self):
         every = [t['id'] for t in plan.load_tasks([])]
@@ -513,8 +513,8 @@ class Scope(unittest.TestCase):
     def test_gate_scopes_a_stamped_run_to_what_its_commit_can_move(self):
         import gate
         self.assertIsNone(gate.default_tasks({'meta': {}}), 'an unstamped run is gated on every task it shares')
-        cmd = gate.scope_command('aaa1111', 'bbb2222')
-        self.assertEqual(cmd[1:3], ['scope', 'aaa1111..bbb2222'])
+        cmd = gate.affects_command('aaa1111', 'bbb2222')
+        self.assertEqual(cmd[1:3], ['affects', 'aaa1111..bbb2222'])
 
     def test_run_selection_is_tooling_and_run_py_is_the_harness(self):
         """plan.py chooses and prices runs; run.py seeds pages and wraps scorers, so only it moves every task."""
@@ -528,9 +528,9 @@ class Scope(unittest.TestCase):
             self.assertTrue(hasattr(run, name), f'run.py lost {name}')
 
     def test_scope_asks_fium_for_the_change_since_the_baseline_was_refreshed(self):
-        cmd = plan.scope_command('abc1234')
-        self.assertEqual(cmd[1:3], ['scope', 'abc1234..HEAD'])
-        self.assertEqual(cmd[cmd.index('--affects') + 1], os.path.join(HERE, 'affects.json'))
+        cmd = plan.affects_command('abc1234')
+        self.assertEqual(cmd[1:3], ['affects', 'abc1234..HEAD'])
+        self.assertEqual(cmd[cmd.index('--rules') + 1], os.path.join(HERE, 'affects.json'))
         self.assertIn('--json', cmd)
 
 
