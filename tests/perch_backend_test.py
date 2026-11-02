@@ -1176,6 +1176,19 @@ class CapturePerch(Harness):
         self.assertIn('close it manually', r.stderr)
         self.assertEqual(len(self.calls('close_tab')), 1)
 
+    def test_safari_redirect_never_closes_a_refreshed_handle(self):
+        # The user's own Safari tab shows the redirect target: a handle refreshed by URL would be theirs.
+        target = 'https://example.com/elsewhere'
+        user = {'app': 'Safari', 'tabId': 'safari:1.0.user', 'url': target, 'title': 'Elsewhere'}
+        _, _, r = self.walk('page', '0', FIGMA_CAPTURE_APP='Safari', PERCH_STUB_REDIRECT=target,
+                            PERCH_STUB_TABS=json.dumps([user]))
+        self.assertNotEqual(r.returncode, 0)
+        closes = [c['args']['tabId'] for c in self.calls('close_tab')]
+        self.assertEqual(len(closes), 1, closes)
+        self.assertNotEqual(closes[0], user['tabId'])
+        self.assertTrue(closes[0].startswith('safari:'), closes)
+        self.assertIn('close it manually', r.stderr)
+
     def test_walk_ignores_a_show_env_var(self):
         # Showing is a per-call flag: an env var would stay on in a daemon started with it.
         _, _, r = self.walk('page', '0', FIGMA_CAPTURE_SHOW='1')
