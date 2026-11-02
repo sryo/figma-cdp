@@ -441,6 +441,49 @@ class Gate(unittest.TestCase):
         self.assertEqual({k: gate.fium(r)[k] for k in ('commit', 'dirty')}, {'commit': 'abc1234', 'dirty': True}, 'fium stamps a run with its commit')
 
 
+    def stream(self, model, version='2.1.0', duration_ms=90000):
+        return [json.dumps({'type': 'system', 'subtype': 'init', 'model': model, 'claude_code_version': version, 'skills': []}),
+                json.dumps({'type': 'result', 'num_turns': 3, 'duration_ms': duration_ms, 'total_cost_usd': 1.0,
+                            'usage': {'input_tokens': 10, 'output_tokens': 5}})]
+
+    def test_fium_export_stamps_the_model_and_cli_version_from_the_transcript(self):
+        """The model comes from the stream's init event, so a run on the CLI default is stamped too."""
+        import gate
+        m, _ = session.parse_stream(self.stream('claude-opus-5-5'))
+        self.assertEqual((m['model'], m['claude_code_version']), ('claude-opus-5-5', '2.1.0'))
+        r = self.result(recon=[dict(self.rep(), **m), dict(self.rep(), **m)])
+        self.assertEqual(gate.fium(r)['env'], {'model': 'claude-opus-5-5', 'claude_code_version': '2.1.0'})
+        r['meta']['model'] = 'claude-opus-5-5'
+        for rep in r['tasks']['recon']['reps']:
+            del rep['model'], rep['claude_code_version']
+        self.assertEqual(gate.fium(r)['env'], {'model': 'claude-opus-5-5'}, 'an unstamped transcript falls back to --model')
+
+    def test_another_model_is_not_comparable(self):
+        import gate
+        if not os.path.exists(gate.FIUM):
+            self.skipTest('no fium at ' + gate.FIUM)
+        def res(model):
+            m, _ = session.parse_stream(self.stream(model))
+            return self.result(recon=[dict(self.rep(), **m), dict(self.rep(), **m)])
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {}
+            for name, model in (('base', 'claude-opus-5-5'), ('same', 'claude-opus-5-5'), ('other', 'claude-sonnet-5-5')):
+                paths[name] = os.path.join(tmp, name + '.json')
+                with open(paths[name], 'w') as f:
+                    json.dump(res(model), f)
+            self.assertEqual(gate.gate(paths['base'], paths['same'], tasks={'recon'}), 0)
+            import contextlib, io
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = gate.gate(paths['base'], paths['other'], tasks={'recon'})
+            self.assertEqual(code, 1)
+            self.assertIn('not comparable', buf.getvalue())
+
+    def test_startup_is_its_own_time_metric(self):
+        import gate
+        r = self.result(recon=[dict(self.rep(), startup_s=4.0), dict(self.rep(), startup_s=6.0)])
+        self.assertEqual(gate.fium(r)['metrics']['recon.startup_s'], {'dir': 'lower', 'kind': 'time', 'samples': [4.0, 6.0]})
+
     def test_noise_file_forgives_one_more_of_the_rare_counts_on_every_task(self):
         with open(os.path.join(HERE, 'noise.json')) as f:
             noise = json.load(f)
@@ -482,6 +525,15 @@ class Gate(unittest.TestCase):
 
 class Runs(unittest.TestCase):
     """A live run's results land outside the repo, in fium's runs folder (fium RULES K2)."""
+
+    def test_goals_run_cells_pass_eval_reps(self):
+        """A loop's attempt runs 2 reps unless EVAL_REPS says otherwise; run.py's own default is for a baseline."""
+        with open(os.path.join(ROOT, 'GOALS.md')) as f:
+            cells = [l for l in f if 'tests/eval/run.py' in l]
+        self.assertTrue(cells)
+        for l in cells:
+            self.assertIn('--reps "${EVAL_REPS:-2}"', l)
+
 
     def test_results_default_to_fium_home_runs_named_after_the_main_checkout(self):
         old = os.environ.get('FIUM_HOME')
@@ -575,6 +627,47 @@ class Stream(unittest.TestCase):
             res = {'tasks': {'layout': run.summarize([{'rep': 1, 'turns': 4, 'copy': 1, 'wall_s': 9, 'passed': True}])}}
             m = reparse.reparse(res, d)['tasks']['layout']['median']
             self.assertEqual((m['turns'], m['copy'], m['wall_s'], m['cost_usd']), (14, 1, 9, 2.0))
+
+    def test_wall_time_is_the_sessions_own_duration(self):
+        """wall_s is the result event's duration_ms, so the CLI's cold start is left out of it."""
+        m, _ = session.parse_stream([json.dumps({'type': 'result', 'num_turns': 1, 'duration_ms': 91250, 'total_cost_usd': 1.0})])
+        self.assertEqual(m['wall_s'], 91.25)
+
+    def test_run_session_splits_startup_from_wall_and_warms_the_daemon_first(self):
+        """startup_s is the process's wall time minus duration_ms; the skill's perch daemon is warmed
+        with the session's env before the clock starts."""
+        calls = []
+        saved = run.warm
+        run.warm = lambda a, env: calls.append((a.skill_dir, env['FIGMA_BACKEND']))
+        try:
+            a = types.SimpleNamespace(file=FILE, skill_dir=ROOT, claude=os.path.join(HERE, 'offline', 'fake_claude.py'),
+                                      model=None, max_budget=None, tab=None, transcripts=None, session_timeout=60)
+            with tempfile.TemporaryDirectory() as tmp:
+                m, _ = run.run_session({'prompt': 'x {FILE_URL}'}, {'task': 't', 'rep': 1, 'pageId': '1:2', 'pageName': 'p'}, a, tmp)
+        finally:
+            run.warm = saved
+        self.assertEqual(calls, [(ROOT, 'perch')])
+        self.assertEqual(m['wall_s'], 0.25, 'from the fake transcript\'s duration_ms')
+        self.assertGreater(m['startup_s'], 0)
+        self.assertIn('startup_s', run.COST)
+
+    def test_reparse_is_deterministic(self):
+        """The same stored transcripts give the same metrics every time, and a reparsed run reparses to itself."""
+        import copy, reparse
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run([sys.executable, os.path.join(HERE, 'offline', 'fake_claude.py'), '-p', '/figma-eval:figma-cdp x',
+                                '--plugin-dir', session.make_plugin(ROOT, d), '--setting-sources', 'project',
+                                '--strict-mcp-config', '--allowedTools', 'Bash'], capture_output=True, text=True, env=session.clean_env())
+            self.assertEqual(r.returncode, 0, r.stderr)
+            for n in (1, 2):
+                with open(os.path.join(d, f'layout-{n}.jsonl'), 'w') as f:
+                    f.write(r.stdout)
+            res = {'tasks': {'layout': run.summarize([{'rep': n, 'copy': 1, 'wall_s': 3.0, 'passed': True} for n in (1, 2)])}}
+            once = reparse.reparse(copy.deepcopy(res), d)
+            self.assertEqual(once, reparse.reparse(copy.deepcopy(res), d))
+            self.assertEqual(once, reparse.reparse(copy.deepcopy(once), d))
+            rep = once['tasks']['layout']['reps'][0]
+            self.assertEqual((rep['wall_s'], rep['startup_s']), (0.25, 2.75), 'an old wall_s keeps its startup share')
 
     def test_no_result_event_is_a_session_error(self):
         m, _ = session.parse_stream(['{"type":"system","subtype":"init","skills":[]}', 'not json'])

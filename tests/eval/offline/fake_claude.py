@@ -19,7 +19,7 @@ if 'top-level frames' in prompt:
     answer = ('Onboarding / Step 1: 375×812, 3 text layers. Onboarding / Step 2: 375×812, 2 text layers. '
               'Paywall: 390×844, 4 text layers.')
 events = [
-    {'type': 'system', 'subtype': 'init', 'skills': ['figma-eval:figma-cdp'], 'tools': ['Bash']},
+    {'type': 'system', 'subtype': 'init', 'model': 'claude-fake-1', 'claude_code_version': '9.9.9', 'skills': ['figma-eval:figma-cdp'], 'tools': ['Bash']},
     {'type': 'assistant', 'parent_tool_use_id': None, 'message': {'content': [
         {'type': 'text', 'text': 'Reading the page.'},
         {'type': 'tool_use', 'id': 't1', 'name': 'Bash', 'input': {}}]}},
@@ -29,7 +29,7 @@ events = [
     {'type': 'assistant', 'parent_tool_use_id': 't2', 'message': {'content': [
         {'type': 'tool_use', 'id': 't3', 'name': 'Read', 'input': {}}]}},
     {'type': 'user', 'parent_tool_use_id': 't2', 'message': {'content': [{'type': 'tool_result', 'tool_use_id': 't3', 'content': 'ok'}]}},
-    {'type': 'result', 'subtype': 'success', 'is_error': False, 'num_turns': 4, 'result': answer,
+    {'type': 'result', 'subtype': 'success', 'is_error': False, 'num_turns': 4, 'duration_ms': 250, 'result': answer,
      'total_cost_usd': 0.5, 'usage': {'input_tokens': 1},
      'modelUsage': {'opus': {'inputTokens': 100, 'outputTokens': 50, 'cacheReadInputTokens': 1000, 'cacheCreationInputTokens': 200},
                     'haiku': {'inputTokens': 10, 'outputTokens': 5, 'cacheReadInputTokens': 0, 'cacheCreationInputTokens': 0}}},

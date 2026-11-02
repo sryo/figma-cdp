@@ -166,6 +166,8 @@ class Guard(unittest.TestCase):
         git(self.repo, 'init', '-q', '-b', 'main')
         for p in ('figma_lib.js', 'tests/eval/scorers/effects.js', 'tests/probes/proto.json', 'tests/eval/baseline.json'):
             write(self.repo, p)
+        with open(os.path.join(ROOT, 'bench', 'judge')) as f:
+            write(self.repo, 'bench/judge', f.read())
         git(self.repo, 'add', '-A')
         git(self.repo, 'commit', '-q', '-m', 'root')
         git(self.repo, 'checkout', '-q', '-b', 'case/x')
@@ -181,7 +183,22 @@ class Guard(unittest.TestCase):
 
     def test_the_fium_gate_and_its_noise_are_judges(self):
         for p in ('tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/reparse.py'):
-            self.assertTrue(judge_guard.JUDGE.match(p), p)
+            self.assertTrue(judge_guard.is_judge(p, judge_guard.judges(ROOT)), p)
+
+    def test_the_guard_reads_bench_judge_as_fium_try_does(self):
+        """One list of what judges a change: the runner, scorers, seeds, fixtures, the budget and its pricing."""
+        js = judge_guard.judges(ROOT)
+        for p in ('bench/judge', 'tests/eval/run.py', 'tests/eval/session.py', 'tests/eval/plan.py', 'tests/eval/gate.py',
+                  'tests/eval/reparse.py', 'tests/eval/affects.json', 'tests/eval/seeds/effects.js', 'tests/eval/ops/setup.js',
+                  'tests/eval/fixtures/app/index.html', 'tests/eval/scorers/effects.js', 'tests/eval/tasks/recon.json',
+                  'tests/eval/lib.js', 'tests/eval/source.py', 'tests/budget_test.py', 'tests/token_estimate.py',
+                  'tests/probes/svg_paint.json'):
+            self.assertTrue(judge_guard.is_judge(p, js), p)
+        for p in ('SKILL.md', 'figma_lib.js', 'tests/gates_test.py', 'tests/eval/offline_test.py', 'tests/probes/svg_paint.js'):
+            self.assertFalse(judge_guard.is_judge(p, js), p)
+        write(self.repo, 'bench/judge', 'tests/eval/baseline.json\n')
+        self.commit('fix and edit the scorer', 'figma_lib.js', 'tests/eval/scorers/effects.js')
+        self.assertEqual(judge_guard.violations(self.repo), [], "the repo's own bench/judge decides")
 
     def test_a_commit_that_edits_its_own_judge_fails(self):
         self.commit('loosen the scorer and patch the lib', 'figma_lib.js', 'tests/eval/scorers/effects.js')
@@ -230,7 +247,8 @@ class Verify(unittest.TestCase):
         for p in ('tests/figma_lib_test.js', 'tests/snapshot_test.js', 'tests/api_test.mjs'):
             write(self.repo, p, "require('node:test').test('ok', () => {});\n" if not p.endswith('.mjs') else "import { test } from 'node:test'; test('ok', () => {});\n")
         write(self.repo, 'tests/eval/run.py', STAND_IN_RUN)
-        for p in ('tests/judge_guard.py', 'tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/affects.json', 'tests/known_losses.json'):
+        for p in ('bench/judge', 'tests/judge_guard.py', 'tests/eval/gate.py', 'tests/eval/noise.json', 'tests/eval/affects.json', 'tests/known_losses.json'):
+            os.makedirs(os.path.dirname(os.path.join(self.repo, p)), exist_ok=True)
             shutil.copy(os.path.join(ROOT, p), os.path.join(self.repo, p))
         for t in ('recon', 'effects', 'fidelity-edit', 'capture'):
             write(self.repo, f'tests/eval/tasks/{t}.json', json.dumps({'id': t}))
