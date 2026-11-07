@@ -1,3 +1,5 @@
+<img src="logo.svg" alt="figma-cdp logo" width="128">
+
 # figma-cdp
 
 figma-cdp builds Figma screens from your code or a plain description, using your real copy, colors, spacing and components. If your repo has a DESIGN.md, it also keeps design and code in sync: it shows where Figma and the code disagree, and proposes the fix as a pull request or a new page in Figma, never changing either on its own.
