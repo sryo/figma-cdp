@@ -1,4 +1,4 @@
-<img src="logo.svg" alt="figma-cdp logo" width="128">
+<img src="logo.svg" alt="figma-cdp" width="128">
 
 # figma-cdp
 
