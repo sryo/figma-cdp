@@ -178,6 +178,8 @@ function createFigma() {
       },
       get(target, k) {
         if (k === '_raw') return target;
+        // A group Figma deleted when its last child left reads as gone, as in Figma.
+        if (target._emptied && k === 'name') throw new Error('in get_name: The node with id "' + target.id + '" does not exist');
         if (k in api) return api[k];
         if (k === 'layoutSizingHorizontal') return target._sizing ? target._sizing.h : undefined;
         if (k === 'layoutSizingVertical') return target._sizing ? target._sizing.v : undefined;
@@ -347,6 +349,22 @@ function createFigma() {
     return n;
   }
 
+  // flatten / union / subtract: one node over the nodes' bounds, the first node's paints; the
+  // nodes are consumed, and a group or frame left empty goes with them, as in Figma.
+  function combine(kind, nodes, parent, index, op) {
+    nodes = nodes.slice();
+    const v = makeNode(kind), first = nodes[0];
+    const x = Math.min(...nodes.map((n) => n.x)), y = Math.min(...nodes.map((n) => n.y));
+    Object.assign(v, { x, y, width: Math.max(...nodes.map((n) => n.x + n.width)) - x, height: Math.max(...nodes.map((n) => n.y + n.height)) - y,
+      fills: clone(first.fills), strokes: clone(first.strokes), strokeWeight: first.strokeWeight });
+    if (op) v.booleanOperation = op;
+    const at = parent || first.parent;
+    const olds = nodes.map((n) => n.parent);
+    nodes.forEach((n) => n.remove());
+    insert(at, v, index == null ? at._raw.children.length : Math.min(index, at._raw.children.length));
+    olds.forEach((p) => { if (p && p !== at && !p.removed && (p.type === 'GROUP') && !p.children.length) { p._raw._emptied = true; p.remove(); } });
+    return v;
+  }
   const figma = {
     mixed,
     root,
@@ -387,36 +405,54 @@ function createFigma() {
     base64Decode: (s) => Uint8Array.from(Buffer.from(s, 'base64')),
     // A frame the svg's width/height with one VECTOR per shape element, each 10x8 and placed one
     // below the other (the real call places them where the path data draws them); a stroke /
-    // fill attribute on the element or the <svg> becomes its paint.
+    // fill attribute on the element or the <svg> becomes its paint. A <g> becomes a GROUP, and an
+    // element's id its layer name, as the real call does; <defs>, <clipPath>, <mask>, <pattern>,
+    // <filter> and <style> content draws nothing.
     createNodeFromSvg: (svg) => {
       if (!/^\s*<svg/.test(svg)) throw new Error('bad svg');
       const attr = (s, k) => { const m = new RegExp('\\s' + k + '="([^"]*)"').exec(s); return m && m[1]; };
       const root = /^\s*<svg[^>]*>/.exec(svg)[0];
       const f = create('FRAME');
       f.resize(+attr(root, 'width') || 24, +attr(root, 'height') || 24);
-      (svg.match(/<(path|circle|rect|line|polyline|polygon|ellipse)\b[^>]*>/g) || []).forEach((el, i) => {
+      const stack = [f], hidden = [];
+      let i = 0;
+      const re = /<(\/?)([\w:-]+)\b([^>]*?)(\/?)>/g;
+      let m;
+      re.lastIndex = root.length;
+      while ((m = re.exec(svg))) {
+        const [, close, tag, attrs, self] = m;
+        if (/^(defs|clipPath|mask|pattern|filter|style|linearGradient|radialGradient|symbol)$/.test(tag)) {
+          if (close) hidden.pop(); else if (!self) hidden.push(tag);
+          continue;
+        }
+        if (hidden.length) continue;
+        if (tag === 'g') {
+          if (close) { if (stack.length > 1) stack.pop(); continue; }
+          const g = makeNode('GROUP');
+          g.name = attr(m[0], 'id') || 'Group';
+          const top = stack[stack.length - 1];
+          insert(top, g, top._raw.children.length);
+          if (!self) stack.push(g);
+          continue;
+        }
+        if (close || !/^(path|circle|rect|line|polyline|polygon|ellipse)$/.test(tag)) continue;
         const v = makeNode('VECTOR');
-        insert(f, v, i);
+        const top = stack[stack.length - 1];
+        insert(top, v, top._raw.children.length);
         Object.assign(v, { x: 3, y: 2 + i * 9, width: 10, height: 8 });
-        const stroke = attr(el, 'stroke') || attr(root, 'stroke'), fill = attr(el, 'fill') || attr(root, 'fill');
+        i++;
+        if (attr(m[0], 'id')) v.name = attr(m[0], 'id');
+        const stroke = attr(m[0], 'stroke') || attr(root, 'stroke'), fill = attr(m[0], 'fill') || attr(root, 'fill');
         v.strokes = stroke && stroke !== 'none' ? solid(0, 0, 0) : [];
-        v.strokeWeight = +(attr(el, 'stroke-width') || attr(root, 'stroke-width') || 1);
+        v.strokeWeight = +(attr(m[0], 'stroke-width') || attr(root, 'stroke-width') || 1);
         v.fills = fill === 'none' ? [] : solid(0, 0, 0);
-      });
+      }
       return f;
     },
-    // One VECTOR over the nodes' bounds in parent, with the first node's paints.
-    flatten(nodes, parent) {
-      nodes = nodes.slice();
-      const v = makeNode('VECTOR'), first = nodes[0];
-      const x = Math.min(...nodes.map((n) => n.x)), y = Math.min(...nodes.map((n) => n.y));
-      Object.assign(v, { x, y, width: Math.max(...nodes.map((n) => n.x + n.width)) - x, height: Math.max(...nodes.map((n) => n.y + n.height)) - y,
-        fills: clone(first.fills), strokes: clone(first.strokes), strokeWeight: first.strokeWeight });
-      const at = parent || first.parent;
-      insert(at, v, at._raw.children.length);
-      nodes.forEach((n) => n.remove());
-      return v;
-    },
+    // One VECTOR over the nodes' bounds in parent (at index, else last), with the first node's paints.
+    flatten(nodes, parent, index) { return combine('VECTOR', nodes, parent, index); },
+    union(nodes, parent, index) { return combine('BOOLEAN_OPERATION', nodes, parent, index, 'UNION'); },
+    subtract(nodes, parent, index) { return combine('BOOLEAN_OPERATION', nodes, parent, index, 'SUBTRACT'); },
     getNodeById() { throw new Error('getNodeById is not supported with documentAccess: dynamic-page; use getNodeByIdAsync'); },
     getNodeByIdAsync: async (id) => (byId[id] && !byId[id].removed ? byId[id] : null),
     // Every family loads except "Missing", so font fallback paths are exercised.
