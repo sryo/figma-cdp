@@ -1102,16 +1102,18 @@
     nodes = kept;
   }
 
-  var rootInv = new DOMMatrix().translate(window.scrollX, window.scrollY);
-  visit(document.documentElement, -1, rootInv, 0);
+  // figma_walk_prep.js may have loaded the page again in a frame of the capture width: walk that.
+  var WIN = window.__fxWalkWin || window, DOC = WIN.document;
+  var rootInv = new DOMMatrix().translate(WIN.scrollX, WIN.scrollY);
+  visit(DOC.documentElement, -1, rootInv, 0);
   measurePseudos('::before');
   measurePseudos('::after');
   compact();
   await resolveAssets();
 
   return {
-    meta: { url: location.href, title: document.title,
-      viewport: { w: window.innerWidth, h: window.innerHeight }, dpr: window.devicePixelRatio,
+    meta: { url: location.href, title: DOC.title,
+      viewport: { w: WIN.innerWidth, h: WIN.innerHeight }, dpr: window.devicePixelRatio,
       nodeCount: nodes.length },
     flagged: flagged,
     assets: assets,

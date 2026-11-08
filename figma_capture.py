@@ -102,7 +102,13 @@ def walk(a):
         settle = max(0, round(float(a.wait_ms)))
     except ValueError:
         sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
-    walker = read_sibling('figma_walker.js').decode()
+    walker = read_sibling('figma_walker.js').decode().rstrip().rstrip(';')
+    prep = read_sibling('figma_walk_prep.js').decode().rstrip().rstrip(';')
+    cfg = {'width': a.width, 'height': 900, 'scheme': a.scheme, 'scroll': not a.no_scroll}
+    # One eval: the prep readies the page (a frame at the width, light mode, scrolled through),
+    # then the walker walks it and carries the prep's notes back.
+    walker = ('(async function () {\n  var __prep = await (' + prep + ')(' + json.dumps(cfg, sort_keys=True) + ');\n'
+              '  var __r = await ' + walker + ';\n  if (__r && typeof __r === "object") __r.prep = __prep;\n  return __r;\n})()')
     srcs = [walker]
     if os.environ.get('FIGMA_CAPTURE_PREP'):
         srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
@@ -120,6 +126,12 @@ def walk(a):
         sys.exit(f'figma_capture.py: walker failed — {err}')
     if not isinstance(result, dict) or 'nodes' not in result:
         sys.exit(f'figma_capture.py: walker result missing nodes — {str(result)[:200]}')
+    for note in (result.get('prep') or {}).get('notes') or []:
+        print(f'figma_capture.py: {note}', file=sys.stderr)
+    got = ((result.get('meta') or {}).get('viewport') or {}).get('w')
+    if a.width and got and round(got) != a.width:
+        print(f'figma_capture.py: the page laid out at {round(got)}px, not {a.width}px (the browser window\'s width, and the page '
+              'would not load in a frame): widen the window, or walk in a room (rooms up <name>); --width 0 accepts it', file=sys.stderr)
 
     slug = re.sub(r'[^a-z0-9]+', '-', re.sub(r'^https?://', '', a.url).lower()).strip('-')[:60] or 'page'
     out = f'/tmp/figma_capture_{slug}.json'
@@ -340,6 +352,12 @@ def main():
     w.add_argument('wait_ms', nargs='?', default='2000')
     w.add_argument('--app', default=os.environ.get('FIGMA_CAPTURE_APP'),
                    help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one)')
+    w.add_argument('--width', type=int, default=1440, metavar='PX',
+                   help='lay the page out this wide (default 1440): a window of another width loads it in a frame that wide; 0 keeps the window\'s')
+    w.add_argument('--scheme', choices=('light', 'page'), default='light',
+                   help='light (default) applies the page\'s light color-scheme rules whatever the browser\'s setting; page leaves them')
+    w.add_argument('--no-scroll', action='store_true',
+                   help='walk without first scrolling through the page (scrolling loads lazy and scroll-revealed content)')
     w.add_argument('--show', action='store_true',
                    help='Arc only: show the page tab, taking focus; other browsers run it in the background')
     i = sub.add_parser('import', help='replay a spec into the Figma tab')
