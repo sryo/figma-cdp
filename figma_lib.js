@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 14;
+  var V = 15;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -969,6 +969,7 @@
     danglingReactions: 'point the reaction at an existing node or remove it',
     lostHover: "re-add the main component's ON_HOVER reaction to the instance (gotchas #17)",
     overlayNotFullSize: 'size the overlay frame to the screen, or open it as a positioned overlay',
+    clippedContent: "its content runs past its clipped edge: resize() sets an auto-layout frame's sizing to FIXED, so set layoutSizingHorizontal/Vertical = 'HUG' after resize (gotchas #12)",
   };
 
   // Structural problems under rootId (default: the current page): counts (all best at 0) plus up to
@@ -983,7 +984,7 @@
     var lists = {
       rawRepeats: [], fixedInFlow: [], absDefaultConstraints: m.absDefault.slice(), groups: [], defaultNames: m.defaultNamed,
       unboundPaints: [], textFixedInAutoLayout: [], textOverflow: [], componentsWithoutAutoLayout: [], unlinkedProps: [],
-      danglingReactions: [], lostHover: [], overlayNotFullSize: [],
+      danglingReactions: [], lostHover: [], overlayNotFullSize: [], clippedContent: [],
     };
     patterns(nodes).forEach(function (g) { lists.rawRepeats = lists.rawRepeats.concat(g.nodes); });
     lists.fixedInFlow = m.fixedFlow.filter(function (c) { return c.type !== 'INSTANCE' && c.type !== 'TEXT'; });
@@ -994,6 +995,11 @@
     own.forEach(function (n) {
       var p = n.parent;
       if (n.type === 'GROUP') lists.groups.push(n);
+      // An auto-layout frame whose fixed length hides part of its own flow (resize() fixed it).
+      if (isAL(n) && n.clipsContent && n.primaryAxisSizingMode === 'FIXED' && n.children && n.children.some(function (c) {
+        if (c.visible === false || c.layoutPositioning === 'ABSOLUTE') return false;
+        return n.layoutMode === 'VERTICAL' ? c.y + c.height > n.height + 1 : c.x + c.width > n.width + 1;
+      })) lists.clippedContent.push(n);
       if (n.type === 'COMPONENT' && n.children && n.children.length && !isAL(n)) lists.componentsWithoutAutoLayout.push(n);
       if (n.type === 'TEXT' && isAL(p) && n.layoutPositioning !== 'ABSOLUTE') {
         if (n.textAutoResize === 'NONE') lists.textFixedInAutoLayout.push(n);

@@ -111,6 +111,7 @@ child.resize(200, 40);  // resets to FIXED!
 child.resize(200, 40);
 child.layoutSizingHorizontal = 'FILL';
 ```
+An auto-layout frame too: `resize()` fixes both of its sizing modes, so a list set to hug and then resized stops growing and clips what it holds; `__fx.audit` lists it as `clippedContent`.
 
 ## 13. Top-level `await` or `return` makes the script an async body: its last expression is no longer the result
 The helpers run a plain script as a program (result: its last expression) and one with top-level `await` or `return` as an async function body (result: what it returns).
