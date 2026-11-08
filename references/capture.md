@@ -294,7 +294,7 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `iframe` `"cross-origin"` | empty placeholder frame `[capture:iframe <origin>]` |
 | `bg` | `fills = [{type:'SOLID', color:{r,g,b}, opacity:a}]` |
 | `image` (asset kind image) | `fills += [{type:'IMAGE', imageHash: createImage(base64Decode(b64)).hash, scaleMode: mode}]` after `bg` |
-| `image` (asset kind svg) | `figma.createNodeFromSvg(svg)` resized to `rect`, in place of a frame |
+| `image` (asset kind svg) | the svg through `__fxSvg.prepare`, `figma.createNodeFromSvg`, `__fxSvg.finish` (figma_svg.js: masks, patterns, CSS colors, shadows) resized to `rect`, in place of a frame |
 | `image` (asset with `error`) | no image fill, `[capture:image <error>]` |
 | `radius` / `radii` | `cornerRadius` / `topLeftRadius topRightRadius bottomRightRadius bottomLeftRadius` |
 | `border` | `strokes = [SolidPaint]`, `strokeWeight` (number) or `strokeTop/Right/Bottom/LeftWeight` (array), `strokeAlign = 'INSIDE'` |

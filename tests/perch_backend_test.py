@@ -544,12 +544,15 @@ class PerchBackend(Harness):
         return out
 
     def lib_source(self):
-        with open(os.path.join(ROOT, 'figma_lib.js')) as f:
-            return f.read()
+        out = ''
+        for name in ('figma_svg.js', 'figma_lib.js'):
+            with open(os.path.join(ROOT, name)) as f:
+                out += f.read() + '\n;'
+        return out
 
     def test_lib_installs_fx_before_the_script(self):
-        r = self.run_helper('figma_run.py', '--lib', '-e', '[typeof __fx.inventory, typeof __fx.audit]')
-        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, ['function', 'function']), r.stderr)
+        r = self.run_helper('figma_run.py', '--lib', '-e', '[typeof __fx.inventory, typeof __fx.audit, typeof __fx.svg, typeof __fxSvg.prepare]')
+        self.assertEqual((r.returncode, json.loads(r.stdout)), (0, ['function'] * 4), r.stderr)
         self.assertTrue(self.sent_sources()[0].startswith(self.lib_source()))
 
     def test_lib_keeps_the_scripts_result(self):
@@ -579,8 +582,14 @@ class PerchBackend(Harness):
         self.assertTrue(first.startswith(self.lib_source()))
         self.assertNotIn('window.__fx', second)
 
+    def test_a_raw_svg_import_is_pointed_at_fx_svg(self):
+        raw = self.run_helper('figma_run.py', '-e', 'typeof figma.createNodeFromSvg("<svg/>")')
+        self.assertIn('__fx.svg(markup', raw.stderr)
+        fx = self.run_helper('figma_run.py', '--lib', '-e', 'typeof __fx.svg')
+        self.assertNotIn('__fx.svg(markup', fx.stderr, 'the library loading it does not count')
+
     def test_lib_missing_next_to_the_helper(self):
-        for name in ('figma_run.py', 'figma_backend.py'):
+        for name in ('figma_run.py', 'figma_backend.py', 'figma_svg.js'):
             shutil.copy(os.path.join(ROOT, name), self.tmp.name)
         r = subprocess.run([sys.executable, os.path.join(self.tmp.name, 'figma_run.py'), '--lib', self.js('a.js', '1')],
                            capture_output=True, text=True, env=self.helper_env({}))
@@ -1068,7 +1077,7 @@ class CapturePerch(Harness):
         # walk runs the figma_walker.js next to figma_capture.py, so this copy gets the DOM-free one.
         self.app = os.path.join(self.tmp.name, 'app')
         os.makedirs(self.app)
-        for name in ('figma_capture.py', 'figma_backend.py', 'figma_perch.mjs', 'figma_importer.js'):
+        for name in ('figma_capture.py', 'figma_backend.py', 'figma_perch.mjs', 'figma_importer.js', 'figma_svg.js'):
             shutil.copy(os.path.join(ROOT, name), self.app)
         with open(os.path.join(self.app, 'figma_walker.js'), 'w') as f:
             f.write(FAKE_WALKER)

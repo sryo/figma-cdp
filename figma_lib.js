@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 13;
+  var V = 14;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -549,6 +549,22 @@
     place(f, o);
     return f;
   }
+  // SVG markup as a node drawn the way a browser draws it: figma_svg.js rewrites what
+  // createNodeFromSvg would drop (masks, pattern fills, <style> and var() colors, currentColor,
+  // drop shadows) before the import and rebuilds the masks after. o: parent, name, vars
+  // ({'--name': value} for var()), color (currentColor, default #000000). Returns {node, notes}:
+  // notes name anything left unconverted.
+  async function svg(markup, o) {
+    o = o || {};
+    var S = window.__fxSvg;
+    if (!S) throw new Error('svg: window.__fxSvg is missing; run with figma_run.py --lib, which loads figma_svg.js');
+    var p = S.prepare(markup, o), f = figma.createNodeFromSvg(p.svg), done = S.finish(f);
+    if (o.name) f.name = o.name;
+    var parent = await parentOf(o);
+    if (parent) parent.appendChild(f);
+    return { node: f, notes: p.notes.concat(done.notes) };
+  }
+
   // An SVG as one auto-layout frame (component: true for a component) that draws where the SVG does:
   // paths sharing one paint flatten into a vector held in place by padding; paths with different
   // paints stay apart, absolute and scaling with the frame. One vector hugs: padding + vector is the SVG's size. color binds each vector's stroke, or its
@@ -564,7 +580,8 @@
       o = Object.assign({}, o, { component: true, name: 'Name=' + o.name, parent: set ? null : o.parent });
     }
     var parent = await parentOf(o);
-    var f = figma.createNodeFromSvg(svg);
+    var S = window.__fxSvg, f = figma.createNodeFromSvg(S ? S.prepare(svg).svg : svg);
+    if (S) S.finish(f);
     var paint = function (k) { return JSON.stringify([k.fills, k.strokes, k.strokeWeight]); };
     var kids = f.children.slice();
     if (kids.length > 1 && kids.every(function (k) { return paint(k) === paint(kids[0]); })) figma.flatten(kids, f);
@@ -1118,7 +1135,7 @@
   }
 
   window.__fx = {
-    v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, linkCopies: linkCopies, autoLayout: autoLayout, text: text, instance: instance,
+    v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, svg: svg, linkCopies: linkCopies, autoLayout: autoLayout, text: text, instance: instance,
     bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
     presence: presence, stale: stale,

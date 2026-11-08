@@ -226,7 +226,8 @@
   function svgNodeFor(n, w, h) {
     var a = n.image && assets[n.image.asset];
     if (!a || a.kind !== 'svg' || a.error || !a.svg) return null;
-    var node = figma.createNodeFromSvg(a.svg);
+    var S = window.__fxSvg, node = figma.createNodeFromSvg(S ? S.prepare(a.svg).svg : a.svg);
+    if (S) S.finish(node);
     if (node.width > 0 && Math.abs(node.width - w) > 0.5) node.rescale(w / node.width);
     node.resize(w, h);
     return node;

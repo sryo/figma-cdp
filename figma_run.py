@@ -181,14 +181,18 @@ def timeout_note(error, rid):
     return f'{error}\nIt may still finish: figma_run.py --recover {rid} waits for it and prints its result'
 
 def with_lib(src):
-    """figma_lib.js (next to this script) in front of a wrapped script: the library installs
-    window.__fx, even when the script then fails to parse, and the script's value stays the result."""
-    lib = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'figma_lib.js')
-    try:
-        with open(lib, encoding='utf-8') as f:
-            return f.read() + '\n;' + src
-    except OSError:
-        sys.exit(f'figma_lib.js not found next to {os.path.basename(__file__)}')
+    """figma_svg.js and figma_lib.js (next to this script) in front of a wrapped script: they install
+    window.__fxSvg and window.__fx, even when the script then fails to parse, and the script's value
+    stays the result."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    out = ''
+    for name in ('figma_svg.js', 'figma_lib.js'):
+        try:
+            with open(os.path.join(here, name), encoding='utf-8') as f:
+                out += f.read() + '\n;'
+        except OSError:
+            sys.exit(f'{name} not found next to {os.path.basename(__file__)}')
+    return out + src
 
 # Plugin API errors name what failed, not what to do about it. Each pattern maps a known message
 # to its fix and the references/gotchas.md entry that explains it.
@@ -314,6 +318,10 @@ if opts['--where']:
 if bool(specs) + bool(shot) + bool(rec) != 1:
     usage('give scripts (<js_file>, - or -e <js>), or --screenshot or --recover alone')
 scripts = load(specs)
+# A raw import loses what the markup draws; say so where the agent wrote it (stderr: the result stays clean).
+if any('figma.createNodeFromSvg(' in src for _, src in scripts):
+    print('note: figma.createNodeFromSvg drops masks, pattern fills, <style>/var() colors and shadows, '
+          'and paints currentColor black; await __fx.svg(markup, {parent, vars, color}) (with --lib) keeps them', file=sys.stderr)
 # The library goes in front of the first script only; later scripts share its tab.
 rids = [rec] if rec else [uuid.uuid4().hex[:12] for _ in scripts or [None]]
 rid = rids[0]

@@ -17,7 +17,7 @@ figma.createFrame(): FrameNode
 figma.createSlice(): SliceNode
 figma.createSection(): SectionNode
 figma.createBooleanOperation(): BooleanOperationNode
-figma.createNodeFromSvg(svg: string): FrameNode
+figma.createNodeFromSvg(svg: string): FrameNode  // lossy: __fx.svg
 figma.createNodeFromJSXAsync(jsx): P<SceneNode>
 figma.createPage(): PageNode
 ```

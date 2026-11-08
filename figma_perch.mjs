@@ -67,9 +67,13 @@ export function timeoutMs(v) {
 function timeoutHint(ms, src) {
   const waited = takesTimeout ? `The script ran past the ${ms / 1000}s it was given (--timeout or FIGMA_TIMEOUT, in seconds, up to 300)`
     : "This perch awaits at most 30s; update perch to wait longer with --timeout";
-  let lib = "";
-  try { lib = readFileSync(new URL("figma_lib.js", import.meta.url), "utf8"); } catch { /* no lib to strip */ }
-  const own = lib && src.startsWith(lib) ? src.slice(lib.length) : src;
+  // --lib puts figma_svg.js and figma_lib.js in front, each followed by "\n;": strip them.
+  let own = src;
+  for (const name of ["figma_svg.js", "figma_lib.js"]) {
+    let lib = "";
+    try { lib = readFileSync(new URL(name, import.meta.url), "utf8") + "\n;"; } catch { /* no lib to strip */ }
+    if (lib && own.startsWith(lib)) own = own.slice(lib.length);
+  }
   return /loadAllPagesAsync/.test(own) ? `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window` : waited;
 }
 const UNDEFINED_HINT ="figma is undefined in this tab: ask the user to open and close any Figma plugin once (it takes their click in the Figma window; don't script it), then retry";

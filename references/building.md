@@ -134,12 +134,10 @@ if (existingFill.type === 'IMAGE') {
 ## SVG import
 
 ```js
-// Create a node from SVG string
-var svgNode = figma.createNodeFromSvg('<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z" fill="currentColor"/></svg>');
-svgNode.name = 'Icons/Warning';
-// Returns a FrameNode containing vector children
-// Resize as needed: svgNode.resize(48, 48);
+var r = await __fx.svg(markup, {parent, name: 'Illustration', vars: {'--paper': '#fff'}}); // r.node, r.notes
 ```
+
+Raw `figma.createNodeFromSvg` drops masks, patterns, `<style>`/`var()` colors and shadows; `__fx.svg` keeps them and lists the rest in `notes`.
 
 For an icon, use `__fx.icon(svg, {parent, name, component: true, color})` instead: it flattens paths that share a paint into one vector and holds it where the SVG draws it with auto-layout padding, so the icon hugs and audits clean. Moving an SVG's vectors into another frame by hand drops their offsets to 0,0.
 

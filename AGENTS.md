@@ -30,9 +30,11 @@ JSON return → final gate: __fx.audit + figma_fidelity.py against the manifest.
 
 **Token-cost tiers.** `SKILL.md` is loaded into every conversation that triggers the skill; every line is per-conversation cost. `figma-worker.md` plus the coordinator's filled slots ([Component plan], [Reuse] inventory lines, [Manifest] path) are loaded into every spawned worker; per-dispatch cost. Other `references/*.md` files load on demand, and workers read one only for an API the cheat sheet lacks.
 
-**Helpers run in place.** The coordinator and workers call `python3 <skill-dir>/figma_*.py` from the skill's base directory (pre-allowed as `Bash(python3 *figma_*.py *)`); helpers find their siblings (`figma_backend.py`, `figma_perch.mjs`, `figma_lib.js`, `figma_walker.js`, `figma_importer.js`) through their own real path, so nothing is copied to `/tmp`. Scripts go inline with `-e`, so write-and-run is one turn.
+**Helpers run in place.** The coordinator and workers call `python3 <skill-dir>/figma_*.py` from the skill's base directory (pre-allowed as `Bash(python3 *figma_*.py *)`); helpers find their siblings (`figma_backend.py`, `figma_perch.mjs`, `figma_svg.js`, `figma_lib.js`, `figma_walker.js`, `figma_importer.js`) through their own real path, so nothing is copied to `/tmp`. Scripts go inline with `-e`, so write-and-run is one turn.
 
 **Connection.** perch is the only backend: `figma_run.py` hands scripts to `figma_perch.mjs`, which imports perch's `handleCall` and runs them with `eval_js {world:"main", awaitPromise:true}` over AppleScript, so no browser needs a debugging port or shows a remote-debugging prompt. A perch room's tab runs unattended (minimized or locked). The setup lives in `references/connection.md`.
+
+**SVG import.** `figma.createNodeFromSvg` drops `<mask>`, pattern fills, `<style>` rules and `var()`, paints `currentColor` black and turns a drop-shadow filter into a blur of the shape. `figma_svg.js` (`window.__fxSvg`, versioned like the library and pinned in `tests/svg_test.js`) rewrites the markup into what it draws before the import and rebuilds each mask after it as a Figma mask, its layers applied in painting order. `--lib` loads it before `figma_lib.js` (`__fx.svg`, `__fx.icon`), and the capture import's reset eval loads it for the importer. `tests/svg_test.js` holds each rewrite; `prepare(svg, {masks: false})` leaves masks to a renderer, so a render of the rewrite can be compared with the original's.
 
 ## Reference file organization
 

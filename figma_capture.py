@@ -300,7 +300,7 @@ def import_spec(a):
     if budget <= 0:
         sys.exit('figma_capture.py: figma_importer.js leaves no room for nodes under the chunk ceiling')
 
-    evals = [('reset', reset_eval())]
+    evals = [('reset', read_sibling('figma_svg.js').decode() + '\n;' + reset_eval())]
     evals += list(asset_evals(spec.get('assets') or {}))
     start = 0
     for chunk in node_chunks(nodes, budget):
