@@ -66,5 +66,45 @@ class SvgPaint(unittest.TestCase):
         self.assertEqual([paint(s, 'stop-color') for s in stops], ['rgb(255, 0, 0)', 'rgb(0, 0, 0)'])
 
 
+
+@unittest.skipUnless(os.environ.get('FIGMA_LIVE') == '1', 'walks a page in a real browser (FIGMA_LIVE=1)')
+class Gaps(unittest.TestCase):
+    """What a capture used to lose: vertical text, text beside a hidden element, a tiled
+    background's tile, an SVG file an <image> shows, and content waiting to fade in."""
+    @classmethod
+    def setUpClass(cls):
+        p = subprocess.run([sys.executable, os.path.join(ROOT, 'figma_capture.py'), 'walk',
+                            'file://' + os.path.join(ROOT, 'tests', 'capture_gaps_fixture.html'), '500', '--width', '0'],
+                           capture_output=True, text=True, timeout=180)
+        assert p.returncode == 0, p.stderr
+        cls.stderr = p.stderr
+        with open(re.search(r'^spec: (\S+)', p.stdout, re.M).group(1)) as f:
+            cls.spec = json.load(f)
+        cls.nodes = cls.spec['nodes']
+
+    def node(self, cls_name):
+        return next(n for n in self.nodes if cls_name in (n.get('cls') or []))
+
+    def test_vertical_text_says_so(self):
+        self.assertEqual(self.node('vert')['styles'].get('writingMode'), 'vertical-rl')
+
+    def test_text_beside_a_hidden_element_is_kept(self):
+        # The <time> is inline text in its <p>, so its text, pseudo glyph included, is the <p>'s.
+        self.assertIn('\u201903', [n.get('text') for n in self.nodes])
+
+    def test_a_tiled_background_carries_its_tile(self):
+        img = self.node('tiled')['image']
+        self.assertEqual((img['mode'], img['tile']['w'], img['tile']['h'], img['tile']['repeat']), ('TILE', 6, 288, 'repeat-y'))
+
+    def test_an_svg_image_is_inlined_with_its_ids_prefixed(self):
+        svg = next(a['svg'] for a in self.spec['assets'].values() if 'with-image' in (a.get('svg') or ''))
+        self.assertNotIn('<image', svg)
+        self.assertRegex(svg, r'<svg x="10" y="5" width="40" height="40" viewBox="0 0 40 40">')
+        self.assertRegex(svg, r'id="fx\w+-0-dot"')
+
+    def test_content_waiting_to_fade_in_is_shown(self):
+        self.assertEqual(self.node('fade')['styles'].get('opacity', 1), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

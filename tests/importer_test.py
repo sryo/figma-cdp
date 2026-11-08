@@ -253,6 +253,56 @@ class Annotate(unittest.TestCase):
         self.assertNotIn('m', button['rep'])
 
 
+class Page(unittest.TestCase):
+    """What a browser paints that the captured boxes don't carry: the page's own background,
+    its viewport's clip, tiled backgrounds and vertical text."""
+
+    def test_a_page_with_no_background_is_white_and_clips_like_a_viewport(self):
+        spec, out = run_edited(lambda nodes: None)
+        root = out['node'](0)
+        self.assertEqual(root['fills'], [{'r': 1, 'g': 1, 'b': 1}])
+        self.assertTrue(root['clips'])
+
+    def test_the_body_background_paints_the_page(self):
+        def edit(nodes):
+            nodes[1]['tag'] = 'body'
+            nodes[1]['styles']['bg'] = {'r': 0.1, 'g': 0.2, 'b': 0.3, 'a': 1}
+        spec, out = run_edited(edit)
+        self.assertEqual(out['node'](0)['fills'], [{'r': 0.1, 'g': 0.2, 'b': 0.3}])
+
+    def test_a_tiled_svg_background_repeats_at_its_size(self):
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="600" viewBox="0 0 13 600"><path d="M8 0C9 300 7 600 9 600" fill="none" stroke="#131313" stroke-width="3.4"/></svg>'
+        spec = load_spec()
+        spec['assets'] = {'a9': {'kind': 'svg', 'svg': svg, 'w': 13, 'h': 600}}
+        n = spec['nodes'][2]
+        n.update({'rect': dict(n['rect'], w=52, h=490), 'text': '', 'runs': None, 'image': {'asset': 'a9', 'mode': 'TILE', 'tile': {'w': 6.24, 'h': 288, 'x': 0, 'y': 0, 'repeat': 'repeat-y'}}})
+        n.pop('lines', None)
+        with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+            json.dump(spec, f)
+        try:
+            out = run_stub(f.name)
+        finally:
+            os.unlink(f.name)
+        node = out['node'](n['i'])
+        tiles = [c for c in out['all'] if c['name'].startswith('[cap:%d] tile' % n['i'])]
+        self.assertEqual(len(tiles), 2, [c['name'] for c in out['all'] if '[cap:%d]' % n['i'] in c['name']])
+        self.assertEqual([(round(t['width'], 2), round(t['height'])) for t in tiles], [(6.24, 288)] * 2)
+        self.assertEqual(sorted(round(t['y']) for t in tiles), [0, 288])
+        self.assertTrue(node['clips'])
+
+    def test_vertical_text_reads_down_the_box(self):
+        def edit(nodes):
+            t = next(n for n in nodes if n.get('text') and not n.get('runs'))
+            t['rect'] = dict(t['rect'], w=14, h=228)
+            t['styles']['writingMode'] = 'vertical-rl'
+            t['lines'] = 1
+        spec, out = run_edited(edit)
+        t = next(n for n in spec['nodes'] if n['styles'].get('writingMode'))
+        node = out['node'](t['i'])
+        text = node if node['type'] == 'TEXT' else next(c for c in node['children'] if c['type'] == 'TEXT')
+        self.assertEqual(text['rotation'], -90)
+
+
 class Componentize(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

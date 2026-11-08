@@ -48,7 +48,11 @@ figma.createImage = (bytes) => { const img = createImage(bytes); imageCount++; r
 })().then(main).catch(e => { console.error(e && e.stack || e); process.exit(1); });
 
 function dumpNode(n) {
-  const out = { id: n.id, type: n.type, name: n.name, width: n.width, height: n.height };
+  const out = { id: n.id, type: n.type, name: n.name, width: n.width, height: n.height, x: n.x, y: n.y };
+  if (Array.isArray(n.fills)) out.fills = n.fills.map((f) => (f.type === 'SOLID' ? f.color : f.type));
+  if (n.clipsContent !== undefined) out.clips = n.clipsContent;
+  if (n.rotation) out.rotation = n.rotation;
+  if (n.strokeWeight !== undefined && n.type === 'VECTOR') out.strokeWeight = n.strokeWeight;
   if (n.layoutSizingHorizontal) out.sizing = [n.layoutSizingHorizontal, n.layoutSizingVertical];
   if (n.constraints) out.constraints = [n.constraints.horizontal, n.constraints.vertical];
   out.positioning = n.layoutPositioning;

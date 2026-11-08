@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- What a capture used to lose: tests/walker_live_test.py walks it. -->
+<html><head><meta charset="utf-8"><title>gaps</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; }
+  .year::before { content: "\2019"; }
+  .tiled { width: 52px; height: 490px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='600'%3E%3Cpath d='M8 0V600' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E") repeat-y left top / 6px 288px; }
+  .fade { opacity: 0; transition: opacity .5s; }
+</style></head>
+<body>
+  <p class="vert" style="writing-mode: vertical-rl; height: 200px">Vertical words</p>
+  <p><time class="year"><span style="display: none">20</span>03</time></p>
+  <div class="tiled"></div>
+  <svg aria-label="with-image" width="100" height="50" viewBox="0 0 100 50"><image href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Ccircle id='dot' cx='20' cy='20' r='10' fill='%23f00'/%3E%3C/svg%3E" x="10" y="5" width="40" height="40"/></svg>
+  <div class="fade">Faded in</div>
+</body></html>
