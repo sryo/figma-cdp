@@ -163,7 +163,8 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', self.js('a.js', 'figma.currentPage.name'), PERCH_STUB_FIGMA='0')
         self.assertEqual(r.returncode, 1)
         self.assertIn('open and close any Figma plugin once', r.stderr)
-        self.assertIn('ask the user', r.stderr)
+        self.assertIn('Actions', r.stderr, 'names the clicks')
+        self.assertIn('if the user lets you', r.stderr, 'the agent may do it itself, with the user\'s OK')
 
     def test_typeof_figma_undefined_is_a_result_not_an_error(self):
         r = self.run_helper('figma_run.py', self.js('a.js', 'typeof figma'), PERCH_STUB_FIGMA='0')
@@ -311,6 +312,14 @@ class PerchBackend(Harness):
             r = self.run_helper('figma_run.py', *many, self.js('a.js', '1'))
             self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.eval_timeouts()[-2:], [100000, 100000])
+
+    def test_a_big_script_that_times_out_is_told_to_split(self):
+        big = self.js('big.js', '/*' + 'x' * 600_000 + '*/ new Promise(r => setTimeout(() => r(1), 1500))')
+        r = self.run_helper('figma_run.py', '--timeout', '1', big)
+        self.assertIn('split it into several scripts', r.stderr)
+        small = self.js('small.js', 'new Promise(r => setTimeout(() => r(1), 1500))')
+        r = self.run_helper('figma_run.py', '--timeout', '1', small)
+        self.assertNotIn('split it', r.stderr)
 
     def test_timeout_is_honoured(self):
         slow = self.js('a.js', 'new Promise(r => setTimeout(() => r("late"), 1500))')
