@@ -32,7 +32,7 @@ Coordinator-facing setup: how the helpers reach Figma's Plugin API through [perc
 If `typeof figma` returns `"undefined"`:
 1. Ensure user has **edit permissions** (or create a branch).
 2. Wait for page to fully load, retry.
-3. Have user **open and close any plugin** to initialize the Plugin API, retry. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
+3. **Open and close any plugin** once in the file to initialize the Plugin API (Actions in the bottom toolbar, a recent plugin, then close its window), and retry. You may click it yourself with a browser tool when the user lets you; otherwise ask them. (`window.figma` is a guarded getter that returns undefined until a plugin run populates its backing store. The plugin can be anything: first available in the menu is fine.)
 
 If text set in a local system font (SF Pro, a font installed on the Mac) measures 0 wide and the node reports `hasMissingFont`, though `listAvailableFontsAsync` lists the font and `loadFontAsync` resolves: the browser hasn't granted figma.com its local-fonts permission. Have the user allow Local fonts in the site settings for figma.com, then reload the tab (a second reload may be needed). Check with one text node: `width > 0` and `hasMissingFont === false`.
 

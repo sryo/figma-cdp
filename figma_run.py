@@ -95,7 +95,7 @@ def perch(req, timeout=100.0, rids=()):
     if out.get('fatal'):
         ran = len(out.get('results') or [])
         if ran < len(rids):
-            out['fatal'] = timeout_note(out['fatal'], rids[ran])
+            out['fatal'] = timeout_note(out['fatal'], rids[ran], req['sources'][ran] if ran < len(req.get('sources') or []) else '')
         if not ran:
             sys.exit(f"perch: {out['fatal']}")
     return out
@@ -174,11 +174,18 @@ def ledger_error(v):
         return f'request {rid} is still running in the page; figma_run.py --recover {rid} waits for it and prints its result'
     return f'request {rid} finished, but its result was over 32 KB and was not kept; read the state it left instead'
 
-def timeout_note(error, rid):
-    """A timed-out script keeps running in the page: say how to get its result."""
+BIG_SCRIPT = 500_000
+
+def timeout_note(error, rid, src=''):
+    """A timed-out script keeps running in the page: say how to get its result, and when the script
+    is big, that smaller ones would each finish in time."""
     if not error.startswith('timeout:'):
         return error
-    return f'{error}\nIt may still finish: figma_run.py --recover {rid} waits for it and prints its result'
+    note = f'{error}\nIt may still finish: figma_run.py --recover {rid} waits for it and prints its result'
+    if len(src) > BIG_SCRIPT:
+        note += (f'\nThis script is {len(src) / 1e6:.1f} MB: split it into several scripts of a few hundred KB each '
+                 '(figma_run.py runs several in one call, in order), so each finishes within --timeout')
+    return note
 
 def with_lib(src):
     """figma_svg.js and figma_lib.js (next to this script) in front of a wrapped script: they install
@@ -363,7 +370,7 @@ if len(scripts) > 1:
         journal(r_id, opts['--file'], label, src, res['ok'], res['value'] if res['ok'] else res['error'])
         print(f'== {label} ==')
         print(json.dumps({'origin': res.get('href') or out['origin'], 'result': res['value']}, sort_keys=True)
-              if res['ok'] else f"Evaluation error: {timeout_note(res['error'], r_id)}")
+              if res['ok'] else f"Evaluation error: {timeout_note(res['error'], r_id, src)}")
         if not res['ok'] and hint(res['error']):
             print(hint(res['error']))
     if out.get('fatal'):
@@ -379,7 +386,7 @@ if shot:
 ask = lambda: perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
                     timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
 res = until_finished(ask, lambda res: res['ok'] and ledger_error(res['value']))
-err = timeout_note(res['error'], rid) if not res['ok'] else ledger_error(res['value'])
+err = timeout_note(res['error'], rid, scripts[0][1] if scripts else '') if not res['ok'] else ledger_error(res['value'])
 log(err is None, err or res['value'])
 if err:
     fail(err)
