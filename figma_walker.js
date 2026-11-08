@@ -465,6 +465,7 @@
       if (cs.textAlign !== 'start') st.textAlign = cs.textAlign;
       var dec = decorationOf(cs); if (dec !== 'none') st.textDecoration = dec;
       if (cs.textTransform !== 'none') st.textTransform = cs.textTransform;
+      if (/^(vertical|sideways)/.test(cs.writingMode || '')) st.writingMode = cs.writingMode;
     }
     return st;
   }
@@ -481,6 +482,7 @@
       if (c.nodeType !== 1) continue;
       var d;
       try { d = getComputedStyle(c).display; } catch (e) { return false; }
+      if (d === 'none') continue;
       if (d.indexOf('inline') !== 0) return false;
       if (!isInlineTextOnly(c) && c.textContent.trim() && hasElementKids(c)) return false;
       if (c.textContent.trim()) sawText = true;
@@ -516,7 +518,11 @@
           if (ccs.display === 'none') continue;
           if (c.tagName === 'BR') { runs.push(Object.assign({ text: '\uE000' }, runStyle(cs, dec))); continue; }
           var cdec = decorationOf(ccs);
+          // An inline child's own ::before / ::after glyphs are part of the line too.
+          var pb = pseudoStyle(c, '::before'), pa = pseudoStyle(c, '::after');
+          if (hasPseudo(pb)) { var tb = resolveContent(c, pb).text; if (tb) runs.push(Object.assign({ text: tb }, runStyle(pb, cdec !== 'none' ? cdec : dec))); }
           walk(c, ccs, cdec !== 'none' ? cdec : dec);
+          if (hasPseudo(pa)) { var ta = resolveContent(c, pa).text; if (ta) runs.push(Object.assign({ text: ta }, runStyle(pa, cdec !== 'none' ? cdec : dec))); }
         }
       }
     }
@@ -831,13 +837,65 @@
       if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', SVGNS);
       bakePaints(el, clone);
       inlineUseRefs(el, clone);
+      var subs = svgImages(clone, key);
       store(key, { svg: new XMLSerializer().serializeToString(clone), w: Math.round(w), h: Math.round(h) });
+      if (subs.length) assetJobs.push(inlineSvgImages(key, subs));
     } catch (e) { fail(key, 'decode'); }
     return key;
   }
 
-  // First background-image url() and the FILL/FIT/TILE mode of its layer.
-  function bgImage(cs) {
+  // An <image> that shows an SVG file draws nothing in Figma's import, which sees the markup
+  // alone: each becomes a placeholder now and the file's own markup, as a nested <svg> at the
+  // image's box with its ids prefixed, once fetched.
+  function svgImages(clone, key) {
+    var subs = [];
+    [].slice.call(clone.getElementsByTagNameNS(SVGNS, 'image')).forEach(function (im, k) {
+      var href = im.getAttribute('href') || im.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '';
+      if (!/\.svg(?:[?#]|$)|^data:image\/svg/i.test(href)) return;
+      var url;
+      try { url = new URL(href, document.baseURI).href; } catch (e) { return; }
+      var ph = document.createElementNS(SVGNS, 'g');
+      ph.setAttribute('data-fx-img', String(k));
+      ['transform', 'opacity', 'clip-path', 'mask', 'filter'].forEach(function (a) { if (im.getAttribute(a)) ph.setAttribute(a, im.getAttribute(a)); });
+      im.parentNode.replaceChild(ph, im);
+      subs.push({ k: k, url: url, x: im.getAttribute('x') || '0', y: im.getAttribute('y') || '0', w: im.getAttribute('width'), h: im.getAttribute('height'),
+        par: im.getAttribute('preserveAspectRatio') });
+    });
+    return subs;
+  }
+
+  function inlineSvgImages(key, subs) {
+    return Promise.all(subs.map(function (s) {
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = ctl ? setTimeout(function () { ctl.abort(); }, ASSET_TIMEOUT_MS) : null;
+      return fetch(s.url, ctl ? { signal: ctl.signal } : {}).then(function (r) { return r.ok ? r.text() : ''; }).catch(function () { return ''; })
+        .then(function (text) { if (timer) clearTimeout(timer); s.text = text; });
+    })).then(function () {
+      var a = assets[key];
+      if (!a || !a.svg) return;
+      subs.forEach(function (s) {
+        var m = /<svg\b([^>]*)>([\s\S]*)<\/svg>\s*$/.exec((s.text || '').replace(/<\?xml[^>]*\?>/, ''));
+        var nested = '';
+        if (m) {
+          var p = 'fx' + key + '-' + s.k + '-', attrs = m[1], body = m[2];
+          var vb = /viewBox=["']([^"']+)["']/.exec(attrs), ow = /\swidth=["']([\d.]+)/.exec(attrs), oh = /\sheight=["']([\d.]+)/.exec(attrs);
+          var viewBox = vb ? vb[1] : ow && oh ? '0 0 ' + ow[1] + ' ' + oh[1] : null;
+          body = body.replace(/\bid=(["'])([^"']+)\1/g, 'id="' + p + '$2"').replace(/url\(#([^)]+)\)/g, 'url(#' + p + '$1)').replace(/href=(["'])#([^"']+)\1/g, 'href="#' + p + '$2"');
+          nested = '<svg x="' + s.x + '" y="' + s.y + '"' + (s.w ? ' width="' + s.w + '"' : '') + (s.h ? ' height="' + s.h + '"' : '')
+            + (viewBox ? ' viewBox="' + viewBox + '"' : '') + (s.par ? ' preserveAspectRatio="' + s.par + '"' : '') + '>' + body + '</svg>';
+        }
+        a.svg = a.svg.replace(new RegExp('<g([^>]*?)\\sdata-fx-img="' + s.k + '"([^>]*?)(?:/>|></g>)'), function (_, a1, a2) {
+          var keep = (a1 + a2).trim();
+          return keep ? '<g ' + keep + '>' + nested + '</g>' : nested;
+        });
+      });
+    });
+  }
+
+  // First background-image url() and the FILL/FIT/TILE mode of its layer. A TILE layer also
+  // carries its tile: {w, h} in px (null where background-size is auto: the image's own), its
+  // offset {x, y} and repeat (repeat, repeat-x, repeat-y).
+  function bgImage(cs, bw, bh) {
     var layers = splitTopLevel(cs.backgroundImage || '');
     for (var i = 0; i < layers.length; i++) {
       var m = /url\((['"]?)(.*?)\1\)/.exec(layers[i]);
@@ -845,7 +903,17 @@
       var size = splitTopLevel(cs.backgroundSize || '')[i] || '';
       var repeat = splitTopLevel(cs.backgroundRepeat || '')[i] || 'repeat';
       var mode = /\bcontain\b/.test(size) ? 'FIT' : /\bcover\b/.test(size) ? 'FILL' : repeat !== 'no-repeat' ? 'TILE' : 'FILL';
-      return { url: m[2], mode: mode };
+      var out = { url: m[2], mode: mode };
+      if (mode === 'TILE') {
+        var len = function (v, box) { return /%$/.test(v) ? parseFloat(v) * box / 100 : /px$/.test(v) ? parseFloat(v) : null; };
+        var sz = size.split(/\s+/), tw = len(sz[0] || 'auto', bw || 0), th = len(sz[1] || 'auto', bh || 0);
+        var rp = repeat.split(/\s+/);
+        if (rp.length === 2) repeat = rp[0] === rp[1] ? rp[0] : rp[0] === 'no-repeat' ? 'repeat-y' : rp[1] === 'no-repeat' ? 'repeat-x' : 'repeat';
+        var pos = (splitTopLevel(cs.backgroundPosition || '')[i] || '0% 0%').split(/\s+/);
+        var at = function (v, box, t) { return /%$/.test(v) ? (t == null ? 0 : parseFloat(v) * (box - t) / 100) : parseFloat(v) || 0; };
+        out.tile = { w: tw, h: th, x: r2(at(pos[0] || '0%', bw || 0, tw)), y: r2(at(pos[1] || '0%', bh || 0, th)), repeat: /^(repeat|repeat-x|repeat-y)$/.test(repeat) ? repeat : 'repeat' };
+      }
+      return out;
     }
     return null;
   }
@@ -863,8 +931,11 @@
       return { asset: assetForUrl(el.poster, null, w, h), mode: vfit === 'contain' || vfit === 'scale-down' ? 'FIT' : 'FILL' };
     }
     if (tag === 'canvas') return { asset: canvasAsset(el), mode: 'FILL' };
-    var bg = bgImage(cs);
-    return bg ? { asset: assetForUrl(bg.url, null, w, h), mode: bg.mode } : null;
+    var bg = bgImage(cs, w, h);
+    if (!bg) return null;
+    var img = { asset: assetForUrl(bg.url, null, w, h), mode: bg.mode };
+    if (bg.tile) img.tile = bg.tile;
+    return img;
   }
 
   async function resolveAssets() {
@@ -1054,8 +1125,8 @@
       var st = styleOf(scs, p.span, !!text, g.w, g.h);
       var image = null;
       if (!text) {
-        var bg = bgImage(scs);
-        if (bg) image = { asset: assetForUrl(bg.url, null, g.w, g.h), mode: bg.mode };
+        var bg = bgImage(scs, g.w, g.h);
+        if (bg) { image = { asset: assetForUrl(bg.url, null, g.w, g.h), mode: bg.mode }; if (bg.tile) image.tile = bg.tile; }
       }
       if (!text && !image && !st.bg && !st.border && !st.shadow) return;
       var n = nodes[p.idx];

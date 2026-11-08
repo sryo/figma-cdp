@@ -7,6 +7,7 @@
     {"id": "mask-image-icon", "pattern": "mask-image", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "grid-display", "pattern": "\\[capture:grid\\]|display: ?grid", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "transform-3d", "pattern": "\\[capture:transform\\]|3d transform|non-affine", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "background-tab-scripts", "pattern": "scroll-into-view|background tab.*(missing|never run)|webgl", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "variable-font-axes", "pattern": "variable[- ]font|optical size|font-variation", "doc": "references/capture.md#risks-and-limitations"}
   ]
 }

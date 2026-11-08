@@ -584,7 +584,11 @@
         }
         node.appendChild(text);
         text.name = '[cap:' + n.i + '] text';
-        if ((n.lines || 1) > 1) {
+        if (/^(vertical|sideways)/.test(st.writingMode || '')) {
+          // Vertical writing in a box: the text turns a quarter and auto layout places its turned bounds.
+          text.textAutoResize = 'WIDTH_AND_HEIGHT';
+          text.rotation = st.writingMode === 'sideways-lr' ? 90 : -90;
+        } else if ((n.lines || 1) > 1) {
           var pad = st.padding || [0, 0, 0, 0];
           text.resize(size(n.rect.w - pad[1] - pad[3]), size(n.rect.h - pad[0] - pad[2]));
           text.textAutoResize = 'HEIGHT';
@@ -592,6 +596,25 @@
         } else {
           text.textAutoResize = 'WIDTH_AND_HEIGHT';
         }
+      } else if (/^(vertical|sideways)/.test(st.writingMode || '')) {
+        // Vertical writing: the line runs down the captured box (sideways-lr: up it), so the
+        // text turns a quarter inside a frame that keeps the box.
+        node = figma.createFrame();
+        kind = 'frame';
+        node.fills = [];
+        node.clipsContent = false;
+        node.resize(size(n.rect.w), size(n.rect.h));
+        text.textAutoResize = 'WIDTH_AND_HEIGHT';
+        node.appendChild(text);
+        text.name = '[cap:' + n.i + '] text';
+        var up = st.writingMode === 'sideways-lr';
+        text.rotation = up ? 90 : -90;
+        var along = st.textAlign === 'center' ? (n.rect.h - text.width) / 2 : st.textAlign === 'end' || st.textAlign === 'right' ? n.rect.h - text.width : 0;
+        var across = (n.rect.w - text.height) / 2;
+        // Turned -90 about its corner, the text spans x - height..x and y..y + width.
+        text.x = up ? across : across + text.height;
+        text.y = up ? n.rect.h - along : along;
+        applyBlend(node, n, st);
       } else {
         node = text;
         kind = 'text';
@@ -599,7 +622,38 @@
       }
     }
 
-    // 4. inline svg / svg asset
+    // 4. inline svg / svg asset; a tiled svg background repeats at its tile size
+    var tile = n.image && n.image.mode === 'TILE' && n.image.tile, ta = tile && assets[n.image.asset];
+    if (tile && ta && ta.w && ta.h && (!tile.w || !tile.h)) {
+      // An auto side of background-size keeps the image's own proportions.
+      tile = Object.assign({}, tile, { w: tile.w || (tile.h ? ta.w * tile.h / ta.h : ta.w), h: tile.h || (tile.w ? ta.h * tile.w / ta.w : ta.h) });
+    }
+    if (!node && tile && tile.w > 0 && tile.h > 0 && ta && ta.kind === 'svg') {
+      try {
+        var proto = svgNodeFor(n, tile.w, tile.h);
+        if (proto) {
+          var rxp = tile.repeat !== 'repeat-y' && tile.repeat !== 'no-repeat', ryp = tile.repeat !== 'repeat-x' && tile.repeat !== 'no-repeat';
+          var x0 = rxp ? (((tile.x || 0) % tile.w) + tile.w) % tile.w : (tile.x || 0), y0 = ryp ? (((tile.y || 0) % tile.h) + tile.h) % tile.h : (tile.y || 0);
+          if (rxp && x0 > 0) x0 -= tile.w;
+          if (ryp && y0 > 0) y0 -= tile.h;
+          var cols = rxp ? Math.ceil((n.rect.w - x0) / tile.w) : 1, rows = ryp ? Math.ceil((n.rect.h - y0) / tile.h) : 1;
+          if (cols * rows <= 400) {
+            node = figma.createFrame();
+            kind = 'svg';
+            node.resize(size(n.rect.w), size(n.rect.h));
+            node.fills = st.bg ? paint(st.bg) : [];
+            node.clipsContent = true;
+            for (var ty = 0; ty < rows; ty++) for (var tx = 0; tx < cols; tx++) {
+              var t = tx || ty ? proto.clone() : proto;
+              node.appendChild(t);
+              t.x = x0 + tx * tile.w; t.y = y0 + ty * tile.h;
+              t.name = '[cap:' + n.i + '] tile ' + (ty * cols + tx + 1);
+            }
+            applyBox(node, n, st);
+          } else { proto.remove(); warn(n, 'tile', cols * rows + ' tiles; drawn once, stretched'); }
+        }
+      } catch (e) { warn(n, 'createNodeFromSvg', e); node = null; imageReason = 'image'; imageDetail = 'decode'; }
+    }
     if (!node && n.image) {
       try {
         node = svgNodeFor(n, size(n.rect.w), size(n.rect.h));
@@ -628,6 +682,15 @@
       node.fills = frameFills.fills;
       if (frameFills.error) { imageReason = 'image'; imageDetail = frameFills.error; }
       applyBox(node, n, st);
+      if (n.parent === -1) {
+        // The page: a browser paints the root's background, else the body's, else white, and
+        // shows only what falls inside the viewport's width.
+        if (!node.fills.length) {
+          var body = spec.nodes.filter(function (b) { return b.parent === n.i && b.tag === 'body'; })[0];
+          node.fills = body && body.styles && body.styles.bg ? paint(body.styles.bg) : [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
+        }
+        node.clipsContent = true;
+      }
     }
 
     // One reason per node: image error, then layout demotion, then the walker's own

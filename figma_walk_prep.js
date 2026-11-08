@@ -10,7 +10,12 @@
 (async function (o) {
   if (typeof document === 'undefined' || typeof window === 'undefined') return { notes: [], width: 0 };
   var notes = [], win = window, doc = document;
-  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  // A background tab stretches setTimeout to seconds, so waits yield through a MessageChannel,
+  // which it doesn't throttle, until the time is up.
+  var ch = new MessageChannel(), queue = [];
+  ch.port1.onmessage = function () { var f = queue.shift(); if (f) f(); };
+  var tick = function () { return new Promise(function (r) { queue.push(r); ch.port2.postMessage(0); }); };
+  var sleep = async function (ms) { var end = Date.now() + ms; while (Date.now() < end) await tick(); };
 
   if (o.width && Math.round(window.innerWidth) !== o.width) {
     var f = document.createElement('iframe');
@@ -57,7 +62,7 @@
     var steps = 0, y = 0;
     while (y < doc.documentElement.scrollHeight && steps < 80) {
       win.scrollTo(0, y);
-      await sleep(150);
+      await sleep(60);
       y += Math.max(200, win.innerHeight * 0.8);
       steps++;
     }
@@ -77,6 +82,8 @@
       }
     });
     if (shown) notes.push('showed ' + shown + ' elements still waiting to fade in');
+    if (document.visibilityState === 'hidden') notes.push('the page tab is in the background, where the page\'s own scroll-into-view scripts never run: '
+      + 'what they add is missing; walk in a room (rooms up <name>) or with the tab shown to get it');
   }
 
   window.__fxWalkWin = win === window ? null : win;

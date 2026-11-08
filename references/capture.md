@@ -56,7 +56,7 @@ nodes    [ node ]               flat, DFS-preorder, root i=0 (documentElement)
 | `lines` | int ≥ 1 | text nodes only — number of line boxes (see Text) |
 | `kids` | int ≥ 1 | number of emitted child nodes (after pruning/hoisting, pseudo nodes included); omitted when 0 |
 | `styles` | object | **sparse** — keys omitted at their default (table below) |
-| `image` | `{asset, mode}` | when the node renders an image: asset key + `mode` ∈ FILL \| FIT \| TILE. `<img>`/`<video>`: object-fit contain/scale-down → FIT, else FILL. background-image: background-size contain → FIT, cover → FILL, otherwise repeat ≠ no-repeat → TILE else FILL. canvas/svg → FILL. A text node carries `image` only from `background-image`; the importer paints it on the text's wrapper frame |
+| `image` | `{asset, mode}` | when the node renders an image: asset key + `mode` ∈ FILL \| FIT \| TILE. `<img>`/`<video>`: object-fit contain/scale-down → FIT, else FILL. background-image: background-size contain → FIT, cover → FILL, otherwise repeat ≠ no-repeat → TILE else FILL. canvas/svg → FILL. A TILE background also carries `tile: {w, h, x, y, repeat}` (px; `w`/`h` null where background-size is auto, so the image's own; repeat ∈ repeat \| repeat-x \| repeat-y). A text node carries `image` only from `background-image`; the importer paints it on the text's wrapper frame |
 | `role` | string \| null | explicit ARIA `role` attribute (first token, trimmed) if present, else IMPLICIT-ROLE by tag (see Semantic layer); unknown tag → `null` (NOT `"generic"`) |
 | `cls` | string[] (absent when none) | the element's class list, first 16; matched by `--components` class keys |
 | `axName` | string \| null | best-effort accessible name, ≤80 chars whitespace-collapsed; resolution order aria-label → aria-labelledby joined text → (form controls) button `value` / `<label for>` / wrapping `<label>` / `placeholder` → alt → title → (heading/button/link only) trimmed own text → null |
@@ -115,6 +115,7 @@ Text — ONLY on nodes whose `text` is non-empty (containers omit all of these):
 | `textAlign` | `"start"` | left \| center \| right \| justify \| end |
 | `textDecoration` | `"none"` | underline \| line-through (first token of text-decoration-line) |
 | `textTransform` | `"none"` | uppercase \| lowercase \| capitalize |
+| `writingMode` | `"horizontal-tb"` | vertical-rl \| vertical-lr \| sideways-rl \| sideways-lr |
 
 Colors arrive pre-parsed to 0..1 `{r,g,b,a}` — map straight to SolidPaint.
 
@@ -148,7 +149,9 @@ Sources: `<img>` (currentSrc), `<picture>` (its `<img>`), `<video>` (poster only
 
 Fetch runs in the source tab during the walk: `fetch(url)` → blob → base64, all in parallel, 8 s per asset, 20 s global budget (anything still pending → `error:"timeout"`). An `<img>` whose fetch fails is drawn to a canvas → png (tainted canvas → `error:"tainted"`). Rasters over 4096 px on a side are drawn scaled to 4096 (Figma's `createImage` limit). Assets over 4 MB raw are skipped (`error:"too-large"`); collection stops past 24 MB total (`error:"too-large"`). Bytes that won't decode → `error:"decode"`.
 
-Assets are deduped by resolved URL, so many nodes may reference one key through `image: {asset, mode}`.
+Assets are deduped by resolved URL, so many nodes may reference one key through `image: {asset, mode}`. An `<image>` in an inline svg that shows an SVG file (a `.svg` URL or a `data:image/svg+xml` one) is fetched and inlined as a nested `<svg>` at the image's box, its ids prefixed, since `createNodeFromSvg` sees the markup alone.
+
+The importer paints the root frame with its own background, else the body's, else white, as a browser paints the page, and clips it like a viewport. A TILE svg background becomes its tiles, each at `tile`'s size, clipped to the box (more than 400 tiles: one, stretched, with a warning). Text beside a `display: none` element stays inline text, and an inline child's `::before`/`::after` glyphs join its line.
 
 ## Semantic layer (role / axName / interactable)
 
@@ -308,6 +311,7 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `textAlign` | `textAlignHorizontal`: left / start → LEFT, center → CENTER, right / end → RIGHT, justify → JUSTIFIED |
 | `textDecoration` | `textDecoration`: underline → UNDERLINE, line-through → STRIKETHROUGH |
 | `textTransform` | `textCase`: uppercase → UPPER, lowercase → LOWER, capitalize → TITLE |
+| `writingMode` | the text turned -90° (sideways-lr: 90°) inside a frame of the captured box, or in its text box |
 | `runs` | `setRangeFontName / setRangeFontSize / setRangeFills / setRangeTextDecoration` per run |
 | `lines` > 1, or the text's width FILLs | `resize(rect.w, rect.h)` then `textAutoResize = 'HEIGHT'` (then width `'FILL'` when it fills); otherwise `textAutoResize = 'WIDTH_AND_HEIGHT'`. A text's height never FILLs |
 | text node with `bg`, `border`, `image`, non-zero `padding`, `radius` / `radii`, or `shadow` | wrapper FRAME (HORIZONTAL Auto Layout, padding and box paint/effects on the frame, `primaryAxisAlignItems` CENTER when `textAlign` center else MIN, `counterAxisAlignItems` CENTER) holding the TEXT node, whose width FILLs when `lines` > 1; every placement and sizing rule applies to the wrapper |
@@ -340,5 +344,6 @@ Each drop down a rung is one divergence-report entry.
 - **Fonts.** Real families are tried first through the ladder; anything missing in Figma degrades toward Inter and is reported in `fontsFallenBack`. Generic families (sans-serif, serif, monospace, system-ui, …) map to Inter directly and are not reported as substitutions. Variable-font axes, optical sizes, and weights outside the 100–900 names are not matched.
 - **Mixed content.** Text sitting directly beside block-level siblings is lost — the inline-text test requires every rendered child to be inline, and a container node carries no text. Wrap-free CMS markup (`<div>Hello <p>…</p></div>`) drops the bare "Hello".
 - **`mask-image` icons** arrive as solid boxes (only the element's bg color survives the capture); gradient and `mask` paints are not modelled.
+- **Scripts that wait for the page to be seen.** A background tab draws no frames, so a page's scroll-into-view scripts (lazy sections, a physics shelf, a chart drawn when it scrolls in) never run there and what they add is missing; the walk says so. Content they would only fade in is shown. Walk in a room or with the tab shown to get the rest. WebGL canvases come out blank.
 - **grid / non-flow displays.** Demoted to NONE frames (`grid` / `block`), never guessed into Auto Layout — they land on the cleanup work-list.
 - **Still out:** 3D and non-affine transforms (flagged `transform`, subtree flattened), CSS-variable / design-token recovery (computed values only — nothing binds to Figma variables), cross-origin iframes, native AXTree (Semantic layer → upgrade path).
