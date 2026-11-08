@@ -81,7 +81,8 @@ function createFigma() {
         markRemoved(proxy);
         dropLinks();
       },
-      resize(w, h) { t.width = w; t.height = h; },
+      // As in Figma, resizing an auto-layout frame fixes both its sizing modes (gotchas #12).
+      resize(w, h) { t.width = w; t.height = h; if (t.layoutMode && t.layoutMode !== 'NONE') { t.primaryAxisSizingMode = 'FIXED'; t.counterAxisSizingMode = 'FIXED'; } },
       resizeWithoutConstraints(w, h) { t.width = w; t.height = h; },
       rescale(s) { t.width *= s; t.height *= s; },
       findAll(fn) { const out = []; walk(proxy, (n) => { if (n !== proxy && (!fn || fn(n))) out.push(n); }); return out; },

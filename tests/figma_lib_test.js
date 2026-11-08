@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 14, sha: 'c7123d4bd2c2619e' };
+const PIN = { v: 15, sha: 'a14c7622373a2abe' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -439,7 +439,7 @@ test('audit: counts every structural problem with capped offending ids', async (
   assert.deepEqual(a.counts, {
     rawRepeats: 3, fixedInFlow: 1, absDefaultConstraints: 3, groups: 1,
     defaultNames: 2, unboundPaints: 1, textFixedInAutoLayout: 1, textOverflow: 1, componentsWithoutAutoLayout: 1, unlinkedProps: 1,
-    danglingReactions: 0, lostHover: 0, overlayNotFullSize: 0,
+    danglingReactions: 0, lostHover: 0, overlayNotFullSize: 0, clippedContent: 0,
   });
   assert.deepEqual(a.shares, { instanceRatio: 0.1, autoLayoutShare: 0.8 });
   assert.deepEqual(a.ids.rawRepeats, [rows[0].id, rows[1].id]);
@@ -475,6 +475,19 @@ test('audit: a clean component-built screen has no problems', async () => {
   assert.deepEqual(a.ids, {});
   assert.equal(a.text, '');
   assert.ok(tk);
+});
+
+test('audit: an auto-layout frame that clips its own content past its edge', async () => {
+  const fx = fresh();
+  const list = mkFrame(figma.currentPage, 'Covers', 'VERTICAL', 400, 160);
+  list.clipsContent = true;
+  for (let i = 0; i < 3; i++) { const c = mkFrame(list, 'Section ' + i, 'VERTICAL', 400, 300); c.y = i * 300; }
+  const fits = mkFrame(figma.currentPage, 'Fits', 'VERTICAL', 400, 400);
+  fits.clipsContent = true;
+  mkFrame(fits, 'Card', 'VERTICAL', 400, 300);
+  const a = await fx.audit(null);
+  assert.deepEqual(a.ids.clippedContent, [list.id]);
+  assert.match(a.text, /clippedContent 1 .*resize\(\) sets/);
 });
 
 test('recon and audit load a page other than the current one before reading it', async () => {
