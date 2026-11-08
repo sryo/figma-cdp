@@ -1077,7 +1077,7 @@ class CapturePerch(Harness):
         # walk runs the figma_walker.js next to figma_capture.py, so this copy gets the DOM-free one.
         self.app = os.path.join(self.tmp.name, 'app')
         os.makedirs(self.app)
-        for name in ('figma_capture.py', 'figma_backend.py', 'figma_perch.mjs', 'figma_importer.js', 'figma_svg.js'):
+        for name in ('figma_capture.py', 'figma_backend.py', 'figma_perch.mjs', 'figma_importer.js', 'figma_svg.js', 'figma_walk_prep.js'):
             shutil.copy(os.path.join(ROOT, name), self.app)
         with open(os.path.join(self.app, 'figma_walker.js'), 'w') as f:
             f.write(FAKE_WALKER)
@@ -1121,6 +1121,24 @@ class CapturePerch(Harness):
         self.assertEqual((ev['world'], ev['awaitPromise'], ev['timeout']), ('main', True, 100000))
         self.assertEqual(self.calls('wait')[0]['args']['target'], {'tabId': tab})
         self.assertEqual(self.calls('close_tab')[0]['args'], {'tabId': tab})
+
+    def test_walk_lays_out_at_1440_in_light_mode_after_scrolling_by_default(self):
+        url, out, r = self.walk('page', '0')
+        script = self.calls('eval_js')[0]['args']['script']
+        self.assertIn('{"height": 900, "scheme": "light", "scroll": true, "width": 1440}', script)
+        self.assertIn('data-fx-capture', script, 'the prep that frames the page goes with the walker, in one eval')
+
+    def test_walk_options_change_the_prep(self):
+        url, out, r = self.walk('page', '0', '--width', '0', '--scheme', 'page', '--no-scroll')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('{"height": 900, "scheme": "page", "scroll": false, "width": 0}', self.calls('eval_js')[0]['args']['script'])
+
+    def test_walk_says_when_the_page_was_laid_out_at_another_width(self):
+        url, out, r = self.walk('page', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('laid out at 400px, not 1440px', r.stderr)
+        url, out, r = self.walk('page', '0', '--width', '0')
+        self.assertNotIn('laid out at', r.stderr)
 
     def test_walk_waits_for_the_page_not_the_new_tabs_blank_document(self):
         # A new tab reports the initial about:blank as readyState complete before the URL commits.
