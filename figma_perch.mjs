@@ -246,7 +246,7 @@ async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
   } catch (e) {
     if (/^needs_focus: /.test(e.message)) {
       return { app: app || "the browser", warnings, fatal: "needs_focus: capture opens the page in a new tab, and a Mac browser takes focus to open one, " +
-        "which the user has not allowed; nothing was opened. Bring up a room (rooms up <name>), or ask the user to run `perch focus allow 15m`" };
+        "which the user has not allowed; nothing was opened. Walk in Safari (--app Safari), which opens one without taking focus, or bring up a room (rooms up <name>)" };
     }
     return { fatal: e.message };
   }
