@@ -39,16 +39,16 @@ nodes    [ node ]               flat, DFS-preorder, root i=0 (documentElement)
 ```
 { kind:"image", mime:"image/png"|"image/jpeg"|"image/webp"|"image/gif", b64:"<base64>", w:int, h:int }
 { kind:"svg",   svg:"<svg …>…</svg>", w:int, h:int }
-{ kind:"image"|"svg", error:"fetch"|"tainted"|"too-large"|"timeout"|"decode" }     no bytes
+{ kind:"image"|"svg", error:"fetch"|"tainted"|"too-large"|"timeout"|"decode"|"webgl" }     no bytes
 ```
 
 ### node
 
 | Field | Shape | Rule |
 |---|---|---|
-| `i` | int | DFS-preorder index, root 0 |
+| `i` | int | DFS-preorder index, root 0; siblings in paint order: absolute / fixed ones move to where their `z` paints them (below 0 first, then non-positioned boxes, then z auto / 0, then above 0), in-flow ones keep document order |
 | `parent` | int | parent `i`; −1 for root |
-| `tag` | string | lowercase tag; `"::before"` / `"::after"` for pseudo-element nodes |
+| `tag` | string | lowercase tag; `"::before"` / `"::after"` for pseudo-element nodes; `"#text"` for text beside block siblings (one node per stretch of text and plain inline elements, text styles only) |
 | `rect` | `{x,y,w,h}` | **layout space** — every ancestor transform and the node's own transform undone; page coordinates (the scroll offset is folded in, so a scrolled capture still lands at page origin); 2 dp |
 | `xf` | `[a,b,c,d,e,f]` | only when the element has a 2D affine own transform (see Geometry); omitted otherwise |
 | `text` | string | merged text content; `""` for containers |
@@ -75,6 +75,8 @@ Layout — any node:
 | `display` | `"block"` | raw computed value (flex, inline-flex, grid, inline-grid, inline, inline-block, flow-root, list-item, table, table-cell, contents, …) |
 | `position` | `"static"` | absolute \| fixed \| relative \| sticky |
 | `pin` | `["l","t"]` | absolute / fixed only — `[h, v]` anchored edges from the `computedStyleMap()` insets: h `l` \| `r` \| `lr` \| `c`, v `t` \| `b` \| `tb` \| `c`. Both insets set → both edges, or `c` when both margins on that axis are auto; one inset at 50% → `c`; neither → the start edge |
+| `mx` | absent | in-flow only — `c` when both side margins compute to `auto` (centred), `r` when only the left does; the importer aligns a column's children there when every other in-flow child stretches |
+| `z` | absent | positioned only — a non-zero computed `z-index` |
 | `flexDirection` | `"row"` | column \| row-reverse \| column-reverse |
 | `flexWrap` | `"nowrap"` | wrap \| wrap-reverse |
 | `justifyContent` | `"normal"` | raw |
@@ -121,7 +123,7 @@ Colors arrive pre-parsed to 0..1 `{r,g,b,a}` — map straight to SolidPaint.
 
 ## Geometry & transforms
 
-`rect` is **layout space**: the box as CSS laid it out before any transform, ancestors' included, at page-viewport origin with scroll 0. The walker carries the accumulated inverse of ancestor transforms down the tree as a `DOMMatrix`; each element's width/height come from `offsetWidth/Height` when it has an own transform or sits under a rotated/skewed ancestor (bounding boxes inflate under rotation) and from `getBoundingClientRect` (scaled by the ancestor inverse) otherwise, and its top-left is the inverse-mapped visual center minus the own-transformed center. A same-origin iframe's content enters as a pure translation to the frame's content box (border + padding + inner scroll) in layout space — inner client rects are already untransformed. `display:none` subtrees are skipped outright; `visibility:hidden` and zero-area nodes are pruned but their children still walk, hoisted to the nearest kept ancestor.
+`rect` is **layout space**: the box as CSS laid it out before any transform, ancestors' included, at page-viewport origin with scroll 0. The walker carries the accumulated inverse of ancestor transforms down the tree as a `DOMMatrix`; each element's width/height come from `offsetWidth/Height` when it has an own transform or sits under a rotated/skewed ancestor (bounding boxes inflate under rotation) and from `getBoundingClientRect` (scaled by the ancestor inverse) otherwise, and its top-left is the inverse-mapped visual center minus the own-transformed center. A same-origin iframe's content enters as a pure translation to the frame's content box (border + padding + inner scroll) in layout space — inner client rects are already untransformed. `display:none` subtrees and visually hidden ones (an absolute box clipped to nothing, `clip-path: inset(50%)`, or a pixel square hiding its overflow: the sr-only pattern) are skipped outright; `visibility:hidden` and zero-area nodes are pruned but their children still walk, hoisted to the nearest kept ancestor.
 
 `xf = [a,b,c,d,e,f]` is present only when the element (HTMLElement only) has a 2D affine own transform — CSS `transform`, `translate`, `rotate`, `scale` composed about `transform-origin` (percent `translate` resolved against the element's own size). It is expressed relative to the node's untransformed top-left:
 
@@ -342,8 +344,8 @@ Each drop down a rung is one divergence-report entry.
 - **Cross-origin iframes.** Captured as a single empty **placeholder** frame named `[capture:iframe <origin>]`; the walker cannot recurse into them: that needs DevTools frame-target routing, which perch's AppleScript path doesn't have (AGENTS.md Ceiling). Same-origin iframes are walked inline in layout space.
 - **Images, svg, canvas — CORS-bound.** Pixels cross over only when the source tab can read them: a cross-origin `<img>` whose server blocks `fetch` falls back to a canvas draw, and a tainted canvas yields `error:"tainted"` — an empty box tagged `[capture:image tainted]` on the cleanup list. Same for `timeout` / `too-large` / `decode` / `fetch`. `<video>` contributes its poster only; `<canvas>` is a snapshot.
 - **Fonts.** Real families are tried first through the ladder; anything missing in Figma degrades toward Inter and is reported in `fontsFallenBack`. Generic families (sans-serif, serif, monospace, system-ui, …) map to Inter directly and are not reported as substitutions. Variable-font axes, optical sizes, and weights outside the 100–900 names are not matched.
-- **Mixed content.** Text sitting directly beside block-level siblings is lost — the inline-text test requires every rendered child to be inline, and a container node carries no text. Wrap-free CMS markup (`<div>Hello <p>…</p></div>`) drops the bare "Hello".
 - **`mask-image` icons** arrive as solid boxes (only the element's bg color survives the capture); gradient and `mask` paints are not modelled.
-- **Scripts that wait for the page to be seen.** A background tab draws no frames, so a page's scroll-into-view scripts (lazy sections, a physics shelf, a chart drawn when it scrolls in) never run there and what they add is missing; the walk says so. Content they would only fade in is shown. Walk in a room or with the tab shown to get the rest. WebGL canvases come out blank.
+- **Scripts that wait for the page to be seen.** A background tab draws no frames, so a page's scroll-into-view scripts (lazy sections, a physics shelf, a chart drawn when it scrolls in) never run there and what they add is missing; the walk says so. Content they would only fade in is shown. Walk in a room or with the tab shown to get the rest. A WebGL canvas is snapshotted inside a frame, so it comes out only from a shown tab; from a background one it is `error:"webgl"` and the walk says so.
 - **grid / non-flow displays.** Demoted to NONE frames (`grid` / `block`), never guessed into Auto Layout — they land on the cleanup work-list.
+- **Stacking inside non-positioned wrappers.** Paint order is per sibling list: a raised box inside a static wrapper does not rise above the wrapper's later siblings.
 - **Still out:** 3D and non-affine transforms (flagged `transform`, subtree flattened), CSS-variable / design-token recovery (computed values only — nothing binds to Figma variables), cross-origin iframes, native AXTree (Semantic layer → upgrade path).

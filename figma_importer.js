@@ -479,6 +479,25 @@
 
   var MIN_MAX = [['minW', 'minWidth'], ['maxW', 'maxWidth'], ['minH', 'minHeight'], ['maxH', 'maxHeight']];
 
+  // A column whose in-flow children all stretch across it, except ones its auto margins centre
+  // (margin: 0 auto) or push to the end, aligns its children there.
+  var autoAlign = {};
+  (function () {
+    var side = {}, ok = {};
+    spec.nodes.forEach(function (c) {
+      var s = c.styles || {};
+      if (c.parent < 0 || s.position === 'absolute' || s.position === 'fixed' || ok[c.parent] === false) return;
+      var w = (s.sz || ['auto'])[0];
+      var stretches = (w === 'auto' || w === 'pct') && (s.display || '').indexOf('inline') !== 0 &&
+        ['auto', 'normal', 'stretch'].indexOf(s.alignSelf || 'auto') !== -1;
+      if (s.mx) {
+        if (side[c.parent] && side[c.parent] !== s.mx) ok[c.parent] = false;
+        else side[c.parent] = s.mx;
+      } else if (!stretches) ok[c.parent] = false;
+    });
+    Object.keys(side).forEach(function (p) { if (ok[p] !== false) autoAlign[p] = side[p] === 'c' ? 'CENTER' : 'MAX'; });
+  })();
+
   // ---- main loop --------------------------------------------------------------
 
   for (var k = 0; k < spec.nodes.length; k++) {
@@ -678,6 +697,7 @@
       layout = layoutFor(n, st);
       layoutReason = layout.reason || null;
       primaryGap = applyLayout(node, st, layout.mode, size(n.rect.w), size(n.rect.h));
+      if (layout.mode === 'VERTICAL' && autoAlign[n.i] && node.counterAxisAlignItems === 'MIN') node.counterAxisAlignItems = autoAlign[n.i];
       var frameFills = fillsFor(n, st, !!imageReason);
       node.fills = frameFills.fills;
       if (frameFills.error) { imageReason = 'image'; imageDetail = frameFills.error; }

@@ -86,6 +86,29 @@
       + 'what they add is missing; walk in a room (rooms up <name>) or with the tab shown to get it');
   }
 
+  // A WebGL canvas holds its drawing only during the frame that drew it, so a later read is
+  // blank: snapshot each one inside a frame, after the page has drawn. A background tab runs
+  // no frames, and those canvases stay empty.
+  var snaps = window.__fxGlSnaps = new Map();
+  Array.prototype.forEach.call(doc.querySelectorAll('canvas'), function (c) {
+    // getContext('2d') answers null for a canvas that already has a WebGL context.
+    try { if (!c.getContext('2d') && (c.getContext('webgl2') || c.getContext('webgl'))) snaps.set(c, null); } catch (e) {}
+  });
+  if (snaps.size) {
+    if (document.visibilityState !== 'hidden') {
+      await Promise.race([new Promise(function (r) {
+        win.requestAnimationFrame(function () {
+          snaps.forEach(function (v, c) { try { snaps.set(c, c.toDataURL('image/png')); } catch (e) {} });
+          r();
+        });
+      }), sleep(2000)]);
+    }
+    var empty = 0;
+    snaps.forEach(function (v) { if (!v) empty++; });
+    if (empty) notes.push(empty + ' WebGL canvas' + (empty > 1 ? 'es' : '') + ' came out empty: WebGL draws only in a shown tab, '
+      + 'so walk with the tab shown or in a room (rooms up <name>)');
+  }
+
   window.__fxWalkWin = win === window ? null : win;
   return { notes: notes, width: Math.round(win.innerWidth) };
 })

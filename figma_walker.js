@@ -299,11 +299,10 @@
   // Line boxes: fragment rects mapped into layout space, clustered when midlines
   // are within 1px or the fragments overlap by more than half the smaller height
   // (mixed font sizes on one line).
-  function lineCount(el, inv, vertical) {
+  function lineCount(el, inv, vertical, range) {
     var rects;
     try {
-      var range = el.ownerDocument.createRange();
-      range.selectNodeContents(el);
+      if (!range) { range = el.ownerDocument.createRange(); range.selectNodeContents(el); }
       rects = range.getClientRects();
     } catch (e) { return 1; }
     var frags = [];
@@ -413,11 +412,34 @@
     return pin[0] === 'l' && pin[1] === 't' ? null : pin;
   }
 
+  // A box its auto margins push: 'c' when both side margins are auto (centred), 'r' when only
+  // the left one is. Computed values keep `auto`, where getComputedStyle has the used px.
+  function autoMarginsOf(el) {
+    var map = null;
+    try { map = el.computedStyleMap ? el.computedStyleMap() : null; } catch (e) { map = null; }
+    if (!map) return null;
+    function auto(p) { var v = map.get(p); return !!v && v.value === 'auto'; }
+    var l = auto('margin-left'), r = auto('margin-right');
+    return l && r ? 'c' : l ? 'r' : null;
+  }
+
+  // Text kept for screen readers only (the sr-only / visually-hidden pattern): an absolute box
+  // clipped to nothing or squeezed to a pixel that hides its overflow.
+  function visuallyHidden(el, cs) {
+    if (cs.position !== 'absolute' && cs.position !== 'fixed') return false;
+    if (/^rect\(\s*0(px)?[,\s]+0(px)?[,\s]+0(px)?[,\s]+0(px)?\s*\)$/.test(cs.clip || '')) return true;
+    if (/^inset\(\s*50%/.test(cs.clipPath || '')) return true;
+    var r = el.getBoundingClientRect();
+    return r.width <= 1 && r.height <= 1 && cs.overflow !== 'visible';
+  }
+
   function styleOf(cs, el, hasText, w, h) {
     var st = {};
     if (cs.display !== 'block') st.display = cs.display;
     if (cs.position !== 'static') st.position = cs.position;
     if (cs.position === 'absolute' || cs.position === 'fixed') { var pin = pinOf(el); if (pin) st.pin = pin; }
+    else { var mx = autoMarginsOf(el); if (mx) st.mx = mx; }
+    if (cs.position !== 'static' && cs.zIndex !== 'auto') { var z = parseInt(cs.zIndex, 10); if (z) st.z = z; }
     if (cs.flexDirection !== 'row') st.flexDirection = cs.flexDirection;
     if (cs.flexWrap !== 'nowrap') st.flexWrap = cs.flexWrap;
     if (cs.justifyContent !== 'normal') st.justifyContent = cs.justifyContent;
@@ -454,7 +476,12 @@
     var bl = blurPx(cs.filter); if (bl) st.blur = bl;
     var bb = blurPx(cs.backdropFilter || cs.webkitBackdropFilter); if (bb) st.bgBlur = bb;
 
-    if (hasText) {
+    if (hasText) textStyles(st, cs);
+    return st;
+  }
+
+  function textStyles(st, cs) {
+    {
       var color = parseColor(cs.color); if (color) st.color = color;
       var fam = firstFamily(cs.fontFamily); if (fam) st.fontFamily = fam;
       var fs = px(cs.fontSize); if (fs !== 16) st.fontSize = fs;
@@ -503,10 +530,10 @@
   // Runs of an inline-text-only subtree, split where span styles differ.
   // text-decoration does not inherit in computed style but paints through
   // descendants, so the nearest decorated ancestor's line is carried down.
-  function collectRuns(el, baseCs) {
+  function collectRuns(el, baseCs, list) {
     var runs = [];
-    function walk(node, cs, dec) {
-      var kids = kidsOf(node);
+    function walk(node, cs, dec, only) {
+      var kids = only || kidsOf(node);
       for (var i = 0; i < kids.length; i++) {
         var c = kids[i];
         if (c.nodeType === 3) {
@@ -526,7 +553,7 @@
         }
       }
     }
-    walk(el, baseCs, decorationOf(baseCs));
+    walk(el, baseCs, decorationOf(baseCs), list);
     return runs;
   }
 
@@ -769,6 +796,14 @@
 
   function canvasAsset(el) {
     var key = newAsset('image');
+    // figma_walk_prep.js snapshots WebGL canvases in a frame, where they still hold their drawing.
+    var snaps = window.__fxGlSnaps;
+    if (snaps && snaps.has(el)) {
+      var snap = snaps.get(el);
+      if (snap) store(key, { mime: 'image/png', b64: snap.split(',')[1] || '', w: el.width, h: el.height });
+      else fail(key, 'webgl');
+      return key;
+    }
     try {
       var w = el.width, h = el.height;
       if (!w || !h) { fail(key, 'decode'); return key; }
@@ -967,6 +1002,7 @@
     try { cs = getComputedStyle(el); } catch (e) { return; }
     if (cs.display === 'none') return;
     var isHtml = el.namespaceURI === XHTML;
+    if (isHtml && visuallyHidden(el, cs)) return;
     var tag = (el.localName || el.tagName || 'node').toLowerCase();
     var g = geometry(el, cs, inv, isHtml, tag);
     var rect = g.rect;
@@ -1054,11 +1090,54 @@
     // Pruned (hidden / zero-area) nodes still recurse: display:contents and
     // <slot> hoist their children, and zero-area wrappers may hold laid-out
     // descendants (position:fixed inside).
-    var kids = kidsOf(el);
+    // Text beside block children (a block <strong> then a sentence) is an anonymous box of its
+    // own: each stretch of text and plain inline elements becomes one text node. A flex or grid
+    // item is each text alone.
+    var kids = kidsOf(el), items = /flex|grid/.test(cs.display), run = [];
     for (var i = 0; i < kids.length; i++) {
-      if (kids[i].nodeType === 1) visit(kids[i], myIdx, g.invChild, depth + 1);
+      var c = kids[i];
+      if (!prune && runPart(c, items)) {
+        run.push(c);
+        if (items) { looseText(el, cs, run, myIdx, g.invChild, depth); run = []; }
+        continue;
+      }
+      if (run.length) { looseText(el, cs, run, myIdx, g.invChild, depth); run = []; }
+      if (c.nodeType === 1) visit(c, myIdx, g.invChild, depth + 1);
     }
+    if (run.length) looseText(el, cs, run, myIdx, g.invChild, depth);
     if (!prune && hasPseudo(afterCs)) reservePseudo(el, '::after', myIdx, g.invChild);
+  }
+
+  function runPart(c, items) {
+    if (c.nodeType === 3) return true;
+    if (c.nodeType !== 1 || items || c.namespaceURI !== XHTML) return false;
+    var d;
+    try { d = getComputedStyle(c).display; } catch (e) { return false; }
+    return d === 'none' || (d === 'inline' && !LEAF[(c.localName || '').toLowerCase()] && (!hasElementKids(c) || isInlineTextOnly(c)));
+  }
+
+  function looseText(el, cs, run, parentIdx, inv, depth) {
+    var info = run.some(function (c) { return c.nodeType === 3 && c.nodeValue.trim(); })
+      ? normalizeRuns(collectRuns(el, cs, run)) : { text: '' };
+    if (!info.text) {
+      run.forEach(function (c) { if (c.nodeType === 1) visit(c, parentIdx, inv, depth + 1); });
+      return;
+    }
+    var range = el.ownerDocument.createRange();
+    range.setStartBefore(run[0]); range.setEndAfter(run[run.length - 1]);
+    var rects = range.getClientRects(), x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      if (!r.width || !r.height) continue;
+      var a = inv.transformPoint({ x: r.left, y: r.top }), b = inv.transformPoint({ x: r.right, y: r.bottom });
+      x0 = Math.min(x0, a.x, b.x); y0 = Math.min(y0, a.y, b.y); x1 = Math.max(x1, a.x, b.x); y1 = Math.max(y1, a.y, b.y);
+    }
+    if (!(x1 > x0 && y1 > y0)) return;
+    var st = {};
+    textStyles(st, cs);
+    nodes.push({ i: nodes.length, parent: parentIdx, tag: '#text', rect: { x: r2(x0), y: r2(y0), w: r2(x1 - x0), h: r2(y1 - y0) },
+      text: info.text, runs: info.runs, lines: lineCount(el, inv, (cs.writingMode || '').indexOf('vertical') === 0, range),
+      styles: st, role: null, axName: null, interactable: false });
   }
 
   // ----- pseudo-element measurement: the owner's real pseudo is suppressed by an
@@ -1170,7 +1249,52 @@
     kept.forEach(function (n) { if (kidCount[n.i]) n.kids = kidCount[n.i]; });
     flagged = flagged.filter(function (f) { return map[f.i] >= 0; })
       .map(function (f) { return { i: map[f.i], reason: f.reason }; });
-    nodes = kept;
+    nodes = paintOrder(kept);
+  }
+
+  // Siblings in the order they paint. In-flow boxes keep their order (it is their layout);
+  // absolute and fixed ones, which auto layout leaves out of the flow, move to where CSS paints
+  // them: z-index below 0 first, then non-positioned boxes, then positioned ones at z auto or 0,
+  // then z above 0, document order breaking ties.
+  function paintOrder(list) {
+    function key(n) {
+      var s = n.styles || {}, z = s.z || 0;
+      var layer = z < 0 ? 0 : z > 0 ? 3 : (s.position && s.position !== 'static') ? 2 : 1;
+      return [layer, z, n.i];
+    }
+    function before(a, b) {
+      for (var k = 0; k < 3; k++) if (a[k] !== b[k]) return a[k] < b[k];
+      return false;
+    }
+    var kids = {}, roots = [];
+    list.forEach(function (n) { if (n.parent < 0) roots.push(n); else (kids[n.parent] = kids[n.parent] || []).push(n); });
+    var moved = false;
+    Object.keys(kids).forEach(function (p) {
+      var flow = [], out = [];
+      kids[p].forEach(function (n) {
+        var pos = (n.styles || {}).position;
+        (pos === 'absolute' || pos === 'fixed' ? out : flow).push(n);
+      });
+      if (!out.length) return;
+      out.sort(function (a, b) { var ka = key(a), kb = key(b); return before(ka, kb) ? -1 : before(kb, ka) ? 1 : 0; });
+      var merged = [], j = 0;
+      flow.forEach(function (f) {
+        var kf = key(f);
+        while (j < out.length && before(key(out[j]), kf)) merged.push(out[j++]);
+        merged.push(f);
+      });
+      while (j < out.length) merged.push(out[j++]);
+      for (var m = 0; m < merged.length; m++) if (merged[m] !== kids[p][m]) { moved = true; break; }
+      kids[p] = merged;
+    });
+    if (!moved) return list;
+    var order = [];
+    (function emit(ns) { ns.forEach(function (n) { order.push(n); if (kids[n.i]) emit(kids[n.i]); }); })(roots);
+    var map = {};
+    order.forEach(function (n, k) { map[n.i] = k; });
+    order.forEach(function (n) { n.i = map[n.i]; if (n.parent >= 0) n.parent = map[n.parent]; });
+    flagged = flagged.map(function (f) { return { i: map[f.i], reason: f.reason }; });
+    return order;
   }
 
   // figma_walk_prep.js may have loaded the page again in a frame of the capture width: walk that.
