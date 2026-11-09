@@ -16,7 +16,7 @@
 //   stop: true     (eval) the first script that fails, returns nothing or returns an
 //                  object with an `error` key ends the run (figma_capture.py's failures)
 //   op "page"      opens url in a new background tab (in `app`, else a room that is up, else perch's
-//                  frontmost browser; needs_focus from a Mac browser ends it), waits for it to load and
+//                  frontmost browser; needs_focus from a Mac browser ends it; a room's tab is shown inside the room), waits for it to load and
 //                  `settle` ms more, runs each source there, closes the tab. Each source
 //                  is one expression (awaited); it runs inline, not through eval, so a
 //                  page whose CSP bans eval still runs it. `app` names the browser (else
@@ -265,6 +265,10 @@ async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
     }
   }
   if (!tabId) return { app: where, warnings, fatal: `no_tab: perch opened ${url} in ${where}, in a tab it can't address; retry, or use another browser` };
+  // As in handle(): a room's background tab gets no animation frames, and showing it there takes no Mac focus.
+  if (roomOf(tabId)) {
+    try { await call(handleCall, "activate_tab", { target: { tabId } }); } catch { /* the walk reports a gone tab */ }
+  }
   const tab = { tabId, url, title: "", key: null };
   const results = [];
   try {
