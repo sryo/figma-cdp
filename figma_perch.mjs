@@ -16,7 +16,7 @@
 //   stop: true     (eval) the first script that fails, returns nothing or returns an
 //                  object with an `error` key ends the run (figma_capture.py's failures)
 //   op "page"      opens url in a new background tab (in `app`, else a room that is up, else perch's
-//                  frontmost browser; needs_focus from a Mac browser ends it; a room's tab is shown inside the room), waits for it to load and
+//                  frontmost browser, but a room set up and down ends it; needs_focus from a Mac browser ends it; a room's tab is shown inside the room), waits for it to load and
 //                  `settle` ms more, runs each source there, closes the tab. Each source
 //                  is one expression (awaited); it runs inline, not through eval, so a
 //                  page whose CSP bans eval still runs it. `app` names the browser (else
@@ -229,14 +229,29 @@ async function tabHidden(handleCall, tab) {
 
 const perchFatal = (e, ms, src = "") => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms, src)}` : e.message;
 
+// The rooms the user set up, as perch reads them: $ROOMS_HOME/rooms.json, else ~/.rooms/rooms.json.
+function roomNames() {
+  try {
+    const reg = JSON.parse(readFileSync(join(process.env.ROOMS_HOME || join(homedir(), ".rooms"), "rooms.json"), "utf8"));
+    return Object.keys((reg && reg.rooms) || {});
+  } catch { return []; }
+}
+
 // The page op: a tab of its own, shown only when Arc needs it and the caller asked, closed whatever the scripts do.
 const ARC = /^arc$/i;
 async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
   let tabId, opened;
   const warnings = [];
   // A room needs no focus grant and runs with the screen locked, so it wins unless the caller names an app.
+  // A room set up but down stops the walk: the frontmost browser is the user's window, not where an unattended walk expects to be.
   if (!app) {
     try { app = (JSON.parse((await call(handleCall, "list_tabs", { app: "room", limit: 1 })).text).tabs || [])[0]?.app || null; } catch { app = null; }
+    const names = app ? [] : roomNames();
+    if (names.length) {
+      const which = names.length > 1 ? `<name>, one of ${names.join(", ")}` : names[0];
+      return { app: "a room", warnings, fatal: `no_browser: room${names.length > 1 ? "s" : ""} ${names.join(", ")} ${names.length > 1 ? "are" : "is"} set up but not up; ` +
+        `run rooms up ${which}, then retry, or name a browser with --app (or FIGMA_CAPTURE_APP); nothing was opened` };
+    }
   }
   try {
     const { text } = await call(handleCall, "new_tab", app ? { url, app } : { url });
