@@ -1273,6 +1273,21 @@ class CapturePerch(Harness):
         url, _, r = self.walk('page', '0', '--app', 'Google Chrome', PERCH_STUB_TABS=json.dumps(room))
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome'}, 'an app the caller names wins')
 
+    def test_walk_shows_its_room_tab_in_the_room_before_the_scripts_run(self):
+        """A room's background tab gets no animation frames; showing it there takes no focus on the Mac."""
+        room = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'about:blank', 'title': ''}]
+        _, _, r = self.walk('page', '0', PERCH_STUB_TABS=json.dumps(room))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        names = [c['name'] for c in self.calls()]
+        self.assertEqual(names, ['list_tabs', 'new_tab', 'activate_tab', 'wait', 'eval_js', 'close_tab'])
+        self.assertEqual(self.calls('activate_tab')[0]['args']['target'], self.calls('eval_js')[0]['args']['target'])
+        for app in ('Safari', 'Google Chrome'):
+            stop_daemon(self.sock)
+            open(self.log, 'w').close()
+            _, _, r = self.walk('page', '0', '--app', app, PERCH_STUB_TABS=json.dumps(room))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(self.calls('activate_tab'), [], app)
+
     def test_walk_without_a_room_or_focus_grant_stops_and_says_so(self):
         _, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1')
         self.assertNotEqual(r.returncode, 0)
