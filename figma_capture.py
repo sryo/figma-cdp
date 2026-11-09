@@ -6,7 +6,8 @@
       runs figma_walker.js there (an async eval whose envelope comes back whole) and
       persists it to /tmp/figma_capture_<slug>.json. The tab is a new one (perch new_tab) in
       --app, else a perch room that is up, else the frontmost browser, closed after the walk; a
-      Mac browser without the user's focus grant stops it (needs_focus).
+      Mac browser without the user's focus grant stops it (needs_focus). --loft (or
+      FIGMA_CAPTURE_APP=loft) opens it on the loft instead (perch new_tab {loft:true}).
   import <spec.json> [--components <json-or-path>] [--componentize] [--chunk-bytes N]
          [--file <figma-url-or-key>] [--timeout <seconds>] [--dry-run <dir>]
       Replays the spec into the Figma tab: a reset eval, the assets streamed in
@@ -22,7 +23,7 @@ perch: eval_js world:"main" from the perch at PERCH_DIR (default ~/.perch, then
 ~/Documents/perch); FIGMA_BACKEND, if set, must be perch.
 Tab: --file (or FIGMA_FILE) names the Figma file; needed when several are open.
 Await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 100.
-A walk runs in the user's browser (or a room), with its logins.
+A walk runs in the user's browser (or a room, or on the loft), with its logins.
 """
 import argparse, hashlib, json, os, re, subprocess, sys, urllib.parse
 
@@ -36,19 +37,23 @@ BATCH_KEYS = ['captureIds', 'captureEdge', 'captureRects', 'captureLayout',
 # ------------------------------------------------- perch client
 
 # The one hint for what the user's browser window left out of a walk, shared by the width note
-# and the prep's notes. A room (a VM) likely can't reach this Mac's own servers, so a local URL
-# gets no room.
+# and the prep's notes. The loft (a hidden screen on this Mac, whose window paints) reaches any
+# host; a room (a VM) likely can't reach this Mac's own servers, so a local URL gets only the loft.
 WINDOW_HINT = "the user's browser window decides this, and a window tiler may have sized or hidden it; leave their windows as they are"
-ROOM_HINT = "; to get it, walk in a room (rooms up <name>)"
+ROOM_HINT = "; to get it, walk in a room (rooms up <name>) or on the loft (--loft; loft up)"
+LOFT_ONLY_HINT = "; to get it, walk on the loft (--loft; loft up)"
+LOFT_HINT = "the loft's window decides this"
 LOCAL_HOST = re.compile(r'^(localhost|.*\.localhost|127(\.\d+){3}|::1|0\.0\.0\.0)$')
 
 
-def window_hint(url):
+def window_hint(url, loft=False):
+    if loft:
+        return LOFT_HINT
     try:
         host = urllib.parse.urlsplit(url).hostname or ''
     except ValueError:
         host = ''
-    return WINDOW_HINT + ('' if LOCAL_HOST.match(host) else ROOM_HINT)
+    return WINDOW_HINT + (LOFT_ONLY_HINT if LOCAL_HOST.match(host) else ROOM_HINT)
 
 
 def perch_call(req, wait):
@@ -120,7 +125,8 @@ def walk(a):
         sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
     walker = read_sibling('figma_walker.js').decode().rstrip().rstrip(';')
     prep = read_sibling('figma_walk_prep.js').decode().rstrip().rstrip(';')
-    hint = window_hint(a.url)
+    loft = a.loft or (a.app or '').lower() == 'loft'
+    hint = window_hint(a.url, loft)
     cfg = {'width': a.width, 'height': 900, 'scheme': a.scheme, 'scroll': not a.no_scroll, 'hint': hint}
     # One eval: the prep readies the page (a frame at the width, light mode, scrolled through),
     # then the walker walks it and carries the prep's notes back.
@@ -131,7 +137,9 @@ def walk(a):
         srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
     req = {'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
            'timeout': round(timeout * 1000), 'show': a.show}
-    if a.app:
+    if loft:
+        req['loft'] = True
+    elif a.app:
         req['app'] = a.app
     out = perch_call(req, wait=settle / 1000 + timeout + 130)
     for w in out.get('warnings') or []:
@@ -147,7 +155,7 @@ def walk(a):
         print(f'figma_capture.py: {note}', file=sys.stderr)
     got = ((result.get('meta') or {}).get('viewport') or {}).get('w')
     if a.width and got and round(got) != a.width:
-        print(f'figma_capture.py: the page laid out at {round(got)}px, not {a.width}px (the browser window\'s width, and the page '
+        print(f'figma_capture.py: the page laid out at {round(got)}px, not {a.width}px (the window\'s width, and the page '
               f'would not load in a frame); --width 0 accepts it; {hint}', file=sys.stderr)
 
     slug = re.sub(r'[^a-z0-9]+', '-', re.sub(r'^https?://', '', a.url).lower()).strip('-')[:60] or 'page'
@@ -368,7 +376,9 @@ def main():
     w.add_argument('url')
     w.add_argument('wait_ms', nargs='?', default='2000')
     w.add_argument('--app', default=os.environ.get('FIGMA_CAPTURE_APP'),
-                   help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one)')
+                   help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one); loft is --loft')
+    w.add_argument('--loft', action='store_true',
+                   help='open the page tab on the loft, a hidden screen whose window paints and takes no focus (loft up first)')
     w.add_argument('--width', type=int, default=1440, metavar='PX',
                    help='lay the page out this wide (default 1440): a window of another width loads it in a frame that wide; 0 keeps the window\'s')
     w.add_argument('--scheme', choices=('light', 'page'), default='light',

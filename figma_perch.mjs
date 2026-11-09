@@ -8,7 +8,7 @@
 //
 // A request is {op:"eval", file, sources:[<js>...], tab, timeout, stop},
 // {op:"screenshot", file, path:<out.png>, tab} or {op:"page", url, sources, settle,
-// timeout, app, show}; file is a Figma URL, a file key or "". The reply is one JSON object:
+// timeout, app, show, loft}; file is a Figma URL, a file key or "". The reply is one JSON object:
 //   {tab:{tabId,url,title,app}, origin, results:[{ok:true,value,href} | {ok:false,error,figma,href}]}
 //   {tab, origin, path}                 (screenshot)
 //   {fatal:"<code>: <message>"}          (no perch, no tab, perch call failed)
@@ -16,7 +16,7 @@
 //   stop: true     (eval) the first script that fails, returns nothing or returns an
 //                  object with an `error` key ends the run (figma_capture.py's failures)
 //   op "page"      opens url in a new background tab (in `app`, else a room that is up, else perch's
-//                  frontmost browser, but a room set up and down ends it; needs_focus from a Mac browser ends it; a room's tab is shown inside the room), waits for it to load and
+//                  frontmost browser, but a room set up and down ends it; `loft` opens it on the loft instead; needs_focus from a Mac browser ends it; a room's tab is shown inside the room), waits for it to load and
 //                  `settle` ms more, runs each source there, closes the tab. Each source
 //                  is one expression (awaited); it runs inline, not through eval, so a
 //                  page whose CSP bans eval still runs it. `app` names the browser (else
@@ -239,29 +239,32 @@ function roomNames() {
 
 // The page op: a tab of its own, shown only when Arc needs it and the caller asked, closed whatever the scripts do.
 const ARC = /^arc$/i;
-async function page(handleCall, { url, sources: srcs, settle, app, show }, ms) {
+async function page(handleCall, { url, sources: srcs, settle, app, show, loft }, ms) {
   let tabId, opened;
   const warnings = [];
-  // A room needs no focus grant and runs with the screen locked, so it wins unless the caller names an app.
+  loft = loft === true;
+  if (loft) app = null;
+  // A room needs no focus grant and runs with the screen locked, so it wins unless the caller names an app or the loft.
   // A room set up but down stops the walk: the frontmost browser is the user's window, not where an unattended walk expects to be.
-  if (!app) {
+  if (!app && !loft) {
     try { app = (JSON.parse((await call(handleCall, "list_tabs", { app: "room", limit: 1 })).text).tabs || [])[0]?.app || null; } catch { app = null; }
     const names = app ? [] : roomNames();
     if (names.length) {
       const which = names.length > 1 ? `<name>, one of ${names.join(", ")}` : names[0];
       return { app: "a room", warnings, fatal: `no_browser: room${names.length > 1 ? "s" : ""} ${names.join(", ")} ${names.length > 1 ? "are" : "is"} set up but not up; ` +
-        `run rooms up ${which}, then retry, or name a browser with --app (or FIGMA_CAPTURE_APP); nothing was opened` };
+        `run rooms up ${which}, then retry, or walk on the loft (--loft; loft up), or name a browser with --app (or FIGMA_CAPTURE_APP); nothing was opened` };
     }
   }
   try {
-    const { text } = await call(handleCall, "new_tab", app ? { url, app } : { url });
+    // perch opens a loft tab in a window of its own on the loft, taking no focus; a loft that is down is perch's error, as is.
+    const { text } = await call(handleCall, "new_tab", loft ? { url, loft: true } : app ? { url, app } : { url });
     opened = JSON.parse(text.split("\n")[0]);
     tabId = opened.tabId;
     if (opened.warning) warnings.push(opened.warning);
   } catch (e) {
     if (/^needs_focus: /.test(e.message)) {
       return { app: app || "the browser", warnings, fatal: "needs_focus: capture opens the page in a new tab, and a Mac browser takes focus to open one, " +
-        "which the user has not allowed; nothing was opened. Walk in Safari (--app Safari), which opens one without taking focus, or bring up a room (rooms up <name>)" };
+        "which the user has not allowed; nothing was opened. Walk in Safari (--app Safari), which opens one without taking focus, or bring up a room (rooms up <name>), or walk on the loft (--loft; loft up)" };
     }
     return { fatal: e.message };
   }

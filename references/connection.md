@@ -39,7 +39,7 @@ If text set in a local system font (SF Pro, a font installed on the Mac) measure
 If a call fails, the error keeps perch's code:
 - `no_perch`: no `server.js` at `PERCH_DIR`, or a perch without `eval_js` `world:"main"`; update perch.
 - `no_tab` / `ambiguous_tab`: open the file in Chrome, or pass `--file`.
-- `timeout`: an awaited eval runs at most 100s by default; pass `--timeout <seconds>` to either helper (or set `FIGMA_TIMEOUT`), up to 300. A perch older than this awaits 30s whatever you ask; update it. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or show the tab in its window.
+- `timeout`: an awaited eval runs at most 100s by default; pass `--timeout <seconds>` to either helper (or set `FIGMA_TIMEOUT`), up to 300. A perch older than this awaits 30s whatever you ask; update it. In a background tab, `figma.loadAllPagesAsync()` on a many-page file can stall; read `figma.currentPage` or `getNodeByIdAsync`, or use a room tab on the file.
 - `tab_not_visible` (screenshot only): the tab isn't the one its window shows.
 - `signed_out` / `no_browser: room`: the room needs the user; nothing ran.
 - `figma is undefined in this tab`: on a room tab the helper first tries an exact Tools control once; if that control is unavailable, open and close any plugin once, as above.
