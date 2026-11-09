@@ -333,6 +333,8 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', '--timeout', '1', '-e', 'await figma.loadAllPagesAsync();\n'
                             'await new Promise(r => setTimeout(r, 1500))')
         self.assertIn('figma.loadAllPagesAsync() on a many-page file can stall', r.stderr)
+        self.assertIn('or use a room tab on the file', r.stderr)
+        self.assertNotIn('show the tab', r.stderr)
         r = self.run_helper('figma_run.py', '--timeout', '3', slow)
         self.assertEqual((r.returncode, r.stdout), (0, '"late"\n'), r.stderr)
         self.assertEqual(self.eval_timeouts(), [1000, 1000, 1000, 3000])
@@ -376,7 +378,8 @@ class PerchBackend(Harness):
         r = self.run_helper('figma_run.py', '--timeout', '1', slow, PERCH_STUB_HIDDEN='1')
         self.assertEqual(r.returncode, 1)
         self.assertIn('The tab is hidden', r.stderr)
-        self.assertIn('show the tab', r.stderr)
+        self.assertIn('use a room tab on the file, then --recover', r.stderr)
+        self.assertNotIn('show the tab', r.stderr)
         stop_daemon(self.sock)
 
     def test_perch_error_code_passes_through(self):
@@ -1134,13 +1137,13 @@ class CapturePerch(Harness):
     def test_walk_lays_out_at_1440_in_light_mode_after_scrolling_by_default(self):
         url, out, r = self.walk('page', '0')
         script = self.calls('eval_js')[0]['args']['script']
-        self.assertIn('{"height": 900, "scheme": "light", "scroll": true, "width": 1440}', script)
+        self.assertRegex(script, r'\{"height": 900, "hint": "[^"]+", "scheme": "light", "scroll": true, "width": 1440\}')
         self.assertIn('data-fx-capture', script, 'the prep that frames the page goes with the walker, in one eval')
 
     def test_walk_options_change_the_prep(self):
         url, out, r = self.walk('page', '0', '--width', '0', '--scheme', 'page', '--no-scroll')
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn('{"height": 900, "scheme": "page", "scroll": false, "width": 0}', self.calls('eval_js')[0]['args']['script'])
+        self.assertRegex(self.calls('eval_js')[0]['args']['script'], r'\{"height": 900, "hint": "[^"]+", "scheme": "page", "scroll": false, "width": 0\}')
 
     def test_walk_says_when_the_page_was_laid_out_at_another_width(self):
         url, out, r = self.walk('page', '0')
@@ -1148,6 +1151,36 @@ class CapturePerch(Harness):
         self.assertIn('laid out at 400px, not 1440px', r.stderr)
         url, out, r = self.walk('page', '0', '--width', '0')
         self.assertNotIn('laid out at', r.stderr)
+
+    def test_walk_hints_point_at_a_room_never_at_the_users_windows(self):
+        """The prep's notes and the width note share one hint; a window tiler may have sized the window."""
+        url, out, r = self.walk('page', '0')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        note = next(l for l in r.stderr.splitlines() if 'laid out at 400px' in l)
+        hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
+        self.assertTrue(note.endswith(hint), (note, hint))
+        self.assertIn('a window tiler', hint)
+        self.assertIn('rooms up <name>', hint)
+        for line in (note, hint):
+            self.assertNotRegex(line, r'(?i)stackd|widen|resize|raise|show the tab|tab shown|move')
+
+    def test_walk_on_localhost_suggests_no_room(self):
+        """A room runs in a VM, which likely can't reach this Mac's localhost."""
+        for host in ('localhost:3000', '127.0.0.1:8080'):
+            stop_daemon(self.sock)
+            open(self.log, 'w').close()
+            tag = f'page-{os.getpid()}-{id(self)}'
+            url = f'http://{host}/{tag}'
+            slug = re.sub(r'[^a-z0-9]+', '-', f'{host}/{tag}').strip('-')[:60]
+            self.outs.append(f'/tmp/figma_capture_{slug}.json')
+            r = self.capture('walk', url, '0')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            script = self.calls('eval_js')[0]['args']['script']
+            hint = re.search(r'"hint": "([^"]+)"', script).group(1)
+            self.assertIn('a window tiler', hint)
+            self.assertNotIn('room', hint)
+            note = next(l for l in r.stderr.splitlines() if 'laid out at 400px' in l)
+            self.assertNotIn('room', note)
 
     def test_walk_waits_for_the_page_not_the_new_tabs_blank_document(self):
         # A new tab reports the initial about:blank as readyState complete before the URL commits.
