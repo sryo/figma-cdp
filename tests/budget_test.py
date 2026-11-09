@@ -157,6 +157,18 @@ class Docs(unittest.TestCase):
         hits = [f'{rel}:{text[:m.start()].count(chr(10)) + 1}: {m.group(0)}' for rel, text in texts.items() for m in retired.finditer(text)]
         self.assertEqual(hits, [], 'perch is the only backend')
 
+    def test_where_a_room_is_offered_for_a_hidden_tab_the_loft_is_too(self):
+        d = docs()
+        self.assertTrue('--loft' in d['SKILL.md'], 'SKILL.md names no way to walk on the loft')
+        capture = d['references/capture.md']
+        walk = next(l for l in capture.splitlines() if l.startswith('`walk` opens the URL'))
+        seen = next(l for l in capture.splitlines() if 'Scripts that wait for the page to be seen' in l)
+        for line in (walk, seen):
+            self.assertIn('--loft', line)
+            self.assertNotRegex(line, r'(?i)with the tab shown|show the tab|stackd')
+        timeout = next(l for l in d['references/connection.md'].splitlines() if l.startswith('- `timeout`'))
+        self.assertNotRegex(timeout, r'(?i)show the tab', 'a Figma tab shown in its window is the user\'s window')
+
     def test_a_repeated_pattern_has_a_recipe_that_links_the_copies(self):
         plan = next(l for l in docs()['SKILL.md'].splitlines() if '**Component plan' in l)
         self.assertIn('PATTERN the task touches becomes a component first. Recipe: `references/building.md` → Repeated patterns', plan)

@@ -77,7 +77,7 @@ class Harness(unittest.TestCase):
              'ROOMS_HOME': os.path.join(self.tmp.name, 'no-rooms')}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
-                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
+                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'PERCH_STUB_LOFT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
             e.pop(k, None)
         e.update(env)
         return e
@@ -1162,7 +1162,7 @@ class CapturePerch(Harness):
         hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
         self.assertTrue(note.endswith(hint), (note, hint))
         self.assertIn('a window tiler', hint)
-        self.assertIn('rooms up <name>', hint)
+        self.assertIn('walk in a room (rooms up <name>) or on the loft (--loft; loft up)', hint)
         for line in (note, hint):
             self.assertNotRegex(line, r'(?i)stackd|widen|resize|raise|show the tab|tab shown|move')
 
@@ -1181,6 +1181,7 @@ class CapturePerch(Harness):
             hint = re.search(r'"hint": "([^"]+)"', script).group(1)
             self.assertIn('a window tiler', hint)
             self.assertNotIn('room', hint)
+            self.assertIn('walk on the loft (--loft; loft up)', hint, 'the loft is on this Mac, so it reaches localhost')
             note = next(l for l in r.stderr.splitlines() if 'laid out at 400px' in l)
             self.assertNotIn('room', note)
 
@@ -1334,6 +1335,7 @@ class CapturePerch(Harness):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('rooms up main', r.stderr)
         self.assertIn('--app', r.stderr)
+        self.assertIn('walk on the loft (--loft; loft up)', r.stderr)
         self.assertEqual((self.calls('new_tab'), self.calls('eval_js')), ([], []))
         self.assertFalse(os.path.exists(out))
         stop_daemon(self.sock)
@@ -1347,6 +1349,27 @@ class CapturePerch(Harness):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url}, 'no room configured: the frontmost browser')
 
+    def test_walk_on_the_loft_opens_its_tab_there(self):
+        """The loft is a screen the user never sees: its window paints, takes no focus, and its tab is no room's."""
+        room = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'about:blank', 'title': ''}]
+        for args, env in ((('--loft',), {}), ((), {'FIGMA_CAPTURE_APP': 'loft'}),
+                          (('--loft',), {'FIGMA_CAPTURE_APP': 'Safari', 'PERCH_STUB_TABS': json.dumps(room)})):
+            stop_daemon(self.sock)
+            open(self.log, 'w').close()
+            url, _, r = self.walk('page', '0', *args, PERCH_STUB_NO_FOCUS='1', **env)
+            self.assertEqual(r.returncode, 0, (args, env, r.stderr))
+            self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'], (args, env))
+            self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True}, (args, env))
+            hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
+            self.assertEqual(hint, "the loft's window decides this")
+
+    def test_walk_on_the_loft_passes_perchs_error_through_when_it_is_down(self):
+        _, out, r = self.walk('page', '0', '--loft', PERCH_STUB_LOFT='down')
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.stderr.strip(), 'figma_capture.py: walker failed — no_browser: the loft is down; run loft up, then retry')
+        self.assertEqual(self.calls('eval_js'), [])
+        self.assertFalse(os.path.exists(out))
+
     def test_walk_without_a_room_or_focus_grant_stops_and_says_so(self):
         _, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1')
         self.assertNotEqual(r.returncode, 0)
@@ -1354,6 +1377,7 @@ class CapturePerch(Harness):
         self.assertIn('--app Safari', r.stderr)
         self.assertNotIn('perch focus', r.stderr)
         self.assertIn('rooms up', r.stderr)
+        self.assertIn('walk on the loft (--loft; loft up)', r.stderr)
         self.assertEqual(len(self.calls('new_tab')), 1, 'never retried in a Mac browser')
         self.assertEqual(self.calls('eval_js'), [])
 
