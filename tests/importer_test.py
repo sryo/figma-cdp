@@ -303,6 +303,38 @@ class Page(unittest.TestCase):
         self.assertEqual(text['rotation'], -90)
 
 
+class AutoMargins(unittest.TestCase):
+    """A block centred or pushed right by auto margins (margin: 0 auto) sits where the browser
+    put it: its column's children align to the centre (or end) when every other child stretches."""
+
+    def narrow(self, nodes, mx):
+        sec = nodes[2]
+        sec['styles']['sz'] = ['px', 'auto']
+        sec['rect'] = dict(sec['rect'], x=180, w=600)
+        if mx:
+            sec['styles']['mx'] = mx
+
+    def test_a_centred_child_centres_its_column(self):
+        spec, out = run_edited(lambda nodes: self.narrow(nodes, 'c'))
+        self.assertEqual(out['node'](1)['counterAlign'], 'CENTER')
+
+    def test_a_child_pushed_right_ends_its_column(self):
+        spec, out = run_edited(lambda nodes: self.narrow(nodes, 'r'))
+        self.assertEqual(out['node'](1)['counterAlign'], 'MAX')
+
+    def test_without_auto_margins_the_column_stays_at_the_start(self):
+        spec, out = run_edited(lambda nodes: self.narrow(nodes, None))
+        self.assertEqual(out['node'](1)['counterAlign'], 'MIN')
+
+    def test_a_fixed_child_without_them_keeps_the_column_at_the_start(self):
+        def edit(nodes):
+            self.narrow(nodes, 'c')
+            nodes[6]['styles']['sz'] = ['px', 'auto']
+            nodes[6]['rect'] = dict(nodes[6]['rect'], w=300)
+        spec, out = run_edited(edit)
+        self.assertEqual(out['node'](1)['counterAlign'], 'MIN')
+
+
 class Componentize(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

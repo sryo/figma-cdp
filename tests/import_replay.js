@@ -59,6 +59,7 @@ function dumpNode(n) {
   if (n.layoutGrow) out.layoutGrow = n.layoutGrow;
   if (n.layoutAlign && n.layoutAlign !== 'INHERIT') out.layoutAlign = n.layoutAlign;
   if (n.layoutMode) out.layoutMode = n.layoutMode;
+  if (n.layoutMode && n.layoutMode !== 'NONE') out.counterAlign = n.counterAxisAlignItems;
   if (n.type === 'TEXT') out.characters = n.characters;
   if (n.type === 'INSTANCE' && n.mainComponent) out.main = n.mainComponent.name;
   if (n.type === 'COMPONENT') out.props = Object.keys(n.componentPropertyDefinitions || {}).map((k) => k.split('#')[0]);

@@ -105,6 +105,33 @@ class Gaps(unittest.TestCase):
     def test_content_waiting_to_fade_in_is_shown(self):
         self.assertEqual(self.node('fade')['styles'].get('opacity', 1), 1)
 
+    def test_visually_hidden_text_is_left_out(self):
+        self.assertFalse([n for n in self.nodes if 'Screen reader' in (n.get('text') or '')])
+
+    def test_text_beside_a_block_child_is_kept(self):
+        li = self.node('step')
+        loose = [n for n in self.nodes if n['parent'] == li['i'] and n.get('text') == 'Rest your thumb.']
+        self.assertEqual(len(loose), 1, [n.get('text') for n in self.nodes if n['parent'] == li['i']])
+        self.assertEqual(len(loose[0]['runs']), 3)
+        self.assertGreater(loose[0]['rect']['w'], 20)
+
+    def test_auto_margins_say_which_side_they_push_from(self):
+        self.assertEqual((self.node('col')['styles'].get('mx'), self.node('end')['styles'].get('mx')), ('c', 'r'))
+
+    def test_a_raised_sibling_paints_after_a_later_one(self):
+        raised, flat = self.node('raised'), self.node('flat')
+        self.assertEqual(raised['styles'].get('z'), 5)
+        self.assertGreater(raised['i'], flat['i'])
+
+    def test_a_webgl_canvas_is_drawn_or_says_why_not(self):
+        img = self.node('gl')['image']
+        asset = self.spec['assets'][img['asset']]
+        if 'in the background' in self.stderr:
+            self.assertEqual(asset.get('error'), 'webgl')
+            self.assertIn('WebGL', self.stderr)
+        else:
+            self.assertTrue(asset.get('b64'))
+
 
 if __name__ == '__main__':
     unittest.main()
