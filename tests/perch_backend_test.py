@@ -72,7 +72,9 @@ class Harness(unittest.TestCase):
 
     def helper_env(self, env):
         e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
-             'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon, 'FIGMA_CDP_HOME': self.tmp.name}
+             'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon, 'FIGMA_CDP_HOME': self.tmp.name,
+             # never the user's own rooms registry
+             'ROOMS_HOME': os.path.join(self.tmp.name, 'no-rooms')}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
                   'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
@@ -1320,6 +1322,30 @@ class CapturePerch(Harness):
             _, _, r = self.walk('page', '0', '--app', app, PERCH_STUB_TABS=json.dumps(room))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(self.calls('activate_tab'), [], app)
+
+    def test_walk_stops_when_a_configured_room_is_down(self):
+        """An unattended walk expects its room: falling back to the frontmost browser would land on the user's window."""
+        home = os.path.join(self.tmp.name, 'home')
+        os.makedirs(os.path.join(home, '.rooms'))
+        with open(os.path.join(home, '.rooms', 'rooms.json'), 'w') as f:
+            json.dump({'version': 1, 'rooms': {'main': {'name': 'main', 'cdp': {'host': '127.0.0.1', 'port': 9300, 'token': 'x'}}}}, f)
+        env = {'HOME': home, 'ROOMS_HOME': ''}
+        _, out, r = self.walk('page', '0', **env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('rooms up main', r.stderr)
+        self.assertIn('--app', r.stderr)
+        self.assertEqual((self.calls('new_tab'), self.calls('eval_js')), ([], []))
+        self.assertFalse(os.path.exists(out))
+        stop_daemon(self.sock)
+        open(self.log, 'w').close()
+        url, _, r = self.walk('page', '0', '--app', 'Google Chrome', **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome'}, 'an app the caller names wins')
+        stop_daemon(self.sock)
+        open(self.log, 'w').close()
+        url, _, r = self.walk('page', '0', HOME=os.path.join(self.tmp.name, 'no-home'), ROOMS_HOME='')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url}, 'no room configured: the frontmost browser')
 
     def test_walk_without_a_room_or_focus_grant_stops_and_says_so(self):
         _, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1')
