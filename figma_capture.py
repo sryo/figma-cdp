@@ -24,7 +24,7 @@ Tab: --file (or FIGMA_FILE) names the Figma file; needed when several are open.
 Await: --timeout <seconds> (or FIGMA_TIMEOUT) per eval, 1 to 300, default 100.
 A walk runs in the user's browser (or a room), with its logins.
 """
-import argparse, hashlib, json, os, re, subprocess, sys
+import argparse, hashlib, json, os, re, subprocess, sys, urllib.parse
 
 from figma_backend import Dropped, daemon_exchange, daemon_sock, js_int, require_perch, start_daemon, timeout_seconds
 
@@ -34,6 +34,22 @@ BATCH_KEYS = ['captureIds', 'captureEdge', 'captureRects', 'captureLayout',
               'captureReport', 'captureFonts', 'captureAssets', 'captureProps']
 
 # ------------------------------------------------- perch client
+
+# The one hint for what the user's browser window left out of a walk, shared by the width note
+# and the prep's notes. A room (a VM) likely can't reach this Mac's own servers, so a local URL
+# gets no room.
+WINDOW_HINT = "the user's browser window decides this, and a window tiler may have sized or hidden it; leave their windows as they are"
+ROOM_HINT = "; to get it, walk in a room (rooms up <name>)"
+LOCAL_HOST = re.compile(r'^(localhost|.*\.localhost|127(\.\d+){3}|::1|0\.0\.0\.0)$')
+
+
+def window_hint(url):
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ''
+    except ValueError:
+        host = ''
+    return WINDOW_HINT + ('' if LOCAL_HOST.match(host) else ROOM_HINT)
+
 
 def perch_call(req, wait):
     """figma_perch.mjs's reply to one request, through its daemon, else a one-shot run."""
@@ -104,7 +120,8 @@ def walk(a):
         sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
     walker = read_sibling('figma_walker.js').decode().rstrip().rstrip(';')
     prep = read_sibling('figma_walk_prep.js').decode().rstrip().rstrip(';')
-    cfg = {'width': a.width, 'height': 900, 'scheme': a.scheme, 'scroll': not a.no_scroll}
+    hint = window_hint(a.url)
+    cfg = {'width': a.width, 'height': 900, 'scheme': a.scheme, 'scroll': not a.no_scroll, 'hint': hint}
     # One eval: the prep readies the page (a frame at the width, light mode, scrolled through),
     # then the walker walks it and carries the prep's notes back.
     walker = ('(async function () {\n  var __prep = await (' + prep + ')(' + json.dumps(cfg, sort_keys=True) + ');\n'
@@ -131,7 +148,7 @@ def walk(a):
     got = ((result.get('meta') or {}).get('viewport') or {}).get('w')
     if a.width and got and round(got) != a.width:
         print(f'figma_capture.py: the page laid out at {round(got)}px, not {a.width}px (the browser window\'s width, and the page '
-              'would not load in a frame): widen the window, or walk in a room (rooms up <name>); --width 0 accepts it', file=sys.stderr)
+              f'would not load in a frame); --width 0 accepts it; {hint}', file=sys.stderr)
 
     slug = re.sub(r'[^a-z0-9]+', '-', re.sub(r'^https?://', '', a.url).lower()).strip('-')[:60] or 'page'
     out = f'/tmp/figma_capture_{slug}.json'

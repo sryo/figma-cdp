@@ -74,7 +74,7 @@ function timeoutHint(ms, src) {
     try { lib = readFileSync(new URL(name, import.meta.url), "utf8") + "\n;"; } catch { /* no lib to strip */ }
     if (lib && own.startsWith(lib)) own = own.slice(lib.length);
   }
-  return /loadAllPagesAsync/.test(own) ? `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or show the tab in its window` : waited;
+  return /loadAllPagesAsync/.test(own) ? `${waited}. In a background tab figma.loadAllPagesAsync() on a many-page file can stall; read figma.currentPage or getNodeByIdAsync instead, or use a room tab on the file` : waited;
 }
 const UNDEFINED_HINT ="figma is undefined in this tab: open and close any Figma plugin once in this file (Actions in the bottom toolbar, then a recent plugin, then close its window), then retry. Do it yourself with a browser tool if the user lets you; else ask them to";
 
@@ -219,7 +219,7 @@ export async function wakeFigma(handleCall, tab) {
 }
 
 // A timeout in a hidden tab is usually Chrome throttling its timers, not a slow script: say so.
-const HIDDEN_HINT = "The tab is hidden (document.visibilityState is hidden), and Chrome throttles a hidden tab's timers, so awaits in the page crawl: show the tab in its window, then --recover";
+const HIDDEN_HINT = "The tab is hidden (document.visibilityState is hidden), and Chrome throttles a hidden tab's timers, so awaits in the page crawl: use a room tab on the file, then --recover";
 async function tabHidden(handleCall, tab) {
   const args = { target: { tabId: tab.tabId }, world: "main", awaitPromise: true,
     script: 'return typeof document === "object" && document ? String(document.visibilityState) : ""' };

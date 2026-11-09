@@ -1,5 +1,5 @@
 // Readies the SOURCE page for figma_walker.js; figma_capture.py runs it in the same eval, just
-// before the walker. An expression: an async function of {width, height, scheme, scroll}
+// before the walker. An expression: an async function of {width, height, scheme, scroll, hint}
 // returning {notes, width}.
 //   width   a page narrower or wider than this (the browser window's size) loads again in a
 //           same-origin frame this wide, so its media queries see the width the design is for;
@@ -7,9 +7,11 @@
 //   scheme  'light' makes prefers-color-scheme: light rules apply and dark ones not, whatever the
 //           browser's setting; 'page' leaves them.
 //   scroll  scrolls through the page and back, so scroll-revealed and lazy content is there.
+//   hint    ends each note on what a background tab left out (figma_capture.py's one window hint).
 (async function (o) {
   if (typeof document === 'undefined' || typeof window === 'undefined') return { notes: [], width: 0 };
   var notes = [], win = window, doc = document;
+  var hinted = function (note) { return o.hint ? note + '; ' + o.hint : note; };
   // A background tab stretches setTimeout to seconds, so waits yield through a MessageChannel,
   // which it doesn't throttle, until the time is up.
   var ch = new MessageChannel(), queue = [];
@@ -82,8 +84,8 @@
       }
     });
     if (shown) notes.push('showed ' + shown + ' elements still waiting to fade in');
-    if (document.visibilityState === 'hidden') notes.push('the page tab is in the background, where the page\'s own scroll-into-view scripts never run: '
-      + 'what they add is missing; walk in a room (rooms up <name>) or with the tab shown to get it');
+    if (document.visibilityState === 'hidden') notes.push(hinted('the page tab is in the background, where the page\'s own scroll-into-view scripts never run: '
+      + 'what they add is missing'));
   }
 
   // A WebGL canvas holds its drawing only during the frame that drew it, so a later read is
@@ -105,8 +107,7 @@
     }
     var empty = 0;
     snaps.forEach(function (v) { if (!v) empty++; });
-    if (empty) notes.push(empty + ' WebGL canvas' + (empty > 1 ? 'es' : '') + ' came out empty: WebGL draws only in a shown tab, '
-      + 'so walk with the tab shown or in a room (rooms up <name>)');
+    if (empty) notes.push(hinted(empty + ' WebGL canvas' + (empty > 1 ? 'es' : '') + ' came out empty: WebGL draws only in a foreground tab'));
   }
 
   window.__fxWalkWin = win === window ? null : win;
