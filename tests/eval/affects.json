@@ -17,7 +17,7 @@
     {"files": ["tests/eval/scorers/variants.js", "tests/eval/tasks/variants.json"], "tasks": ["variants"]},
     {"files": ["tests/eval/lib.js", "tests/eval/source.py", "tests/eval/run.py", "tests/eval/fixtures/expect.json"], "tasks": "*"},
     {"files": ["tests/eval/tasks/*", "tests/eval/scorers/*", "tests/eval/seeds/*", "tests/eval/fixtures/*"], "tasks": "none"},
-    {"files": ["README.md", "GOALS.md", "AGENTS.md", "CLAUDE.md", "LICENSE", "docs/*", "tests/*"], "tasks": "none"},
+    {"files": ["README.md", "install.sh", "GOALS.md", "AGENTS.md", "CLAUDE.md", "LICENSE", "docs/*", "tests/*"], "tasks": "none"},
     {"files": ["SKILL.md", "figma-worker.md"], "tasks": ["recon", "effects", "fidelity-edit"]},
     {"files": ["figma_run.py", "figma_perch.mjs"], "tasks": ["recon"]},
     {"files": ["figma_backend.py"], "tasks": ["recon", "capture"]},

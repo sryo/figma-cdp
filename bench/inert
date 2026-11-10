@@ -6,3 +6,5 @@ bench/inert
 bench/learn.json
 # bench/judge, which only fium try and tests/judge_guard.py read.
 bench/judge
+# install.sh, which runs once on the user's machine and never in a session.
+install.sh

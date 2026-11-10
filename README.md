@@ -7,8 +7,7 @@ figma-cdp builds Figma screens from your code or a plain description, using your
 ## Install
 
 ```bash
-git clone https://github.com/sryo/figma-cdp ~/.agents/skills/figma-cdp
-mkdir -p ~/.claude/skills && ln -sfn ~/.agents/skills/figma-cdp ~/.claude/skills/figma-cdp
+curl -fsSL https://raw.githubusercontent.com/sryo/figma-cdp/main/install.sh | bash
 ```
 
 One copy serves Codex, GitHub Copilot and Claude Code. Restart your agent if it doesn't pick up the skill.
