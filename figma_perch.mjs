@@ -273,6 +273,7 @@ async function page(handleCall, { url, sources: srcs, settle, app, show, loft, f
     opened = JSON.parse(reply.text.split("\n")[0]);
     tabId = opened.tabId;
     if (opened.warning) warnings.push(opened.warning);
+    if (opened.note) warnings.push(opened.note);
   } catch (e) {
     if (/^needs_focus: /.test(e.message)) {
       return { app: app || "the browser", warnings, fatal: "needs_focus: capture opens the page in a new tab, and a Mac browser takes focus to open one, " +

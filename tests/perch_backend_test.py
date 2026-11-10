@@ -1404,6 +1404,18 @@ class CapturePerch(Harness):
             hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
             self.assertEqual(hint, "the loft's window decides this")
 
+    def test_walk_passes_perchs_note_through_when_the_loft_window_opened_elsewhere(self):
+        """Without the focus grant perch opens a loft window in another browser and says so in a note."""
+        for args in ((), ('--loft',), ('--loft', '1440x900')):
+            self.again()
+            _, _, r = self.walk('page', '0', *args, PERCH_STUB_NO_FOCUS='1')
+            self.assertEqual(r.returncode, 0, (args, r.stderr))
+            self.assertIn('figma_capture.py: opened in Safari: Google Chrome would have come to the front', r.stderr, args)
+            self.assertNotIn('app', self.calls('new_tab')[0]['args'], 'figma-cdp names no browser for the loft')
+        self.again()
+        _, _, r = self.walk('page', '0')
+        self.assertNotIn('opened in', r.stderr, 'with focus allowed, no note')
+
     def test_walk_on_a_loft_made_for_it_names_that_loft(self):
         """--loft <id>: a loft the agent made at the design's size (loft up WxH --new) carries the walk."""
         url, _, r = self.walk('page', '0', '--loft', 'loft-2', PERCH_STUB_NO_FOCUS='1')

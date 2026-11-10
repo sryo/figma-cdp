@@ -91,12 +91,18 @@ export async function handleCall(name, args = {}) {
     if (!/^(https?:|file:|about:blank$)/i.test(url)) return fail(`bad_url: new_tab takes http(s), file or about:blank URLs; got ${url}`);
     // perch's loft-window: {loft:true} opens a window of perch's own on the loft, taking no focus.
     if (args.loft && process.env.PERCH_STUB_LOFT === "down") return fail("no_browser: the loft is down; run loft up, then retry");
-    const app = args.loft ? "Google Chrome" : args.app || process.env.PERCH_STUB_FRONT || "Google Chrome";
+    let app = args.app || process.env.PERCH_STUB_FRONT || "Google Chrome", note;
+    // perch 15745b5: a loft window never asks the grant; without it, a browser that would come to the
+    // front making one hands it to Safari, and the result says so.
+    if (args.loft && process.env.PERCH_STUB_NO_FOCUS && app !== "Safari") {
+      note = `opened in Safari: ${app} would have come to the front, and the user hasn't allowed focus; Safari has its own sign-ins, so a page that needs the user's may ask to sign in`;
+      app = "Safari";
+    }
     // perch 955a79b: a new tab in a Mac browser other than Safari takes focus, so it needs the grant.
     if (process.env.PERCH_STUB_NO_FOCUS && !args.loft && !/^room:/.test(app) && app !== "Safari") return fail("needs_focus: new_tab would bring the browser to the front, and the user has not allowed perch to take focus; nothing was sent");
     const tab = { app, tabId: `${app.split(" ").pop().toLowerCase()}:${++openSeq}`, url: "about:blank", title: "", loads: url, openedUrl: url };
     opened.push(tab);
-    return text(JSON.stringify({ app: tab.app, tabId: tab.tabId }));
+    return text(JSON.stringify({ app: tab.app, tabId: tab.tabId, ...(note ? { note } : {}) }));
   }
   if (name === "activate_tab") {
     const tab = tabs().find((t) => t.tabId === (args.target || {}).tabId);
