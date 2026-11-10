@@ -1368,6 +1368,11 @@ class CapturePerch(Harness):
         url, _, r = self.walk('page', '0', '--loft', 'loft-2', PERCH_STUB_NO_FOCUS='1')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': 'loft-2'})
+        stop_daemon(self.sock)
+        open(self.log, 'w').close()
+        url, _, r = self.walk('page', '0', '--loft', '1440x900', PERCH_STUB_NO_FOCUS='1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900'}, 'a size passes through: perch makes that loft')
 
     def test_walk_on_the_loft_passes_perchs_error_through_when_it_is_down(self):
         _, out, r = self.walk('page', '0', '--loft', PERCH_STUB_LOFT='down')

@@ -379,7 +379,7 @@ def main():
                    help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one); loft is --loft')
     w.add_argument('--loft', nargs='?', const=True, default=False, metavar='ID',
                    help='open the page tab on the loft, a hidden screen whose window paints and takes no focus (loft up first); '
-                        'with an ID, on a loft made at the size wanted (loft up WxH --new)')
+                        'with WxH, on a loft that size perch makes and removes; with an ID, on that loft')
     w.add_argument('--width', type=int, default=1440, metavar='PX',
                    help='lay the page out this wide (default 1440): a window of another width loads it in a frame that wide; 0 keeps the window\'s')
     w.add_argument('--scheme', choices=('light', 'page'), default='light',
