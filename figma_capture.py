@@ -4,10 +4,10 @@
   walk <url> [wait_ms] [--timeout <seconds>]
       Opens the URL in a tab of its own, waits wait_ms (default 2000) for it to settle,
       runs figma_walker.js there (an async eval whose envelope comes back whole) and
-      persists it to /tmp/figma_capture_<slug>.json. The tab is a new one (perch new_tab) in
-      --app, else a perch room that is up, else the frontmost browser, closed after the walk; a
-      Mac browser without the user's focus grant stops it (needs_focus). --loft (or
-      FIGMA_CAPTURE_APP=loft) opens it on the loft instead (perch new_tab {loft:true}).
+      persists it to /tmp/figma_capture_<slug>.json. The tab is a new one (perch new_tab), closed
+      after the walk: on a loft of --width x900 that perch makes and removes, else (a locked Mac,
+      or no loft) a perch room that is up; --app names a browser instead (a Mac browser without
+      the user's focus grant stops it: needs_focus), --loft [ID|WxH] (or FIGMA_CAPTURE_APP=loft) a loft.
   import <spec.json> [--components <json-or-path>] [--componentize] [--chunk-bytes N]
          [--file <figma-url-or-key>] [--timeout <seconds>] [--dry-run <dir>]
       Replays the spec into the Figma tab: a reset eval, the assets streamed in
@@ -30,6 +30,7 @@ import argparse, hashlib, json, os, re, subprocess, sys, urllib.parse
 from figma_backend import Dropped, daemon_exchange, daemon_sock, js_int, require_perch, start_daemon, timeout_seconds
 
 PIECE_BYTES = 150_000   # asset piece and node chunk budget, measured on the JSON text
+WALK_HEIGHT = 900       # the walk's window height, a loft's when the walk makes one
 EVAL_MAX = 225_000      # node chunk ceiling: one eval's source, importer and envelope included
 BATCH_KEYS = ['captureIds', 'captureEdge', 'captureRects', 'captureLayout',
               'captureReport', 'captureFonts', 'captureAssets', 'captureProps']
@@ -54,6 +55,20 @@ def window_hint(url, loft=False):
     except ValueError:
         host = ''
     return WINDOW_HINT + (LOFT_ONLY_HINT if LOCAL_HOST.match(host) else ROOM_HINT)
+
+
+def screen_locked():
+    """Whether this Mac's screen is locked: IOConsoleUsers gains CGSSessionScreenIsLocked
+    (FIGMA_SCREEN_LOCKED=0|1 answers instead)."""
+    told = os.environ.get('FIGMA_SCREEN_LOCKED')
+    if told in ('0', '1'):
+        return told == '1'
+    try:
+        out = subprocess.run(['ioreg', '-n', 'Root', '-d1', '-k', 'IOConsoleUsers'],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return '"CGSSessionScreenIsLocked"=Yes' in out
 
 
 def perch_call(req, wait):
@@ -125,9 +140,13 @@ def walk(a):
         sys.exit(f"figma_capture.py: wait_ms is milliseconds; got '{a.wait_ms}'")
     walker = read_sibling('figma_walker.js').decode().rstrip().rstrip(';')
     prep = read_sibling('figma_walk_prep.js').decode().rstrip().rstrip(';')
-    loft = a.loft or (a.app or '').lower() == 'loft'
+    # Where to work, by perch's rule: the loft (a window the design's width, so no frame), but a
+    # room when the Mac is locked, since whether a loft paints then is untested.
+    default = not a.loft and not a.app
+    locked = default and screen_locked()
+    loft = a.loft or (a.app or '').lower() == 'loft' or (default and not locked)
     hint = window_hint(a.url, loft)
-    cfg = {'width': a.width, 'height': 900, 'scheme': a.scheme, 'scroll': not a.no_scroll, 'hint': hint}
+    cfg = {'width': a.width, 'height': WALK_HEIGHT, 'scheme': a.scheme, 'scroll': not a.no_scroll, 'hint': hint}
     # One eval: the prep readies the page (a frame at the width, light mode, scrolled through),
     # then the walker walks it and carries the prep's notes back.
     walker = ('(async function () {\n  var __prep = await (' + prep + ')(' + json.dumps(cfg, sort_keys=True) + ');\n'
@@ -137,8 +156,12 @@ def walk(a):
         srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
     req = {'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
            'timeout': round(timeout * 1000), 'show': a.show}
-    if loft:
-        req['loft'] = a.loft if isinstance(a.loft, str) else True
+    if isinstance(a.loft, str):
+        req['loft'] = a.loft
+    elif loft:
+        req['loft'] = f'{a.width}x{WALK_HEIGHT}' if default and a.width else True
+        if default:
+            req['fallback'] = 'room'
     elif a.app:
         req['app'] = a.app
     out = perch_call(req, wait=settle / 1000 + timeout + 130)
@@ -376,7 +399,7 @@ def main():
     w.add_argument('url')
     w.add_argument('wait_ms', nargs='?', default='2000')
     w.add_argument('--app', default=os.environ.get('FIGMA_CAPTURE_APP'),
-                   help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a room that is up, else the frontmost one); loft is --loft')
+                   help='browser to open the page tab in (default FIGMA_CAPTURE_APP, else a loft of --width x900, or a room that is up when the Mac is locked); loft is --loft')
     w.add_argument('--loft', nargs='?', const=True, default=False, metavar='ID',
                    help='open the page tab on the loft, a hidden screen whose window paints and takes no focus (loft up first); '
                         'with WxH, on a loft that size perch makes and removes; with an ID, on that loft')

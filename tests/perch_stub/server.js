@@ -14,7 +14,7 @@
 //   PERCH_STUB_HIDDEN "1" gives scripts a `document` whose visibilityState is "hidden"
 //   PERCH_STUB_FRONT  the browser new_tab opens in when the call names none (default Google Chrome)
 //   PERCH_STUB_REDIRECT  changes the new tab's URL at load; Safari's original handle then goes stale
-//   PERCH_STUB_LOFT   "down": new_tab {loft:true} answers no_browser, as perch does with the loft down
+//   PERCH_STUB_LOFT   "down": new_tab {loft} answers no_browser, as perch does with the loft down
 //   PERCH_STUB_NO_FOCUS  no focus grant: new_tab in a Mac browser other than Safari and activate_tab on a
 //                     browser tab answer needs_focus; rooms are exempt
 // eval_js {timeout} is checked and enforced as perch does: 1000 to 300000 ms.
@@ -90,7 +90,7 @@ export async function handleCall(name, args = {}) {
     const url = args.url == null ? "about:blank" : String(args.url);
     if (!/^(https?:|file:|about:blank$)/i.test(url)) return fail(`bad_url: new_tab takes http(s), file or about:blank URLs; got ${url}`);
     // perch's loft-window: {loft:true} opens a window of perch's own on the loft, taking no focus.
-    if (args.loft === true && process.env.PERCH_STUB_LOFT === "down") return fail("no_browser: the loft is down; run loft up, then retry");
+    if (args.loft && process.env.PERCH_STUB_LOFT === "down") return fail("no_browser: the loft is down; run loft up, then retry");
     const app = args.loft ? "Google Chrome" : args.app || process.env.PERCH_STUB_FRONT || "Google Chrome";
     // perch 955a79b: a new tab in a Mac browser other than Safari takes focus, so it needs the grant.
     if (process.env.PERCH_STUB_NO_FOCUS && !args.loft && !/^room:/.test(app) && app !== "Safari") return fail("needs_focus: new_tab would bring the browser to the front, and the user has not allowed perch to take focus; nothing was sent");

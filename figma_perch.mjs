@@ -239,26 +239,38 @@ function roomNames() {
 
 // The page op: a tab of its own, shown only when Arc needs it and the caller asked, closed whatever the scripts do.
 const ARC = /^arc$/i;
-async function page(handleCall, { url, sources: srcs, settle, app, show, loft }, ms) {
+async function page(handleCall, { url, sources: srcs, settle, app, show, loft, fallback }, ms) {
   let tabId, opened;
   const warnings = [];
   loft = loft === true || (typeof loft === "string" && loft) ? loft : false;
   if (loft) app = null;
-  // A room needs no focus grant and runs with the screen locked, so it wins unless the caller names an app or the loft.
-  // A room set up but down stops the walk: the frontmost browser is the user's window, not where an unattended walk expects to be.
+  const roomUp = async () => {
+    try { return (JSON.parse((await call(handleCall, "list_tabs", { app: "room", limit: 1 })).text).tabs || [])[0]?.app || null; } catch { return null; }
+  };
+  const names = roomNames();
+  const upHint = names.length ? `rooms up ${names.length > 1 ? `<name>, one of ${names.join(", ")}` : names[0]}` : "rooms up <name>";
+  // A locked Mac: the caller sends no loft (whether one paints locked is untested), and the user's windows paint nothing.
   if (!app && !loft) {
-    try { app = (JSON.parse((await call(handleCall, "list_tabs", { app: "room", limit: 1 })).text).tabs || [])[0]?.app || null; } catch { app = null; }
-    const names = app ? [] : roomNames();
-    if (names.length) {
-      const which = names.length > 1 ? `<name>, one of ${names.join(", ")}` : names[0];
-      return { app: "a room", warnings, fatal: `no_browser: room${names.length > 1 ? "s" : ""} ${names.join(", ")} ${names.length > 1 ? "are" : "is"} set up but not up; ` +
-        `run rooms up ${which}, then retry, or walk on the loft (--loft; loft up), or name a browser with --app (or FIGMA_CAPTURE_APP); nothing was opened` };
+    app = await roomUp();
+    if (!app) {
+      return { app: "a room", warnings, fatal: `no_browser: the Mac is locked, so the walk needs a room, and none is up; run ${upHint}, then retry, ` +
+        "or walk on the loft anyway (--loft; untested locked), or name a browser with --app (or FIGMA_CAPTURE_APP); nothing was opened" };
     }
   }
   try {
     // perch opens a loft tab in a window of its own on the loft, taking no focus; a loft that is down is perch's error, as is.
-    const { text } = await call(handleCall, "new_tab", loft ? { url, loft } : app ? { url, app } : { url });
-    opened = JSON.parse(text.split("\n")[0]);
+    let reply;
+    try { reply = await call(handleCall, "new_tab", loft ? { url, loft } : { url, app }); }
+    catch (e) {
+      if (!loft || fallback !== "room") throw e;
+      // The default place couldn't be made: a room that is up carries the walk, never the user's window.
+      app = await roomUp();
+      if (!app) throw new Error(`${e.message}; or bring up a room (${upHint}), or name a browser with --app (or FIGMA_CAPTURE_APP); nothing was opened`);
+      warnings.push(`${e.message}; walked in ${app}`);
+      loft = false;
+      reply = await call(handleCall, "new_tab", { url, app });
+    }
+    opened = JSON.parse(reply.text.split("\n")[0]);
     tabId = opened.tabId;
     if (opened.warning) warnings.push(opened.warning);
   } catch (e) {
@@ -266,7 +278,7 @@ async function page(handleCall, { url, sources: srcs, settle, app, show, loft },
       return { app: app || "the browser", warnings, fatal: "needs_focus: capture opens the page in a new tab, and a Mac browser takes focus to open one, " +
         "which the user has not allowed; nothing was opened. Walk in Safari (--app Safari), which opens one without taking focus, or bring up a room (rooms up <name>), or walk on the loft (--loft; loft up)" };
     }
-    return { fatal: e.message };
+    return { warnings, fatal: e.message };
   }
   const where = opened.app || app || "the browser";
   if (tabId && ARC.test(where) && !show) {

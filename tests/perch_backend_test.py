@@ -74,7 +74,9 @@ class Harness(unittest.TestCase):
         e = {**os.environ, 'FIGMA_BACKEND': 'perch', 'PERCH_DIR': STUB, 'PERCH_STUB_LOG': self.log,
              'FIGMA_PERCH_SOCK': self.sock, 'FIGMA_PERCH_DAEMON': self.daemon, 'FIGMA_CDP_HOME': self.tmp.name,
              # never the user's own rooms registry
-             'ROOMS_HOME': os.path.join(self.tmp.name, 'no-rooms')}
+             'ROOMS_HOME': os.path.join(self.tmp.name, 'no-rooms'),
+             # never this Mac's own lock state
+             'FIGMA_SCREEN_LOCKED': '0'}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
                   'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'PERCH_STUB_LOFT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
@@ -1128,8 +1130,8 @@ class CapturePerch(Harness):
         with open(out) as f:
             spec = json.load(f)
         self.assertEqual((spec['meta']['url'], spec['nodes'][0]['text']), (url, 'ñ'))
-        self.assertEqual([c['name'] for c in self.calls()], ['list_tabs', 'new_tab', 'wait', 'eval_js', 'close_tab'])
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url})
+        self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'])
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900'})
         ev = self.calls('eval_js')[0]['args']
         tab = ev['target']['tabId']
         self.assertEqual((ev['world'], ev['awaitPromise'], ev['timeout']), ('main', True, 100000))
@@ -1156,7 +1158,7 @@ class CapturePerch(Harness):
 
     def test_walk_hints_point_at_a_room_never_at_the_users_windows(self):
         """The prep's notes and the width note share one hint; a window tiler may have sized the window."""
-        url, out, r = self.walk('page', '0')
+        url, out, r = self.walk('page', '0', '--app', 'Google Chrome')
         self.assertEqual(r.returncode, 0, r.stderr)
         note = next(l for l in r.stderr.splitlines() if 'laid out at 400px' in l)
         hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
@@ -1175,7 +1177,7 @@ class CapturePerch(Harness):
             url = f'http://{host}/{tag}'
             slug = re.sub(r'[^a-z0-9]+', '-', f'{host}/{tag}').strip('-')[:60]
             self.outs.append(f'/tmp/figma_capture_{slug}.json')
-            r = self.capture('walk', url, '0')
+            r = self.capture('walk', url, '0', '--app', 'Google Chrome')
             self.assertEqual(r.returncode, 0, r.stderr)
             script = self.calls('eval_js')[0]['args']['script']
             hint = re.search(r'"hint": "([^"]+)"', script).group(1)
@@ -1274,7 +1276,7 @@ class CapturePerch(Harness):
         self.assertIn('show ignored: Google Chrome runs page JS in a background tab', r.stderr)
 
     def test_walk_refuses_a_background_arc_tab_and_names_the_way_out(self):
-        _, out, r = self.walk('page', '0', PERCH_STUB_FRONT='Arc')
+        _, out, r = self.walk('page', '0', '--app', 'Arc')
         self.assertEqual(r.returncode, 1)
         self.assertIn('in Arc: tab_not_visible: the page tab opened in Arc', r.stderr)
         self.assertIn('--app', r.stderr)
@@ -1298,56 +1300,95 @@ class CapturePerch(Harness):
         self.assertNotIn('show: brought Arc to the front', r.stderr)
         self.assertEqual(self.calls('activate_tab'), [])
 
-    def test_walk_opens_its_page_tab_in_a_room_when_one_is_up(self):
-        """A room needs no focus grant and runs with the screen locked."""
-        room = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'about:blank', 'title': ''}]
-        url, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1', PERCH_STUB_TABS=json.dumps(room))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'room:main'})
+    ROOM = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'about:blank', 'title': ''}]
+
+    def rooms_home(self):
+        home = os.path.join(self.tmp.name, 'home')
+        os.makedirs(os.path.join(home, '.rooms'), exist_ok=True)
+        with open(os.path.join(home, '.rooms', 'rooms.json'), 'w') as f:
+            json.dump({'version': 1, 'rooms': {'main': {'name': 'main', 'cdp': {'host': '127.0.0.1', 'port': 9300, 'token': 'x'}}}}, f)
+        return {'HOME': home, 'ROOMS_HOME': ''}
+
+    def again(self):
         stop_daemon(self.sock)
         open(self.log, 'w').close()
-        url, _, r = self.walk('page', '0', '--app', 'Google Chrome', PERCH_STUB_TABS=json.dumps(room))
+
+    def test_walk_by_default_goes_to_a_loft_of_the_designs_width(self):
+        """perch's where-to-work rule: a set size and unseen painting go to the loft, which perch makes and removes."""
+        url, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1', PERCH_STUB_TABS=json.dumps(self.ROOM), **self.rooms_home())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'])
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900'}, 'a room that is up does not win')
+        hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
+        self.assertEqual(hint, "the loft's window decides this")
+        self.again()
+        url, _, r = self.walk('page', '0', '--width', '390')
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '390x900'})
+        self.again()
+        url, _, r = self.walk('page', '0', '--width', '0')
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True}, 'no width: the loft as it is')
+
+    def test_walk_on_a_locked_mac_goes_to_a_room_that_is_up(self):
+        """Whether a loft window paints while the Mac is locked is untested; a room runs locked."""
+        url, _, r = self.walk('page', '0', FIGMA_SCREEN_LOCKED='1', PERCH_STUB_NO_FOCUS='1', PERCH_STUB_TABS=json.dumps(self.ROOM))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'room:main'})
+        self.again()
+        url, _, r = self.walk('page', '0', '--app', 'Google Chrome', FIGMA_SCREEN_LOCKED='1', PERCH_STUB_TABS=json.dumps(self.ROOM))
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome'}, 'an app the caller names wins')
+        self.again()
+        url, _, r = self.walk('page', '0', '--loft', FIGMA_SCREEN_LOCKED='1', PERCH_STUB_TABS=json.dumps(self.ROOM))
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True}, '--loft wins, locked or not')
 
     def test_walk_shows_its_room_tab_in_the_room_before_the_scripts_run(self):
         """A room's background tab gets no animation frames; showing it there takes no focus on the Mac."""
-        room = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'about:blank', 'title': ''}]
-        _, _, r = self.walk('page', '0', PERCH_STUB_TABS=json.dumps(room))
+        _, _, r = self.walk('page', '0', FIGMA_SCREEN_LOCKED='1', PERCH_STUB_TABS=json.dumps(self.ROOM))
         self.assertEqual(r.returncode, 0, r.stderr)
         names = [c['name'] for c in self.calls()]
         self.assertEqual(names, ['list_tabs', 'new_tab', 'activate_tab', 'wait', 'eval_js', 'close_tab'])
         self.assertEqual(self.calls('activate_tab')[0]['args']['target'], self.calls('eval_js')[0]['args']['target'])
         for app in ('Safari', 'Google Chrome'):
-            stop_daemon(self.sock)
-            open(self.log, 'w').close()
-            _, _, r = self.walk('page', '0', '--app', app, PERCH_STUB_TABS=json.dumps(room))
+            self.again()
+            _, _, r = self.walk('page', '0', '--app', app, PERCH_STUB_TABS=json.dumps(self.ROOM))
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(self.calls('activate_tab'), [], app)
 
-    def test_walk_stops_when_a_configured_room_is_down(self):
-        """An unattended walk expects its room: falling back to the frontmost browser would land on the user's window."""
-        home = os.path.join(self.tmp.name, 'home')
-        os.makedirs(os.path.join(home, '.rooms'))
-        with open(os.path.join(home, '.rooms', 'rooms.json'), 'w') as f:
-            json.dump({'version': 1, 'rooms': {'main': {'name': 'main', 'cdp': {'host': '127.0.0.1', 'port': 9300, 'token': 'x'}}}}, f)
-        env = {'HOME': home, 'ROOMS_HOME': ''}
-        _, out, r = self.walk('page', '0', **env)
+    def test_walk_on_a_locked_mac_without_a_room_up_stops(self):
+        """The frontmost browser is the user's window, and a locked Mac paints none of it."""
+        for env in (self.rooms_home(), {}):
+            self.again()
+            _, out, r = self.walk('page', '0', FIGMA_SCREEN_LOCKED='1', **env)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn('the Mac is locked', r.stderr)
+            self.assertIn('rooms up main' if env else 'rooms up <name>', r.stderr)
+            self.assertIn('--loft', r.stderr)
+            self.assertIn('--app', r.stderr)
+            self.assertEqual((self.calls('new_tab'), self.calls('eval_js')), ([], []))
+            self.assertFalse(os.path.exists(out))
+
+    def test_walk_falls_back_to_a_room_when_the_loft_cant_be_made(self):
+        url, out, r = self.walk('page', '0', PERCH_STUB_LOFT='down', PERCH_STUB_TABS=json.dumps(self.ROOM))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([c['args'] for c in self.calls('new_tab')], [{'url': url, 'loft': '1440x900'}, {'url': url, 'app': 'room:main'}])
+        self.assertIn('the loft is down', r.stderr)
+        self.assertIn('walked in room:main', r.stderr)
+        self.again()
+        os.remove(out)
+        _, out, r = self.walk('page', '0', PERCH_STUB_LOFT='down')
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn('rooms up main', r.stderr)
+        self.assertIn('no_browser: the loft is down; run loft up, then retry', r.stderr)
+        self.assertIn('rooms up <name>', r.stderr)
         self.assertIn('--app', r.stderr)
-        self.assertIn('walk on the loft (--loft; loft up)', r.stderr)
-        self.assertEqual((self.calls('new_tab'), self.calls('eval_js')), ([], []))
+        self.assertEqual(len(self.calls('new_tab')), 1, 'never the frontmost browser')
+        self.assertEqual(self.calls('eval_js'), [])
         self.assertFalse(os.path.exists(out))
-        stop_daemon(self.sock)
-        open(self.log, 'w').close()
-        url, _, r = self.walk('page', '0', '--app', 'Google Chrome', **env)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome'}, 'an app the caller names wins')
-        stop_daemon(self.sock)
-        open(self.log, 'w').close()
-        url, _, r = self.walk('page', '0', HOME=os.path.join(self.tmp.name, 'no-home'), ROOMS_HOME='')
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url}, 'no room configured: the frontmost browser')
+
+    def test_capture_md_states_walks_default_place_by_perchs_rule(self):
+        with open(os.path.join(ROOT, 'references', 'capture.md')) as f:
+            doc = f.read()
+        self.assertNotIn('predates it', doc)
+        self.assertIn('`--width`x900', doc)
+        self.assertIn('the Mac is locked', doc)
 
     def test_walk_on_the_loft_opens_its_tab_there(self):
         """The loft is a screen the user never sees: its window paints, takes no focus, and its tab is no room's."""
@@ -1381,8 +1422,8 @@ class CapturePerch(Harness):
         self.assertEqual(self.calls('eval_js'), [])
         self.assertFalse(os.path.exists(out))
 
-    def test_walk_without_a_room_or_focus_grant_stops_and_says_so(self):
-        _, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1')
+    def test_walk_in_a_mac_browser_without_the_focus_grant_stops_and_says_so(self):
+        _, _, r = self.walk('page', '0', '--app', 'Google Chrome', PERCH_STUB_NO_FOCUS='1')
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('needs_focus', r.stderr)
         self.assertIn('--app Safari', r.stderr)
