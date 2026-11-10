@@ -1363,6 +1363,12 @@ class CapturePerch(Harness):
             hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
             self.assertEqual(hint, "the loft's window decides this")
 
+    def test_walk_on_a_loft_made_for_it_names_that_loft(self):
+        """--loft <id>: a loft the agent made at the design's size (loft up WxH --new) carries the walk."""
+        url, _, r = self.walk('page', '0', '--loft', 'loft-2', PERCH_STUB_NO_FOCUS='1')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': 'loft-2'})
+
     def test_walk_on_the_loft_passes_perchs_error_through_when_it_is_down(self):
         _, out, r = self.walk('page', '0', '--loft', PERCH_STUB_LOFT='down')
         self.assertNotEqual(r.returncode, 0)

@@ -242,7 +242,7 @@ const ARC = /^arc$/i;
 async function page(handleCall, { url, sources: srcs, settle, app, show, loft }, ms) {
   let tabId, opened;
   const warnings = [];
-  loft = loft === true;
+  loft = loft === true || (typeof loft === "string" && loft) ? loft : false;
   if (loft) app = null;
   // A room needs no focus grant and runs with the screen locked, so it wins unless the caller names an app or the loft.
   // A room set up but down stops the walk: the frontmost browser is the user's window, not where an unattended walk expects to be.
@@ -257,7 +257,7 @@ async function page(handleCall, { url, sources: srcs, settle, app, show, loft },
   }
   try {
     // perch opens a loft tab in a window of its own on the loft, taking no focus; a loft that is down is perch's error, as is.
-    const { text } = await call(handleCall, "new_tab", loft ? { url, loft: true } : app ? { url, app } : { url });
+    const { text } = await call(handleCall, "new_tab", loft ? { url, loft } : app ? { url, app } : { url });
     opened = JSON.parse(text.split("\n")[0]);
     tabId = opened.tabId;
     if (opened.warning) warnings.push(opened.warning);
