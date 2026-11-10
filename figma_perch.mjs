@@ -243,6 +243,7 @@ async function page(handleCall, { url, sources: srcs, settle, app, show, loft, f
   let tabId, opened;
   const warnings = [];
   loft = loft === true || (typeof loft === "string" && loft) ? loft : false;
+  if (loft) app = null;
   const roomUp = async () => {
     try { return (JSON.parse((await call(handleCall, "list_tabs", { app: "room", limit: 1 })).text).tabs || [])[0]?.app || null; } catch { return null; }
   };
@@ -257,12 +258,10 @@ async function page(handleCall, { url, sources: srcs, settle, app, show, loft, f
     }
   }
   try {
-    // perch opens a loft tab in a window of its own on the loft; a loft that is down is perch's error, as is.
-    // A loft tab opens in Safari unless the caller names a browser: Chromium raises itself to make a window.
+    // perch opens a loft tab in a window of its own on the loft, taking no focus; a loft that is down is perch's error, as is.
     let reply;
-    try { reply = await call(handleCall, "new_tab", loft ? { url, loft, ...(app ? { app } : {}) } : { url, app }); }
+    try { reply = await call(handleCall, "new_tab", loft ? { url, loft } : { url, app }); }
     catch (e) {
-      if (loft && app === "Safari" && /^no_browser: Safari must already be running/.test(e.message)) e = new Error(`${e.message}; open Safari (it carries a loft walk), then retry` + (fallback === "room" ? "" : ", or name a browser with --app (or FIGMA_CAPTURE_APP)"));
       if (!loft || fallback !== "room") throw e;
       // The default place couldn't be made: a room that is up carries the walk, never the user's window.
       app = await roomUp();
@@ -275,10 +274,6 @@ async function page(handleCall, { url, sources: srcs, settle, app, show, loft, f
     tabId = opened.tabId;
     if (opened.warning) warnings.push(opened.warning);
   } catch (e) {
-    if (/^needs_focus: /.test(e.message) && loft) {
-      return { app, warnings, fatal: `needs_focus: ${app} raises itself to open a window on the loft, which takes the user's focus, and they have not allowed it; ` +
-        "nothing was opened. Open it in Safari (--app Safari, the loft's default), which makes one without taking focus, or bring up a room (rooms up <name>)" };
-    }
     if (/^needs_focus: /.test(e.message)) {
       return { app: app || "the browser", warnings, fatal: "needs_focus: capture opens the page in a new tab, and a Mac browser takes focus to open one, " +
         "which the user has not allowed; nothing was opened. Walk in Safari (--app Safari), which opens one without taking focus, or bring up a room (rooms up <name>), or walk on the loft (--loft; loft up)" };

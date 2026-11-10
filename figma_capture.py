@@ -5,7 +5,7 @@
       Opens the URL in a tab of its own, waits wait_ms (default 2000) for it to settle,
       runs figma_walker.js there (an async eval whose envelope comes back whole) and
       persists it to /tmp/figma_capture_<slug>.json. The tab is a new one (perch new_tab), closed
-      after the walk: on a loft of --width x900 that perch makes and removes, in Safari, else (a locked Mac,
+      after the walk: on a loft of --width x900 that perch makes and removes, else (a locked Mac,
       or no loft) a perch room that is up; --app names a browser instead (a Mac browser without
       the user's focus grant stops it: needs_focus), --loft [ID|WxH] (or FIGMA_CAPTURE_APP=loft) a loft.
   import <spec.json> [--components <json-or-path>] [--componentize] [--chunk-bytes N]
@@ -156,15 +156,12 @@ def walk(a):
         srcs = [open(os.environ['FIGMA_CAPTURE_PREP']).read(), walker]
     req = {'op': 'page', 'url': a.url, 'sources': srcs, 'settle': settle,
            'timeout': round(timeout * 1000), 'show': a.show}
-    if loft:
-        if isinstance(a.loft, str):
-            req['loft'] = a.loft
-        else:
-            req['loft'] = f'{a.width}x{WALK_HEIGHT}' if default and a.width else True
+    if isinstance(a.loft, str):
+        req['loft'] = a.loft
+    elif loft:
+        req['loft'] = f'{a.width}x{WALK_HEIGHT}' if default and a.width else True
         if default:
             req['fallback'] = 'room'
-        # Safari makes a loft window without taking focus; perch asks the grant for any other browser.
-        req['app'] = a.app if a.app and a.app.lower() != 'loft' else 'Safari'
     elif a.app:
         req['app'] = a.app
     out = perch_call(req, wait=settle / 1000 + timeout + 130)

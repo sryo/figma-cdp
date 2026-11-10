@@ -79,7 +79,7 @@ class Harness(unittest.TestCase):
              'FIGMA_SCREEN_LOCKED': '0'}
         for k in ('FIGMA_FILE', 'FIGMA_CDP_PORT', 'FIGMA_PERCH_TAB', 'PERCH_STUB_TABS', 'PERCH_STUB_FIGMA', 'PERCH_STUB_ERROR',
                   'PERCH_STUB_TABS_FILE', 'PERCH_STUB_DELAY', 'FIGMA_PERCH_IDLE', 'FIGMA_TIMEOUT',
-                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'PERCH_STUB_LOFT', 'PERCH_STUB_QUIT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
+                  'PERCH_STUB_OLD', 'PERCH_STUB_FRONT', 'PERCH_STUB_REDIRECT', 'PERCH_STUB_LOFT', 'FIGMA_CAPTURE_APP', 'FIGMA_CAPTURE_SHOW'):
             e.pop(k, None)
         e.update(env)
         return e
@@ -1131,7 +1131,7 @@ class CapturePerch(Harness):
             spec = json.load(f)
         self.assertEqual((spec['meta']['url'], spec['nodes'][0]['text']), (url, 'ñ'))
         self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'])
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900', 'app': 'Safari'})
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900'})
         ev = self.calls('eval_js')[0]['args']
         tab = ev['target']['tabId']
         self.assertEqual((ev['world'], ev['awaitPromise'], ev['timeout']), ('main', True, 100000))
@@ -1208,7 +1208,7 @@ class CapturePerch(Harness):
     def test_walker_throw_is_reported_and_the_tab_closed(self):
         _, out, r = self.walk('boom', '0')
         self.assertEqual(r.returncode, 1)
-        self.assertIn('figma_capture.py: walker failed — in Safari: Error: boom', r.stderr)
+        self.assertIn('figma_capture.py: walker failed — in Google Chrome: Error: boom', r.stderr)
         self.assertNotIn('open and close any Figma plugin', r.stderr)
         self.assertEqual(len(self.calls('close_tab')), 1)
         self.assertFalse(os.path.exists(out))
@@ -1221,7 +1221,7 @@ class CapturePerch(Harness):
     def test_walk_perch_failure_is_reported_and_the_tab_closed(self):
         _, _, r = self.walk('page', '0', PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 120000ms')
         self.assertEqual(r.returncode, 1)
-        self.assertIn('figma_capture.py: walker failed — in Safari: timeout: eval_js', r.stderr)
+        self.assertIn('figma_capture.py: walker failed — in Google Chrome: timeout: eval_js', r.stderr)
         self.assertEqual(len(self.calls('close_tab')), 1)
 
     def test_walk_url_perch_refuses_runs_nothing(self):
@@ -1273,7 +1273,7 @@ class CapturePerch(Harness):
         _, _, r = self.walk('page', '0', '--show')
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.calls('activate_tab'), [])
-        self.assertIn('show ignored: Safari runs page JS in a background tab', r.stderr)
+        self.assertIn('show ignored: Google Chrome runs page JS in a background tab', r.stderr)
 
     def test_walk_refuses_a_background_arc_tab_and_names_the_way_out(self):
         _, out, r = self.walk('page', '0', '--app', 'Arc')
@@ -1318,15 +1318,15 @@ class CapturePerch(Harness):
         url, _, r = self.walk('page', '0', PERCH_STUB_NO_FOCUS='1', PERCH_STUB_TABS=json.dumps(self.ROOM), **self.rooms_home())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'])
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900', 'app': 'Safari'}, 'a room that is up does not win')
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900'}, 'a room that is up does not win')
         hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
         self.assertEqual(hint, "the loft's window decides this")
         self.again()
         url, _, r = self.walk('page', '0', '--width', '390')
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '390x900', 'app': 'Safari'})
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '390x900'})
         self.again()
         url, _, r = self.walk('page', '0', '--width', '0')
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True, 'app': 'Safari'}, 'no width: the loft as it is')
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True}, 'no width: the loft as it is')
 
     def test_walk_on_a_locked_mac_goes_to_a_room_that_is_up(self):
         """Whether a loft window paints while the Mac is locked is untested; a room runs locked."""
@@ -1338,7 +1338,7 @@ class CapturePerch(Harness):
         self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'app': 'Google Chrome'}, 'an app the caller names wins')
         self.again()
         url, _, r = self.walk('page', '0', '--loft', FIGMA_SCREEN_LOCKED='1', PERCH_STUB_TABS=json.dumps(self.ROOM))
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True, 'app': 'Safari'}, '--loft wins, locked or not')
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True}, '--loft wins, locked or not')
 
     def test_walk_shows_its_room_tab_in_the_room_before_the_scripts_run(self):
         """A room's background tab gets no animation frames; showing it there takes no focus on the Mac."""
@@ -1369,7 +1369,7 @@ class CapturePerch(Harness):
     def test_walk_falls_back_to_a_room_when_the_loft_cant_be_made(self):
         url, out, r = self.walk('page', '0', PERCH_STUB_LOFT='down', PERCH_STUB_TABS=json.dumps(self.ROOM))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual([c['args'] for c in self.calls('new_tab')], [{'url': url, 'loft': '1440x900', 'app': 'Safari'}, {'url': url, 'app': 'room:main'}])
+        self.assertEqual([c['args'] for c in self.calls('new_tab')], [{'url': url, 'loft': '1440x900'}, {'url': url, 'app': 'room:main'}])
         self.assertIn('the loft is down', r.stderr)
         self.assertIn('walked in room:main', r.stderr)
         self.again()
@@ -1400,42 +1400,20 @@ class CapturePerch(Harness):
             url, _, r = self.walk('page', '0', *args, PERCH_STUB_NO_FOCUS='1', **env)
             self.assertEqual(r.returncode, 0, (args, env, r.stderr))
             self.assertEqual([c['name'] for c in self.calls()], ['new_tab', 'wait', 'eval_js', 'close_tab'], (args, env))
-            self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True, 'app': 'Safari'}, (args, env))
+            self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': True}, (args, env))
             hint = re.search(r'"hint": "([^"]+)"', self.calls('eval_js')[0]['args']['script']).group(1)
             self.assertEqual(hint, "the loft's window decides this")
-
-    def test_walk_on_the_loft_opens_safari_unless_a_browser_is_named(self):
-        """perch asks the focus grant for a loft tab outside Safari: Chromium raises itself to make a window."""
-        url, _, r = self.walk('page', '0', '--loft', '--app', 'Google Chrome', PERCH_STUB_NO_FOCUS='1')
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn('needs_focus', r.stderr)
-        self.assertIn('--app Safari', r.stderr)
-        self.assertNotIn('walk on the loft', r.stderr, 'the loft is what asked for focus')
-        self.again()
-        url, _, r = self.walk('page', '0', '--loft', '1440x900', FIGMA_CAPTURE_APP='Google Chrome')
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900', 'app': 'Google Chrome'})
-
-    def test_walk_on_the_loft_says_to_open_safari_when_it_isnt_running(self):
-        for args in ((), ('--loft',)):
-            self.again()
-            _, out, r = self.walk('page', '0', *args, PERCH_STUB_QUIT='Safari')
-            self.assertNotEqual(r.returncode, 0, args)
-            self.assertIn('no_browser: Safari must already be running', r.stderr)
-            self.assertIn('open Safari', r.stderr)
-            self.assertIn('--app', r.stderr)
-            self.assertEqual(self.calls('eval_js'), [])
 
     def test_walk_on_a_loft_made_for_it_names_that_loft(self):
         """--loft <id>: a loft the agent made at the design's size (loft up WxH --new) carries the walk."""
         url, _, r = self.walk('page', '0', '--loft', 'loft-2', PERCH_STUB_NO_FOCUS='1')
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': 'loft-2', 'app': 'Safari'})
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': 'loft-2'})
         stop_daemon(self.sock)
         open(self.log, 'w').close()
         url, _, r = self.walk('page', '0', '--loft', '1440x900', PERCH_STUB_NO_FOCUS='1')
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900', 'app': 'Safari'}, 'a size passes through: perch makes that loft')
+        self.assertEqual(self.calls('new_tab')[0]['args'], {'url': url, 'loft': '1440x900'}, 'a size passes through: perch makes that loft')
 
     def test_walk_on_the_loft_passes_perchs_error_through_when_it_is_down(self):
         _, out, r = self.walk('page', '0', '--loft', PERCH_STUB_LOFT='down')
