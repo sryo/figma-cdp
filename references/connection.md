@@ -26,6 +26,9 @@ Coordinator-facing setup: how the helpers reach Figma's Plugin API through [perc
    - Tabs are `room:<name>:<id>` (`list_tabs {app:"room"}`). With `--file`, a room's tab on the file wins over a browser's; `FIGMA_PERCH_TAB=room:<name>:<id>` pins one, and `tests/eval/run.py` takes the file's one room tab by default.
    - Which tab ran: `python3 <skill-dir>/figma_run.py --file <url> --where` prints `perch room:main:<id> (room main: runs minimized or locked) <url>`, or the browser tab and that it needs its window shown and the screen unlocked.
    - A room tab on Figma's sign-in page stops the call with `signed_out` and the `rooms signin` command, and nothing runs. It never falls back to a browser tab. `no_browser: room '<name>' is not up` means `rooms up <name>`.
+   - A room can recover between calls. `room '<name>' is not answering` or a `timeout` naming the room means its browser is busy or short of memory (several large files open), not that the room is gone: run `rooms status <name>` again before concluding it is unavailable, and retry once it says `up`. `unhealthy` there comes with the command that restarts it. Under `memory`, `ended` counts the tabs the room closed to keep answering; reopen the file, and for many large files ask the user for a bigger room (`rooms set <name> memory=6G`, while it is down).
+   - PNG `exportAsync` in a browser tab settles only while that tab is the one its window shows; in a room tab it needs nothing, since the helpers show the tab inside the room. So a room that failed once is still the place for exports: check it again before moving to a browser tab.
+   - `tab_held` on a room tab your own session opened means a perch from before 2026-11-11, which kept the perch MCP server's room tabs from the helpers: update perch. Until then, a tab no server claims works: `curl -X PUT "$(rooms endpoint <name>)/json/new?<file-url>"`.
 
 ## Troubleshooting
 
