@@ -552,6 +552,49 @@ class PerchBackend(Harness):
             self.assertEqual(f.read(8), b'\x89PNG\r\n\x1a\n')
         self.assertEqual(self.calls('screenshot')[0]['args']['target'], {'tabId': 'chrome:1'})
 
+    # ---- export
+
+    def export(self, *args, **env):
+        return self.run_helper('figma_run.py', '--export', *args, PERCH_STUB_FIGMA='full', **env)
+
+    def test_export_writes_the_node_to_a_file_and_prints_its_pixel_size(self):
+        page = json.loads(self.run_helper('figma_run.py', '-e', 'figma.currentPage.id', PERCH_STUB_FIGMA='full').stdout)
+        for name, more, magic, size in (('a.png', [], b'\x89PNG\r\n\x1a\n', '100x100'), ('b.png', ['--scale', '2'], b'\x89PNG', '200x200'),
+                                        ('c.jpg', ['--width', '50'], b'\xff\xd8', '50x50'), ('d.svg', [], b'<svg', '100x100')):
+            out = os.path.join(self.tmp.name, name)
+            r = self.export(page, out, *more)
+            self.assertEqual((r.returncode, r.stdout), (0, f'✓ Exported {page} to {out} ({size})\n'), r.stderr)
+            with open(out, 'rb') as f:
+                self.assertTrue(f.read().startswith(magic), name)
+        r = self.export(page.replace(':', '-'), os.path.join(self.tmp.name, 'e.png'))
+        self.assertEqual(r.returncode, 0, 'a URL\'s node-id=0-2 is the node 0:2')
+        self.assertIn(f'Exported {page} to', r.stdout)
+
+    def test_export_of_a_node_the_file_lacks_says_what_to_pass(self):
+        out = os.path.join(self.tmp.name, 'a.png')
+        r = self.export('9:999', out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no node 9:999 in this file', r.stderr)
+        self.assertIn('pass a node id like 12:34', r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def test_export_arguments_are_checked_before_anything_runs(self):
+        for args, says in ((['1:2'], '--export <nodeId> <out.png|.jpg|.svg>'), (['1:2', 'a.gif'], 'writes .png, .jpg or .svg'),
+                           (['1:2', 'a.png', '--width', '10', '--scale', '2'], '--width or --scale, not both'),
+                           (['1:2', 'a.svg', '--scale', '2'], 'size a .png or .jpg'), (['1:2', 'a.png', '--scale', 'big'], 'a number above 0'),
+                           (['1:2', 'a.png', '-e', '1'], '--export <nodeId> <out.png|.jpg|.svg>')):
+            r = self.export(*args)
+            self.assertEqual(r.returncode, 1, args)
+            self.assertIn(says, r.stderr, args)
+        self.assertEqual(self.calls('eval_js'), [])
+
+    def test_export_is_in_the_usage_and_the_execution_reference(self):
+        usage = '--export <nodeId> <out.png|.jpg|.svg> [--width N | --scale S]'
+        self.assertIn(usage, self.run_helper('figma_run.py', '--help').stdout)
+        self.assertIn(usage, self.run_helper('figma_run.py').stderr)
+        with open(os.path.join(ROOT, 'references', 'execution.md')) as f:
+            self.assertIn('figma_run.py --file <url> --export <nodeId> ', f.read())
+
     # ---- figma_run.py, several scripts
 
     def test_batch_runs_in_order_sharing_state(self):

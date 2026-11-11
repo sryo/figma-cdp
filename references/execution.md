@@ -115,6 +115,8 @@ Preview at SCALE 0.5: a 1280-wide screen comes back 640 wide, a quarter of the i
 })()
 ```
 
+To a file, in one call: `python3 <skill-dir>/figma_run.py --file <url> --export <nodeId> /tmp/node.png --scale 0.5` (`.png`, `.jpg` or `.svg` by its extension; `--width N` or `--scale S`, default 1) prints the path and pixel size.
+
 ### Screenshot of the tab
 
 Without Plugin API: `python3 <skill-dir>/figma_run.py --screenshot /tmp/figma_screenshot.png`. The tab must be the one its window shows.

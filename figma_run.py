@@ -6,6 +6,7 @@ it from the skill directory; nothing needs copying.
 
   python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] [--stop] (<js_file> | - | -e '<js>')...
   python3 figma_run.py [--file <figma-url-or-key>] --screenshot <out.png>
+  python3 figma_run.py [--file <figma-url-or-key>] --export <nodeId> <out.png|.jpg|.svg> [--width N | --scale S]
   python3 figma_run.py [--file <figma-url-or-key>] --recover <request-id>
   python3 figma_run.py [--file <figma-url-or-key>] --where
 
@@ -32,16 +33,19 @@ scripts don't run. Use it when a step builds on the one before.
 --ns <prefix>: run as that worker (figma-worker.md's NS): the result may carry an fxNote when
 it wrote inside another worker's frame, and a script is refused (reason 'stale') when someone
 else edited this worker's frame since its last eval.
+--export <nodeId> <out>: the node rendered to a file (node.exportAsync) in one call; the format is
+the extension's, the size --width N pixels or --scale S (default 1); prints the path and pixel size.
 --recover <request-id>: the result of a script that timed out or whose reply was lost, from
 the page's ledger: waits up to --timeout seconds while the script is still running.
 """
-import hashlib, json, os, re, subprocess, sys, time, uuid
+import base64, hashlib, json, os, re, struct, subprocess, sys, time, uuid
 
 from figma_backend import Dropped, daemon_exchange, daemon_sock, js_int, require_perch, start_daemon, timeout_seconds
 
 PROG = 'figma_run.py'
 USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] [--stop] [--ns <prefix>] (<js_file> | - | -e '<js>')...\n"
          "       python3 figma_run.py [--file <url-or-key>] --screenshot <out.png>\n"
+         "       python3 figma_run.py [--file <url-or-key>] --export <nodeId> <out.png|.jpg|.svg> [--width N | --scale S]\n"
          "       python3 figma_run.py [--file <url-or-key>] --recover <request-id>\n"
          "       python3 figma_run.py [--file <url-or-key>] --where")
 
@@ -286,6 +290,50 @@ def parse_args(argv, options, flags=('--lib',)):
             scripts.append(('path', arg))
     return opts, scripts
 
+EXPORT_FORMATS = {'.png': 'PNG', '.jpg': 'JPG', '.jpeg': 'JPG', '.svg': 'SVG'}
+
+def export_args(node_id, specs, width, scale):
+    """--export's (node id, output path, format, script): the script returns the node's rendered bytes
+    as base64, or {error} when the file has no such node."""
+    if len(specs) != 1 or specs[0][0] != 'path':
+        usage('--export takes a node id and one output file: --export <nodeId> <out.png|.jpg|.svg>')
+    path = specs[0][1]
+    fmt = EXPORT_FORMATS.get(os.path.splitext(path)[1].lower())
+    if not fmt:
+        usage(f'--export writes .png, .jpg or .svg; got {path}')
+    if width and scale:
+        usage('--width or --scale, not both')
+    if fmt == 'SVG' and (width or scale):
+        usage('--width and --scale size a .png or .jpg; an .svg has no pixels')
+    try:
+        value = float(width or scale or 1)
+    except ValueError:
+        value = 0
+    if not 0 < value < float('inf'):
+        usage(f"--{'width' if width else 'scale'} is a number above 0; got '{width or scale}'")
+    settings = {'format': fmt}
+    if fmt != 'SVG':
+        settings['constraint'] = {'type': 'WIDTH' if width else 'SCALE', 'value': value}
+    node_id = re.sub(r'^(\d+)-(\d+)$', r'\1:\2', node_id)  # a URL's node-id=12-34
+    missing = (f'no node {node_id} in this file: pass a node id like 12:34 (__fx.recon and __fx.inventory print '
+               "them in [brackets]; a URL's node-id=12-34 is 12:34)")
+    return node_id, path, fmt, (f'var n = await figma.getNodeByIdAsync({json.dumps(node_id)});\n'
+                                f'if (!n || typeof n.exportAsync !== "function") return {{ error: {json.dumps(missing)} }};\n'
+                                f'return figma.base64Encode(await n.exportAsync({json.dumps(settings)}));')
+
+def pixel_size(data, fmt):
+    """(width, height) as the image's own header states them, or None."""
+    if fmt == 'PNG' and data[12:16] == b'IHDR':
+        return struct.unpack('>II', data[16:24])
+    i = 2
+    while fmt == 'JPG' and i + 9 <= len(data) and data[i] == 0xFF:
+        if 0xC0 <= data[i + 1] <= 0xCF and data[i + 1] not in (0xC4, 0xC8, 0xCC):  # a start-of-frame segment
+            return struct.unpack('>HH', data[i + 5:i + 9])[::-1]
+        i += 2 + struct.unpack('>H', data[i + 2:i + 4])[0]
+    m = fmt == 'SVG' and re.match(rb'\s*(?:<\?xml[^>]*>\s*)?<svg[^>]*', data)
+    w, h = (re.search(rb'\s%s="([\d.]+)"' % k, m[0]) for k in (b'width', b'height')) if m else (None, None)
+    return (w[1].decode(), h[1].decode()) if w and h else None
+
 def load(scripts):
     """(label, source) per script: a file's basename, '-e[n]' for the nth inline one, 'stdin'."""
     if sum(kind == 'stdin' for kind, _ in scripts) > 1:
@@ -310,8 +358,9 @@ def load(scripts):
     return out
 
 
-opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--screenshot', '--ns', '--recover'), ('--lib', '--where', '--stop'))
-shot, rec = opts['--screenshot'], opts['--recover']
+opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--screenshot', '--ns', '--recover', '--export', '--width', '--scale'),
+                         ('--lib', '--where', '--stop'))
+shot, rec, exp = opts['--screenshot'], opts['--recover'], opts['--export']
 require_perch()
 if opts['--where']:
     if specs or shot or rec:
@@ -322,8 +371,11 @@ if opts['--where']:
         f"{head.get('app') or 'browser'}: needs its window shown and the screen unlocked"
     print(f"perch {head['tabId']} ({note}) {head['url']}")
     sys.exit(0)
+if exp:
+    exp, exp_path, exp_format, exp_script = export_args(exp, specs, opts['--width'], opts['--scale'])
+    specs = [('inline', exp_script)]
 if bool(specs) + bool(shot) + bool(rec) != 1:
-    usage('give scripts (<js_file>, - or -e <js>), or --screenshot or --recover alone')
+    usage('give scripts (<js_file>, - or -e <js>), or --screenshot, --export or --recover alone')
 scripts = load(specs)
 # A raw import loses what the markup draws; say so where the agent wrote it (stderr: the result stays clean).
 if any('figma.createNodeFromSvg(' in src for _, src in scripts):
@@ -387,8 +439,20 @@ ask = lambda: perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sour
                     timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
 res = until_finished(ask, lambda res: res['ok'] and ledger_error(res['value']))
 err = timeout_note(res['error'], rid, scripts[0][1] if scripts else '') if not res['ok'] else ledger_error(res['value'])
-log(err is None, err or res['value'])
+if exp and not err and isinstance(res['value'], dict):
+    err = res['value'].get('error')
+log(err is None, err or (f'{len(res["value"])} base64 chars' if exp else res['value']))
 if err:
     fail(err)
+if exp:
+    data = base64.b64decode(res['value'])
+    try:
+        with open(exp_path, 'wb') as f:
+            f.write(data)
+    except OSError as e:
+        sys.exit(f'{PROG}: cannot write {exp_path}: {e.strerror}')
+    size = pixel_size(data, exp_format)
+    print(f'✓ Exported {exp} to {exp_path}' + (f' ({size[0]}x{size[1]})' if size else ''))
+    sys.exit(0)
 print(compact(res['value']))
 sys.exit(0)

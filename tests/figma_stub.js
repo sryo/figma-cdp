@@ -89,6 +89,15 @@ function createFigma() {
       findOne(fn) { let hit = null; walk(proxy, (n) => { if (!hit && n !== proxy && fn(n)) hit = n; }); return hit; },
       findChildren(fn) { return t.children.filter((c) => !fn || fn(c)); },
       findAllWithCriteria(q) { return api.findAll((n) => !q.types || q.types.indexOf(n.type) !== -1); },
+      // The header of an image the size the settings ask for (a PNG's IHDR, a JPEG's SOF0), or an <svg> root.
+      async exportAsync(s) {
+        const c = (s && s.constraint) || { type: 'SCALE', value: 1 };
+        const k = c.type === 'WIDTH' ? c.value / t.width : c.type === 'HEIGHT' ? c.value / t.height : c.value;
+        const be = (n, bytes) => Math.round(n).toString(16).padStart(bytes * 2, '0');
+        if (s && s.format === 'SVG') return Uint8Array.from(Buffer.from('<svg width="' + t.width + '" height="' + t.height + '" xmlns="http://www.w3.org/2000/svg"/>'));
+        return Uint8Array.from(Buffer.from(s && s.format === 'JPG' ? 'ffd8ffc0001108' + be(t.height * k, 2) + be(t.width * k, 2)
+          : '89504e470d0a1a0a0000000d49484452' + be(t.width * k, 4) + be(t.height * k, 4) + '0806000000', 'hex'));
+      },
       getRangeAllFontNames() { return [t.fontName]; },
       setRangeFontName() {}, setRangeFontSize() {}, setRangeFills() {}, setRangeTextDecoration() {},
       async setFillStyleIdAsync(id) { const s = styleOf(id, 'PAINT'); t.fills = clone(s.paints); t.fillStyleId = id; },
@@ -404,6 +413,7 @@ function createFigma() {
     },
     createImage: (bytes) => { if (!(bytes instanceof Uint8Array)) throw new Error('createImage takes Uint8Array'); return { hash: 'h' + bytes.length }; },
     base64Decode: (s) => Uint8Array.from(Buffer.from(s, 'base64')),
+    base64Encode: (bytes) => Buffer.from(bytes).toString('base64'),
     // A frame the svg's width/height with one VECTOR per shape element, each 10x8 and placed one
     // below the other (the real call places them where the path data draws them); a stroke /
     // fill attribute on the element or the <svg> becomes its paint. A <g> becomes a GROUP, and an
