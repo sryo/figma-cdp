@@ -168,7 +168,7 @@ export function wrap(src, key) {
     `var __figma = typeof figma !== "undefined";\n` +
     `try { var __v = await (0, eval)(__src); return { v: __v === undefined ? null : __v, h: __h }; }\n` +
     `catch (e) { var s = e && typeof e.stack === "string" && e.stack.indexOf(String(e.message)) >= 0 ? e.stack : String(e && e.name ? e.name + ": " + e.message : e);\n` +
-    `  return { e: s, figma: __figma, h: __h }; }`;
+    `  return { e: s, figma: __figma, h: __h, hidden: typeof document === "object" && !!document && document.visibilityState === "hidden" }; }`;
 }
 
 // The page op's form of wrap: the script is one expression, placed in the body as is.
@@ -188,7 +188,12 @@ async function runEval(handleCall, tab, src, ms, page = false) {
   if (!out || typeof out !== "object") return { ok: false, error: `unexpected eval_js reply: ${text.slice(0, 300)}` };
   if (roomOf(tab.tabId) && signedOut(out.miss ?? out.h)) throw new Error(signedOutError(roomOf(tab.tabId), out.miss ?? out.h));
   if ("miss" in out) return { miss: String(out.miss) };
-  if ("e" in out) return { ok: false, error: page || out.figma ? out.e : `${out.e}\n${UNDEFINED_HINT}`, figma: !!out.figma, href: out.h };
+  if ("e" in out) {
+    // A room's tab reads hidden too, and is shown inside the room.
+    const hidden = out.hidden && !roomOf(tab.tabId);
+    const notes = page ? [] : [!out.figma && UNDEFINED_HINT, hidden && !out.figma && UNDEFINED_HIDDEN_HINT, hidden && out.figma && NO_RENDER.test(out.e) && EXPORT_HINT];
+    return { ok: false, error: [out.e, ...notes.filter(Boolean)].join("\n"), figma: !!out.figma, href: out.h };
+  }
   return { ok: true, value: out.v === undefined ? null : out.v, href: out.h };
 }
 
@@ -231,12 +236,6 @@ async function tabHidden(handleCall, tab) {
 const NO_RENDER = /Unable to establish connection to Figma/;
 const EXPORT_HINT = "Export and other rendering need the tab its window shows, and this browser tab is hidden. A perch room tab on the file needs no showing (the helper shows it inside the room): run rooms status <name> to see whether a room is up, open the file there, then retry";
 const UNDEFINED_HIDDEN_HINT = "This browser tab is hidden, and the helper cannot initialise a hidden tab: use a room tab on the file, or the tab its window shows";
-// What a failed script's error gains when its browser tab is hidden. A room's tab reads hidden too, and is shown inside the room.
-async function hiddenNote(handleCall, tab, res) {
-  const note = res.figma === false ? UNDEFINED_HIDDEN_HINT : NO_RENDER.test(res.error) ? EXPORT_HINT : "";
-  return note && !roomOf(tab.tabId) && await tabHidden(handleCall, tab) ? `\n${note}` : "";
-}
-
 const perchFatal = (e, ms, src = "") => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms, src)}` : e.message;
 
 // The rooms the user set up, as perch reads them: $ROOMS_HOME/rooms.json, else ~/.rooms/rooms.json.
@@ -406,7 +405,6 @@ export async function handle(handleCall, req, cache = null) {
       i--;
       continue;
     }
-    if (res.ok === false) res.error += await hiddenNote(handleCall, tab, res);
     results.push(res);
     if (stop && !(res.ok && res.value != null && !(typeof res.value === "object" && "error" in res.value))) break;
   }
