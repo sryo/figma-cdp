@@ -168,7 +168,7 @@ export function wrap(src, key) {
     `var __figma = typeof figma !== "undefined";\n` +
     `try { var __v = await (0, eval)(__src); return { v: __v === undefined ? null : __v, h: __h }; }\n` +
     `catch (e) { var s = e && typeof e.stack === "string" && e.stack.indexOf(String(e.message)) >= 0 ? e.stack : String(e && e.name ? e.name + ": " + e.message : e);\n` +
-    `  return { e: s, figma: __figma, h: __h, hidden: typeof document === "object" && !!document && document.visibilityState === "hidden" }; }`;
+    `  return { e: s, figma: __figma, h: __h, hidden: typeof document === "object" && !!document && document.hidden === true }; }`;
 }
 
 // The page op's form of wrap: the script is one expression, placed in the body as is.
