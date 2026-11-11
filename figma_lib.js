@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 15;
+  var V = 16;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -1140,11 +1140,22 @@
       note: 'Someone else edited your frame since your last eval, so nothing ran. Re-read those nodes, adjust, and send the script again.' };
   }
 
+  // figma_run.py --image <name>=<path> leaves the file's base64 in window.__fxImages[name].parts.
+  function image(name) {
+    var all = window.__fxImages || {}, e = all[name], sent = Object.keys(all);
+    if (!e) {
+      throw new Error('no image "' + name + '" in this tab: pass --image ' + name + '=<path to a PNG, JPG or GIF> to figma_run.py with this script' +
+        (sent.length ? ' (sent: ' + sent.join(', ') + ')' : ''));
+    }
+    if (!e.hash) { e.hash = figma.createImage(figma.base64Decode(e.parts.join(''))).hash; e.parts = null; }
+    return e.hash;
+  }
+
   window.__fx = {
     v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, svg: svg, linkCopies: linkCopies, autoLayout: autoLayout, text: text, instance: instance,
     bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
-    presence: presence, stale: stale,
+    presence: presence, stale: stale, image: image,
   };
   watch();
 })();

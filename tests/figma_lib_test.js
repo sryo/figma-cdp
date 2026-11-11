@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 15, sha: 'a14c7622373a2abe' };
+const PIN = { v: 16, sha: '4c5d6b4d4387fda3' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -104,6 +104,28 @@ test('the version is bumped whenever the file changes', () => {
 
 test('the source is ASCII, so both backends carry it byte for byte', () => {
   assert.ok(/^[\x00-\x7f]*$/.test(LIB));
+});
+
+// ---- image
+
+test('image: the hash of the bytes figma_run.py --image sent, made once per name', () => {
+  const fx = fresh();
+  let made = 0;
+  const createImage = figma.createImage;
+  figma.createImage = (bytes) => { made++; return createImage(bytes); };
+  const b64 = Buffer.from('abcd').toString('base64');
+  window.__fxImages = { hero: { parts: [b64.slice(0, 4), b64.slice(4)] } };
+  assert.equal(fx.image('hero'), 'h4');
+  assert.equal(fx.image('hero'), 'h4');
+  assert.equal(made, 1);
+  assert.equal(window.__fxImages.hero.parts, null, 'the base64 is dropped once the image exists');
+});
+
+test('image: a name that was not sent says what to pass', () => {
+  const fx = fresh();
+  assert.throws(() => fx.image('hero'), /no image "hero" in this tab: pass --image hero=<path to a PNG, JPG or GIF> to figma_run\.py/);
+  window.__fxImages = { logo: { parts: ['AA=='] }, bg: { parts: ['AA=='] } };
+  assert.throws(() => fx.image('hero'), /\(sent: logo, bg\)/);
 });
 
 // ---- recon

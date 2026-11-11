@@ -23,9 +23,9 @@ FILE_CAPS = {
 # Reference bytes per combo in SKILL.md's "Per-task reference combos" list; an optional
 # "(+ x if ...)" reference counts, since some workers load it.
 COMBO_CAPS = {
-    'Build screens': 27505,
+    'Build screens': 27784,
     'Copy/text edit': 15888,
-    'Component/variant/design-system': 23203,
+    'Component/variant/design-system': 23482,
     'Color/effects/prototype': 16260,
 }
 

@@ -4,7 +4,7 @@
 Runs scripts in the Figma tab, in the order given, and prints their results. Run
 it from the skill directory; nothing needs copying.
 
-  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] [--stop] (<js_file> | - | -e '<js>')...
+  python3 figma_run.py [--file <figma-url-or-key>] [--timeout <seconds>] [--lib] [--stop] [--image <name>=<path>]... (<js_file> | - | -e '<js>')...
   python3 figma_run.py [--file <figma-url-or-key>] --screenshot <out.png>
   python3 figma_run.py [--file <figma-url-or-key>] --export <nodeId> <out.png|.jpg|.svg> [--width N | --scale S]
   python3 figma_run.py [--file <figma-url-or-key>] --recover <request-id>
@@ -33,6 +33,9 @@ scripts don't run. Use it when a step builds on the one before.
 --ns <prefix>: run as that worker (figma-worker.md's NS): the result may carry an fxNote when
 it wrote inside another worker's frame, and a script is refused (reason 'stale') when someone
 else edited this worker's frame since its last eval.
+--image <name>=<path> (repeatable): a local PNG, JPG or GIF for the scripts. Its bytes go to the page
+before they run, in evals of 200 KB, so a file of several MB crosses, and __fx.image('<name>') is its
+image hash for a fill: {type: 'IMAGE', scaleMode: 'FILL', imageHash: __fx.image('<name>')}. Implies --lib.
 --export <nodeId> <out>: the node rendered to a file (node.exportAsync) in one call; the format is
 the extension's, the size --width N pixels or --scale S (default 1); prints the path and pixel size.
 --recover <request-id>: the result of a script that timed out or whose reply was lost, from
@@ -43,7 +46,7 @@ import base64, hashlib, json, os, re, struct, subprocess, sys, time, uuid
 from figma_backend import Dropped, daemon_exchange, daemon_sock, js_int, require_perch, start_daemon, timeout_seconds
 
 PROG = 'figma_run.py'
-USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] [--stop] [--ns <prefix>] (<js_file> | - | -e '<js>')...\n"
+USAGE = ("usage: python3 figma_run.py [--file <url-or-key>] [--timeout <seconds>] [--lib] [--stop] [--ns <prefix>] [--image <name>=<path>]... (<js_file> | - | -e '<js>')...\n"
          "       python3 figma_run.py [--file <url-or-key>] --screenshot <out.png>\n"
          "       python3 figma_run.py [--file <url-or-key>] --export <nodeId> <out.png|.jpg|.svg> [--width N | --scale S]\n"
          "       python3 figma_run.py [--file <url-or-key>] --recover <request-id>\n"
@@ -98,7 +101,7 @@ def perch(req, timeout=100.0, rids=()):
             sys.exit(f'perch: no reply from figma_perch.mjs (exit {r.returncode}): {(r.stdout + r.stderr).strip()[:400]}')
     if out.get('fatal'):
         ran = len(out.get('results') or [])
-        if ran < len(rids):
+        if ran < len(rids) and rids[ran]:
             out['fatal'] = timeout_note(out['fatal'], rids[ran], req['sources'][ran] if ran < len(req.get('sources') or []) else '')
         if not ran:
             sys.exit(f"perch: {out['fatal']}")
@@ -258,11 +261,13 @@ def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
     sys.exit(1)
 
-def parse_args(argv, options, flags=('--lib',)):
-    """Option values (FIGMA_FILE the default for --file, each flag True when given) and the scripts
-    in command-line order, each ('path', p), ('stdin', None) or ('inline', js)."""
+def parse_args(argv, options, flags=('--lib',), repeat=()):
+    """Option values (FIGMA_FILE the default for --file, each flag True when given, a list for each
+    option in repeat) and the scripts in command-line order, each ('path', p), ('stdin', None) or
+    ('inline', js)."""
     opts = dict.fromkeys(options)
     opts['--file'] = os.environ.get('FIGMA_FILE')
+    opts.update({name: [] for name in repeat})
     opts.update(dict.fromkeys(flags, False))
     scripts = []
     args = iter(argv)
@@ -278,7 +283,9 @@ def parse_args(argv, options, flags=('--lib',)):
                 val = next(args, None)
                 if val is None:
                     usage(f'{name} needs a value')
-            if name in opts:
+            if name in repeat:
+                opts[name].append(val)
+            elif name in opts:
                 opts[name] = val
             else:
                 scripts.append(('inline', val))
@@ -289,6 +296,36 @@ def parse_args(argv, options, flags=('--lib',)):
         else:
             scripts.append(('path', arg))
     return opts, scripts
+
+# perch takes a script as one osascript argument when its daemon is off (about 1 MB, and the script
+# grows on the way), and a big script can outlast --timeout: an image crosses in evals this size,
+# IMAGE_BATCH of them to a request.
+IMAGE_CHUNK = 200_000
+IMAGE_BATCH = 20
+
+def image_sources(args):
+    """One script per IMAGE_CHUNK base64 chars of each --image <name>=<path> file. Together they leave
+    window.__fxImages[name] = {parts}, which __fx.image(name) turns into an image hash; sending a name
+    again replaces it."""
+    out = []
+    for arg in args:
+        name, eq, path = arg.partition('=')
+        if not (name and eq and path):
+            usage(f"--image takes <name>=<path>; got '{arg}'")
+        try:
+            with open(path, 'rb') as f:
+                b64 = base64.b64encode(f.read()).decode()
+        except OSError as e:
+            usage(f'--image {name}: {"no such file" if isinstance(e, FileNotFoundError) else e.strerror}: {path}; '
+                  'pass --image <name>=<path> to a PNG, JPG or GIF on this Mac')
+        if not b64:
+            usage(f'--image {name}: {path} is empty; pass --image <name>=<path> to a PNG, JPG or GIF')
+        key = json.dumps(name)
+        for i in range(0, len(b64), IMAGE_CHUNK):
+            part = json.dumps(b64[i:i + IMAGE_CHUNK])
+            out.append(f'window.__fxImages[{key}].parts[{i // IMAGE_CHUNK}] = {part}; 1' if i else
+                       f'(window.__fxImages = window.__fxImages || {{}})[{key}] = {{ parts: [{part}] }}; 1')
+    return out
 
 EXPORT_FORMATS = {'.png': 'PNG', '.jpg': 'JPG', '.jpeg': 'JPG', '.svg': 'SVG'}
 
@@ -359,9 +396,12 @@ def load(scripts):
 
 
 opts, specs = parse_args(sys.argv[1:], ('--file', '--timeout', '--screenshot', '--ns', '--recover', '--export', '--width', '--scale'),
-                         ('--lib', '--where', '--stop'))
+                         ('--lib', '--where', '--stop'), ('--image',))
 shot, rec, exp = opts['--screenshot'], opts['--recover'], opts['--export']
 require_perch()
+if opts['--image'] and (shot or rec or exp or opts['--where']):
+    usage('--image goes with scripts: [--image <name>=<path>]... (<js_file> | - | -e <js>)...')
+images = image_sources(opts['--image'])
 if opts['--where']:
     if specs or shot or rec:
         usage('--where takes no script')
@@ -385,8 +425,27 @@ if any('figma.createNodeFromSvg(' in src for _, src in scripts):
 rids = [rec] if rec else [uuid.uuid4().hex[:12] for _ in scripts or [None]]
 rid = rids[0]
 sources = [recover(rec)] if rec else [program(src, r, opts['--ns']) for (_, src), r in zip(scripts, rids)]
-if opts['--lib'] and sources:
+if (opts['--lib'] or images) and sources:
     sources[0] = with_lib(sources[0])
+
+def run(sources, rids, stop=False):
+    """perch's reply to the scripts. The image bytes go in front of them: the last IMAGE_BATCH evals in
+    the scripts' own request, the ones before in requests of their own, so no request is over a few MB."""
+    for i in range(0, len(images), IMAGE_BATCH):
+        lead = images[i:i + IMAGE_BATCH]
+        last = i + IMAGE_BATCH >= len(images)
+        out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': lead + sources if last else lead, 'stop': stop and last},
+                    timeout=timeout_seconds(opts['--timeout']), rids=[None] * len(lead) + rids)
+        sent, out['results'] = out['results'][:len(lead)], out['results'][len(lead):]
+        bad = next((r['error'] for r in sent if not r['ok']), None) or (len(sent) < len(lead) and out.get('fatal'))
+        if bad:
+            sys.exit(f'{PROG}: --image: the image bytes did not reach the page, and no script ran: {bad}')
+        if last:
+            if out.get('fatal') and not out['results']:
+                sys.exit(f"perch: {out['fatal']}")
+            return out
+    return perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources, 'stop': stop},
+                 timeout=timeout_seconds(opts['--timeout']), rids=rids)
 
 def until_finished(ask, running):
     """ask() once; for --recover, again every 2 s while the ledger says the script is still running,
@@ -412,8 +471,7 @@ def stopped(ran):
     return f"--stop: script {ran} of {len(scripts)} failed, returned nothing or returned {{error}}; the rest did not run"
 
 if len(scripts) > 1:
-    out = perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources, 'stop': opts['--stop']},
-                timeout=timeout_seconds(opts['--timeout']), rids=rids)
+    out = run(sources, rids, opts['--stop'])
     # A success is {origin: the page URL, result} with keys sorted and non-ASCII escaped, a
     # failure its error.
     out['results'] = [{'ok': False, 'error': ledger_error(r['value'])} if r['ok'] and ledger_error(r['value']) else r
@@ -435,8 +493,7 @@ if shot:
     perch({'op': 'screenshot', 'file': opts['--file'] or '', 'path': os.path.abspath(shot)})
     print(f"✓ Screenshot saved to {shot}")
     sys.exit(0)
-ask = lambda: perch({'op': 'eval', 'file': opts['--file'] or '', 'sources': sources},
-                    timeout=timeout_seconds(opts['--timeout']), rids=[rid])['results'][0]
+ask = lambda: run(sources, [rid])['results'][0]
 res = until_finished(ask, lambda res: res['ok'] and ledger_error(res['value']))
 err = timeout_note(res['error'], rid, scripts[0][1] if scripts else '') if not res['ok'] else ledger_error(res['value'])
 if exp and not err and isinstance(res['value'], dict):

@@ -595,6 +595,61 @@ class PerchBackend(Harness):
         with open(os.path.join(ROOT, 'references', 'execution.md')) as f:
             self.assertIn('figma_run.py --file <url> --export <nodeId> ', f.read())
 
+    # ---- local image files
+
+    def image_file(self, name, size):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, 'wb') as f:
+            f.write(bytes(i * 7 % 251 for i in range(size)))
+        return path
+
+    def test_image_files_reach_the_page_and_fx_image_gives_their_hash(self):
+        hero, logo = self.image_file('hero.png', 10), self.image_file('logo.jpg', 3)
+        r = self.run_helper('figma_run.py', '--image', f'hero={hero}', f'--image=logo={logo}', '-e',
+                            "[__fx.image('hero'), __fx.image('logo')]", PERCH_STUB_FIGMA='full')
+        self.assertEqual((r.returncode, r.stdout), (0, '["h10","h3"]\n'), r.stderr)  # the stub's hash is the byte count
+        r = self.run_helper('figma_run.py', '--image', f'hero={logo}', '-e', "__fx.image('hero')", PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.stdout, '"h3"\n', 'a name sent again is the new file, not the hash kept for the old one')
+
+    def test_a_large_image_crosses_in_evals_of_a_few_hundred_kb(self):
+        big = self.image_file('big.png', 700_000)
+        r = self.run_helper('figma_run.py', '--image', f'big={big}', '-e', "__fx.image('big')", '-e', '2', PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.returncode, 0, r.stderr[:300])
+        self.assertIn('"result": "h700000"', r.stdout)
+        sizes = [len(c['args']['script']) for c in self.calls('eval_js')]
+        self.assertGreaterEqual(len(sizes), 6, 'the bytes take several evals, then the scripts')
+        self.assertLess(max(sizes), 400_000, 'perch takes a script as one osascript argument when its daemon is off: about 1 MB')
+
+    def test_an_image_file_that_is_missing_or_misnamed_says_what_to_pass(self):
+        for arg, says in ((f'hero={self.tmp.name}/nope.png', f'--image hero: no such file: {self.tmp.name}/nope.png'),
+                          ('hero', '--image takes <name>=<path>'), ('=x.png', '--image takes <name>=<path>'),
+                          (f"hero={self.image_file('empty.png', 0)}", 'is empty')):
+            r = self.run_helper('figma_run.py', '--image', arg, '-e', '1', PERCH_STUB_FIGMA='full')
+            self.assertEqual(r.returncode, 1, arg)
+            self.assertIn(says, r.stderr, arg)
+            self.assertIn('--image <name>=<path>', r.stderr, arg)
+        r = self.run_helper('figma_run.py', '--image', f"hero={self.image_file('a.png', 4)}", '--where')
+        self.assertIn('--image goes with scripts', r.stderr)
+        self.assertEqual(self.calls('eval_js'), [])
+
+    def test_an_image_name_that_was_not_sent_says_what_to_pass(self):
+        r = self.run_helper('figma_run.py', '--image', f"hero={self.image_file('a.png', 4)}", '-e', "__fx.image('logo')",
+                            PERCH_STUB_FIGMA='full')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('no image "logo" in this tab: pass --image logo=<path to a PNG, JPG or GIF> to figma_run.py', r.stderr)
+        self.assertIn('(sent: hero)', r.stderr)
+
+    def test_image_is_in_the_usage_and_the_building_reference(self):
+        self.assertIn('--image <name>=<path>', self.run_helper('figma_run.py', '--help').stdout)
+        self.assertIn('[--image <name>=<path>]...', self.run_helper('figma_run.py').stderr)
+        with open(os.path.join(ROOT, 'references', 'building.md')) as f:
+            text = f.read()
+        fills = text[text.index('## Image fills'):].split('\n## ')[0]
+        self.assertIn('--image hero=', fills)
+        self.assertIn("imageHash: __fx.image('hero')", fills)
+        with open(os.path.join(ROOT, 'references', 'execution.md')) as f:
+            self.assertIn('| `__fx.image(name)` |', f.read())
+
     # ---- figma_run.py, several scripts
 
     def test_batch_runs_in_order_sharing_state(self):
@@ -994,6 +1049,15 @@ class PerchDaemon(Harness):
         self.assertEqual(r.returncode, 0, r.stderr)
         r = self.run_helper('figma_run.py', '--lib', self.js('b.js', 'window.__fx.mark'))
         self.assertEqual((r.returncode, r.stdout), (0, '7\n'), r.stderr)
+
+    def test_images_of_several_mb_cross_in_several_requests_before_the_script(self):
+        path = os.path.join(self.tmp.name, 'big.jpg')
+        with open(path, 'wb') as f:
+            f.write(bytes(range(256)) * 12_500)  # 3.2 MB: 22 evals of base64
+        r = self.run_helper('figma_run.py', '--image', f'big={path}', '-e', "__fx.image('big')", PERCH_STUB_FIGMA='full')
+        self.assertEqual((r.returncode, r.stdout), (0, '"h3200000"\n'), r.stderr[:300])
+        self.assertEqual(len(self.calls('list_tabs')), 2, 'two requests: 20 evals of bytes, then the last 2 with the script')
+        self.assertEqual(len(self.calls('eval_js')), 23)
 
     def test_a_dropped_call_is_resent_once_with_the_same_request(self):
         # The stub's page dies with its daemon, so the resend runs again here; in a browser the

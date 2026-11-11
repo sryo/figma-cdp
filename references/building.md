@@ -122,6 +122,10 @@ rect.resize(400, 300);
 rect.fills = [{type: 'IMAGE', imageHash: image.hash, scaleMode: 'FILL'}];
 // Supported formats: PNG, JPG, GIF. Max: 4096x4096
 
+// From a file on this Mac: python3 <skill-dir>/figma_run.py --file <url> --image hero=/path/hero.jpg -e '<this script>'
+// (--image repeats; a name that was not sent throws, naming what to pass)
+rect.fills = [{type: 'IMAGE', scaleMode: 'FILL', imageHash: __fx.image('hero')}];
+
 // From an existing node's image
 var existingFill = sourceNode.fills[0];
 if (existingFill.type === 'IMAGE') {
