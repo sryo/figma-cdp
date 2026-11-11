@@ -5,7 +5,7 @@
 // pins the file's hash to V). Plain Plugin API, ASCII, no optional chaining: tests/eval/run.py
 // also loads it into the eval scorers.
 (function () {
-  var V = 16;
+  var V = 17;
   if (window.__fx && window.__fx.v >= V) return;
 
   var DEFAULT_NAME = /^(Frame|Rectangle|Group|Ellipse|Text|Vector|Line|Polygon|Star|Component|Instance|Section)( \d+)?$/;
@@ -1140,6 +1140,31 @@
       note: 'Someone else edited your frame since your last eval, so nothing ran. Re-read those nodes, adjust, and send the script again.' };
   }
 
+  // The nth text under root whose characters start with prefix (trimmed, any case). A text in a
+  // hidden layer or inside an instance takes a write that changes nothing on screen, so both are
+  // skipped unless o.hidden / o.instances. No match: {error}, which also throws when written to.
+  function findText(root, prefix, o) {
+    o = o || {};
+    function miss(msg) {
+      var out = { error: msg }, refuse = function () { throw new Error(msg); };
+      Object.defineProperty(out, 'characters', { get: refuse, set: refuse });
+      return out;
+    }
+    if (!root || !root.findAllWithCriteria) return miss('findText(root, prefix): root is a node with children (a frame, page or instance), not an id');
+    var want = String(prefix).trim().toLowerCase(), nth = o.nth || 0, hits = [], hidden = 0, nested = 0;
+    root.findAllWithCriteria({ types: ['TEXT'] }).forEach(function (t) {
+      if (String(t.characters).trim().toLowerCase().indexOf(want) !== 0) return;
+      var hid = false;
+      for (var p = t; p && p !== root; p = p.parent) if (p.visible === false) hid = true;
+      if (hid && !o.hidden) hidden++;
+      else if (inNested(t, root) && !o.instances) nested++;
+      else hits.push(t);
+    });
+    return hits[nth] || miss('no text ' + (nth ? '#' + nth + ' ' : '') + 'starting with "' + String(prefix).trim() + '" under "' + root.name + '": ' + hits.length + ' found' +
+      (hidden ? ', ' + hidden + ' more in hidden layers ({hidden: true} takes them)' : '') +
+      (nested ? ', ' + nested + ' more inside instances ({instances: true} takes them)' : ''));
+  }
+
   // figma_run.py --image <name>=<path> leaves the file's base64 in window.__fxImages[name].parts.
   function image(name) {
     var all = window.__fxImages || {}, e = all[name], sent = Object.keys(all);
@@ -1155,7 +1180,7 @@
     v: V, recon: recon, inventory: inventory, frame: frame, icon: icon, svg: svg, linkCopies: linkCopies, autoLayout: autoLayout, text: text, instance: instance,
     bindFill: bindFill, audit: audit, react: react, overlayFrame: overlayFrame, flow: flow, node: node, hex: hex, hex8: hex8, measure: measure, patterns: patterns,
     solidPaints: solidPaints, inInstance: inInstance, inComponent: inComponent, DEFAULT_NAME: DEFAULT_NAME,
-    presence: presence, stale: stale, image: image,
+    presence: presence, stale: stale, image: image, findText: findText,
   };
   watch();
 })();

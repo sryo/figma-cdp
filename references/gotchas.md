@@ -189,3 +189,14 @@ label.visible;                                                            // thr
 const tab = await figma.getNodeByIdAsync(window.__batchState.tabId);
 const label = tab.findOne(n => n.name === 'Label');
 ```
+
+## 19. A cloned template's text: `findAll` also finds copies in hidden layers and instances
+A template keeps old text in hidden layers and inside instances (ids starting with `I`). The first match by prefix is often one of those: `characters` takes the write and the visible slide does not change.
+```js
+// WRONG: the first match may be hidden or inside an instance
+slide.findAll(n => n.type === 'TEXT' && n.characters.startsWith('Title'))[0].characters = 'Q3 results';
+// CORRECT (--lib): the first visible text outside instances; no match is {error}, naming what was skipped
+const t = __fx.findText(slide, 'Title');            // {nth: 1} the second; {instances: true} to override one
+if (t.error) return t;
+await figma.loadFontAsync(t.fontName); t.characters = 'Q3 results';
+```

@@ -13,7 +13,7 @@ const LIB = fs.readFileSync(path.join(__dirname, '..', 'figma_lib.js'), 'utf8');
 // The version figma_lib.js stamps (`var V = n;`) and the file's hash at that version. Any edit
 // changes the hash: bump V in figma_lib.js so tabs holding the old copy replace it, then pin the
 // new pair here.
-const PIN = { v: 16, sha: '4c5d6b4d4387fda3' };
+const PIN = { v: 17, sha: '68e0bee1efbef5bd' };
 
 function load(src) { (0, eval)(src || LIB); return window.__fx; }
 function fresh() {
@@ -126,6 +126,49 @@ test('image: a name that was not sent says what to pass', () => {
   assert.throws(() => fx.image('hero'), /no image "hero" in this tab: pass --image hero=<path to a PNG, JPG or GIF> to figma_run\.py/);
   window.__fxImages = { logo: { parts: ['AA=='] }, bg: { parts: ['AA=='] } };
   assert.throws(() => fx.image('hero'), /\(sent: logo, bg\)/);
+});
+
+// ---- findText
+
+// Slide[Old(hidden)[TEXT], INSTANCE[TEXT], TEXT, Body[TEXT], TEXT(hidden)], every text starting with "Title".
+async function slide() {
+  await fonts();
+  const root = mkFrame(figma.currentPage, 'Slide');
+  const old = mkFrame(root, 'Old');
+  old.visible = false;
+  const inHidden = mkText(old, 'Title goes here');
+  const comp = figma.createComponent();
+  mkText(comp, 'Title in a card');
+  const inst = comp.createInstance();
+  root.appendChild(inst);
+  const title = mkText(root, '  title goes here');
+  const second = mkText(mkFrame(root, 'Body'), 'TITLE two');
+  const off = mkText(root, 'Title off');
+  off.visible = false;
+  return { root, inHidden, inInstance: inst.children[0], title, second, off };
+}
+
+test('findText: the nth text starting with a prefix, outside hidden layers and instances', async () => {
+  const fx = fresh();
+  const s = await slide();
+  assert.equal(fx.findText(s.root, 'Title'), s.title, 'not the text in the hidden layer or the instance before it');
+  assert.equal(fx.findText(s.root, ' TITLE '), s.title, 'trimmed, any case');
+  assert.equal(fx.findText(s.root, 'title', { nth: 1 }), s.second);
+  assert.equal(fx.findText(s.root, 'Title', { instances: true }), s.inInstance);
+  assert.equal(fx.findText(s.root, 'Title', { hidden: true }), s.inHidden);
+  assert.equal(fx.findText(s.root, 'Title', { hidden: true, nth: 3 }), s.off);
+  assert.equal(fx.findText(s.inInstance.parent, 'Title'), s.inInstance, 'an instance given as the root is searched');
+});
+
+test('findText: no match is an {error} that names the prefix and what was skipped, and cannot be written to', async () => {
+  const fx = fresh();
+  const s = await slide();
+  const none = fx.findText(s.root, 'Subtitle');
+  assert.deepEqual(JSON.parse(JSON.stringify(none)), { error: 'no text starting with "Subtitle" under "Slide": 0 found' });
+  const skipped = fx.findText(s.root, 'Title', { nth: 2 });
+  assert.match(skipped.error, /^no text #2 starting with "Title" under "Slide": 2 found, 2 more in hidden layers \(\{hidden: true\} takes them\), 1 more inside instances \(\{instances: true\} takes them\)$/);
+  assert.throws(() => { none.characters = 'New title'; }, /no text starting with "Subtitle"/);
+  assert.match(fx.findText(null, 'Title').error, /findText\(root, prefix\): root is a node with children/);
 });
 
 // ---- recon
