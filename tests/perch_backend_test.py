@@ -386,6 +386,33 @@ class PerchBackend(Harness):
         self.assertNotIn('show the tab', r.stderr)
         stop_daemon(self.sock)
 
+    NO_RENDER = ('throw new Error("in exportAsync: Unable to establish connection to Figma after 10 seconds. '
+                 'Please check your internet connection.")')
+
+    def test_an_export_that_fails_in_a_hidden_browser_tab_says_so(self):
+        r = self.run_helper('figma_run.py', '-e', self.NO_RENDER)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn('hidden', r.stderr, 'a tab its window shows gets no hidden-tab hint')
+        stop_daemon(self.sock)  # a daemon keeps the environment it started with
+        for many in ([], ['-e', '1']):
+            r = self.run_helper('figma_run.py', *many, '-e', self.NO_RENDER, PERCH_STUB_HIDDEN='1')
+            self.assertEqual(r.returncode, 1)
+            out = r.stdout + r.stderr
+            self.assertIn('Unable to establish connection to Figma', out)
+            self.assertIn('Export and other rendering need the tab its window shows, and this browser tab is hidden', out, many)
+            self.assertIn('A perch room tab on the file needs no showing', out)
+            self.assertIn('rooms status <name>', out)
+            self.assertIn('open the file there', out)
+        stop_daemon(self.sock)
+
+    def test_an_export_that_fails_in_a_room_tab_gets_no_hidden_tab_hint(self):
+        tabs = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}]
+        r = self.run_helper('figma_run.py', '-e', self.NO_RENDER, PERCH_STUB_HIDDEN='1', PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('Unable to establish connection to Figma', r.stderr)
+        self.assertNotIn('hidden', r.stderr)
+        self.assertNotIn('rooms status', r.stderr)
+
     def test_perch_error_code_passes_through(self):
         r = self.run_helper('figma_run.py', self.js('a.js', '1'),
                             PERCH_STUB_ERROR='timeout: eval_js (world main) timed out after 30000ms')

@@ -227,6 +227,15 @@ async function tabHidden(handleCall, tab) {
   try { return /hidden/.test((await call(handleCall, "eval_js", args)).text); } catch { return false; }
 }
 
+// Figma renders (exportAsync) only in a tab its window shows; elsewhere the Plugin API reports a lost connection.
+const NO_RENDER = /Unable to establish connection to Figma/;
+const EXPORT_HINT = "Export and other rendering need the tab its window shows, and this browser tab is hidden. A perch room tab on the file needs no showing (the helper shows it inside the room): run rooms status <name> to see whether a room is up, open the file there, then retry";
+// What a failed script's error gains when its browser tab is hidden. A room's tab reads hidden too, and is shown inside the room.
+async function hiddenNote(handleCall, tab, res) {
+  const note = NO_RENDER.test(res.error) ? EXPORT_HINT : "";
+  return note && !roomOf(tab.tabId) && await tabHidden(handleCall, tab) ? `\n${note}` : "";
+}
+
 const perchFatal = (e, ms, src = "") => /^timeout: /.test(e.message) ? `${e.message}. ${timeoutHint(ms, src)}` : e.message;
 
 // The rooms the user set up, as perch reads them: $ROOMS_HOME/rooms.json, else ~/.rooms/rooms.json.
@@ -396,6 +405,7 @@ export async function handle(handleCall, req, cache = null) {
       i--;
       continue;
     }
+    if (res.ok === false) res.error += await hiddenNote(handleCall, tab, res);
     results.push(res);
     if (stop && !(res.ok && res.value != null && !(typeof res.value === "object" && "error" in res.value))) break;
   }
