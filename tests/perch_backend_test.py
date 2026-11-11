@@ -170,6 +170,22 @@ class PerchBackend(Harness):
         self.assertIn('Actions', r.stderr, 'names the clicks')
         self.assertIn('if the user lets you', r.stderr, 'the agent may do it itself, with the user\'s OK')
 
+    def test_figma_undefined_in_a_hidden_browser_tab_names_a_tab_that_works(self):
+        r = self.run_helper('figma_run.py', '-e', 'figma.currentPage.name', PERCH_STUB_FIGMA='0')
+        self.assertNotIn('hidden', r.stderr, 'a tab its window shows gets only the plugin fix')
+        stop_daemon(self.sock)  # a daemon keeps the environment it started with
+        r = self.run_helper('figma_run.py', '-e', 'figma.currentPage.name', PERCH_STUB_FIGMA='0', PERCH_STUB_HIDDEN='1')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('open and close any Figma plugin once in this file (Actions in the bottom toolbar, then a recent plugin', r.stderr)
+        self.assertIn('This browser tab is hidden, and the helper cannot initialise a hidden tab', r.stderr)
+        self.assertIn('use a room tab on the file, or the tab its window shows', r.stderr)
+        stop_daemon(self.sock)
+        tabs = [{'app': 'room:main', 'tabId': 'room:main:R1', 'url': 'https://www.figma.com/design/AAA111/One', 'title': 'One'}]
+        r = self.run_helper('figma_run.py', '-e', 'figma.currentPage.name', PERCH_STUB_FIGMA='0', PERCH_STUB_HIDDEN='1',
+                            PERCH_STUB_TABS=json.dumps(tabs))
+        self.assertIn('open and close any Figma plugin once', r.stderr)
+        self.assertNotIn('hidden', r.stderr, 'a room tab reads hidden and is not')
+
     def test_typeof_figma_undefined_is_a_result_not_an_error(self):
         r = self.run_helper('figma_run.py', self.js('a.js', 'typeof figma'), PERCH_STUB_FIGMA='0')
         self.assertEqual((r.returncode, r.stdout), (0, '"undefined"\n'))
