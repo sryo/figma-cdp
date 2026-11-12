@@ -6,6 +6,14 @@ How to create and modify design nodes via the Plugin API.
 
 See `references/conventions.md` for value precedence, the source → auto layout mapping and naming. Always prefer `component.createInstance()` over recreating structures, and `instance.swapComponent(target)` over rebuilding nested components. Verify visually with `node.exportAsync({format: 'PNG', constraint: {type: 'SCALE', value: 2}})`.
 
+## Filling a template
+
+When the file is a template (layout frames to clone, with placeholder text and images), plan before the first clone:
+
+1. **Layouts:** list the template's layouts, one line each, with the content each suits (how many texts and images, in what arrangement).
+2. **Pick per frame from its content:** the layout whose slots match what that frame has to say. Never bend the content to a layout already in use; most frames on one or two of many layouts means this step was skipped.
+3. **Keep the layers the template shows:** fill a placeholder by replacing its fill or its contents, at its place and size; never hide it and build on the layer under it, whose fill the template never shows uncovered. For a slot the content has nothing for, pick a layout without it.
+
 ## Repeated patterns
 
 An inventory `PATTERN xN <shape> ids: ...` line is the same structure drawn N times by hand. Link the copies before building anything new with it:

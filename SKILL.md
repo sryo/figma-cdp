@@ -38,7 +38,7 @@ Specs are self-contained: verified ids, exact end state, assertions, no TBDs; [R
 | `references/conventions.md` | Value precedence, source → Figma mapping, design defaults, naming |
 | `references/gotchas.md` | API pitfalls as WRONG/CORRECT |
 | `references/reading.md` | Recon, inventory, deep reads |
-| `references/building.md` | Creating nodes, variant recipe, layout recipes |
+| `references/building.md` | Creating nodes, templates, variants, layouts |
 | `references/copy.md` | Text edits, fonts |
 | `references/connection.md` | Setup, perch rooms, troubleshooting |
 | `references/execution.md` | Helpers, `__fx`, batching, state, verification, rollback |
