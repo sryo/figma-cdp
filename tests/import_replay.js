@@ -52,6 +52,8 @@ function dumpNode(n) {
   if (Array.isArray(n.fills)) out.fills = n.fills.map((f) => (f.type === 'SOLID' ? f.color : f.type));
   if (n.clipsContent !== undefined) out.clips = n.clipsContent;
   if (n.rotation) out.rotation = n.rotation;
+  if (n.transform3d && n.transform3d.type !== 'NONE') { out.transform3d = n.transform3d; out.transformOrigin = n.transformOrigin; }
+  if (n.scene3d) out.scene3d = n.scene3d;
   if (n.strokeWeight !== undefined && n.type === 'VECTOR') out.strokeWeight = n.strokeWeight;
   if (n.layoutSizingHorizontal) out.sizing = [n.layoutSizingHorizontal, n.layoutSizingVertical];
   if (n.constraints) out.constraints = [n.constraints.horizontal, n.constraints.vertical];

@@ -155,6 +155,57 @@ class Constraints(unittest.TestCase):
         self.assertEqual(self.node('px-card')['constraints'], ['MIN', 'MIN'])
 
 
+class Transform3D(unittest.TestCase):
+    """A walker `xf3` becomes the layer's transform3d, and its parent's `scene` that frame's scene3d."""
+    TILT = {'translateZ': 12, 'rotateX': 0, 'rotateY': 35, 'rotateZ': 0}
+    FIXED = dict(TILT, type='FIXED_ORDER', backfaceVisible=True, visible=True)
+    CENTRE = {'x': {'unit': 'PERCENT', 'value': 50}, 'y': {'unit': 'PERCENT', 'value': 50}}
+
+    def build(self, ax, xf3, scene=None, flags=()):
+        def edit(ns):
+            n = ns[idx({'nodes': ns}, ax)]
+            n['xf3'] = xf3
+            if scene:
+                ns[n['parent']]['scene'] = scene
+        spec, out = run_edited(edit, *flags)
+        n = out['node'](idx(spec, ax))
+        up = out['node'](spec['nodes'][idx(spec, ax)]['parent'])
+        return n, up, out['report']
+
+    def test_an_absolute_layer_keeps_its_tilt_and_its_parent_the_perspective(self):
+        for flags in [(), ('--chunk-bytes', '1500')]:
+            n, up, report = self.build('abs-child', self.TILT, {'perspective': 800}, flags)
+            self.assertEqual(n['transform3d'], self.FIXED)
+            self.assertEqual(n['transformOrigin'], self.CENTRE)
+            self.assertEqual(up['scene3d'], {'perspective': 800, 'preserve3d': False, 'visible': True})
+            self.assertEqual(report['warnings'], [])
+            self.assertEqual([f for f in report['flagged'] if f['nodeId'] == n['id']], [])
+            self.assertNotIn('[capture:', n['name'])
+
+    def test_an_in_flow_layer_keeps_its_slot(self):
+        n, up, report = self.build('px-card', self.TILT)
+        self.assertEqual(n['transform3d'], self.FIXED)
+        self.assertEqual(n['positioning'], 'AUTO')
+        self.assertNotIn('scene3d', up)
+        self.assertNotIn('[capture:', n['name'])
+
+    def test_origin_and_backface(self):
+        n, up, _ = self.build('abs-child', dict(self.TILT, origin=[0, 12], backfaceVisible=False), {'perspective': 500, 'preserve3d': True})
+        self.assertEqual(n['transform3d'], dict(self.FIXED, backfaceVisible=False))
+        self.assertEqual(n['transformOrigin'], {'x': {'unit': 'PIXELS', 'value': 0}, 'y': {'unit': 'PIXELS', 'value': 12}})
+        self.assertEqual(up['scene3d'], {'perspective': 500, 'preserve3d': True, 'visible': True})
+
+    def test_preserve_3d_with_no_perspective_gets_a_far_viewer(self):
+        _, up, _ = self.build('abs-child', self.TILT, {'preserve3d': True})
+        self.assertEqual(up['scene3d'], {'perspective': 1e6, 'preserve3d': True, 'visible': True})
+
+    def test_a_scene_with_no_tilted_child_is_left_off(self):
+        def edit(ns):
+            ns[idx({'nodes': ns}, 'abs-parent')]['scene'] = {'perspective': 800}
+        spec, out = run_edited(edit)
+        self.assertNotIn('scene3d', out['node'](idx(spec, 'abs-parent')))
+
+
 class Annotate(unittest.TestCase):
     def setUp(self):
         self.spec = load_spec()
@@ -219,6 +270,16 @@ class Annotate(unittest.TestCase):
         def tilt(ns):
             lis_of(ns)[1]['xf'] = [0.98, 0.17, -0.17, 0.98, 0, 0]
         self.assertEqual(self.split_off(tilt), [True, False, True, True])
+
+    def test_a_3d_tilt_splits_a_member(self):
+        def tilt(ns):
+            lis_of(ns)[1]['xf3'] = {'translateZ': 0, 'rotateX': 0, 'rotateY': 35, 'rotateZ': 0}
+        self.assertEqual(self.split_off(tilt), [True, False, True, True])
+
+    def test_a_scene_splits_a_member(self):
+        def scene(ns):
+            lis_of(ns)[1]['scene'] = {'perspective': 800}
+        self.assertEqual(self.split_off(scene), [True, False, True, True])
 
     def test_wrapping_text_splits_a_member(self):
         def wrap(ns):

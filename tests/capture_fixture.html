@@ -47,7 +47,11 @@
   .bgimg { width: 60px; height: 60px; background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGPQCLiDFTEMLQkACbdVAfTkR+4AAAAASUVORK5CYII="); background-size: cover; }
   .float { float: left; width: 50px; height: 20px; background: #ccc; }
   .attrd::before { content: attr(data-label) ": "; font-weight: 700; }
-  .tilt { transform: rotateX(45deg); width: 80px; height: 40px; background: #ddd; }
+  .scene { perspective: 600px; width: 220px; height: 140px; padding: 20px; background: #eef; }
+  .tilt { transform: translate(10px, 5px) rotateY(35deg); width: 120px; height: 80px; padding: 10px; background: #ddd; }
+  .tilt .inner { width: 60px; height: 30px; background: #fb9; }
+  .flip { transform: rotateX(45deg); transform-origin: 0 0; backface-visibility: hidden; width: 80px; height: 40px; background: #dde; }
+  .lens { transform: perspective(300px) rotateY(30deg); width: 80px; height: 40px; background: #edd; }
   .gpu { transform: translateZ(0); width: 80px; height: 40px; background: #ded; }
   x-card { display: block; }
   iframe { width: 300px; height: 80px; border: 2px solid #999; }
@@ -101,7 +105,9 @@
     <div class="rot" aria-label="rotated">Rotated</div>
     <div class="scl" aria-label="scaled">Scaled</div>
     <div class="nested" aria-label="nested-outer"><div class="inner" aria-label="nested-inner">Inner</div></div>
-    <div class="tilt" aria-label="tilted-3d">3D</div>
+    <div class="scene" aria-label="scene-3d"><div class="tilt" aria-label="tilted-3d"><div class="inner" aria-label="tilted-inner">Inner</div></div></div>
+    <div class="flip" aria-label="flipped-3d">Flip</div>
+    <div class="lens" aria-label="own-perspective">Lens</div>
     <div class="gpu" aria-label="gpu-hack">GPU</div>
   </section>
 
