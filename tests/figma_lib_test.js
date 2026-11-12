@@ -900,3 +900,21 @@ test('linkCopies: a text inside a nested instance is overridden on the instance,
   const inst = await figma.getNodeByIdAsync(out.linked[0].instance);
   assert.deepEqual([inst.children[0].characters, inst.children[1].children[0].characters], ['Name Trial', 'Trial']);
 });
+
+test('stub: 3D transforms take the shapes the live API validates', () => {
+  const figma = global.figma = createFigma();
+  const frame = figma.createFrame(), rect = figma.createRectangle();
+  frame.appendChild(rect);
+  assert.deepEqual([rect.transform3d, frame.scene3d, 'scene3d' in rect], [{ type: 'NONE' }, null, false]);
+  assert.deepEqual(rect.transformOrigin, { x: { unit: 'PERCENT', value: 50 }, y: { unit: 'PERCENT', value: 50 } });
+  rect.transform3d = { type: 'FIXED_ORDER', translateZ: 0, rotateX: 10, rotateY: 0, rotateZ: 0 };
+  assert.deepEqual(rect.transform3d, { type: 'FIXED_ORDER', translateZ: 0, rotateX: 10, rotateY: 0, rotateZ: 0, backfaceVisible: true, visible: true });
+  assert.equal(rect.rotation, 0);
+  frame.scene3d = { perspective: 500, preserve3d: false };
+  assert.deepEqual(frame.scene3d, { perspective: 500, preserve3d: false, visible: true });
+  assert.throws(() => { rect.transform3d = { rotateX: 10 }; }, /Expected \.type to be one of the following: NONE, FIXED_ORDER/);
+  assert.throws(() => { rect.transform3d = { type: 'FIXED_ORDER', rotateX: 10 }; }, /Required value missing at \.translateZ/);
+  assert.throws(() => { rect.transform3d = { type: 'FIXED_ORDER', translateZ: 0, rotateX: 0, rotateY: 0, rotateZ: 0, depth: 1 }; }, /Unrecognized key: "depth"/);
+  assert.throws(() => { frame.scene3d = { perspective: 500 }; }, /Required value missing at \.preserve3d/);
+  assert.throws(() => { rect.transformOrigin = { x: 0, y: 0 }; }, /Expected object, received number at \.x/);
+});

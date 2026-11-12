@@ -153,6 +153,17 @@ class PerchBackend(Harness):
             r = self.run_helper('figma_run.py', '-e', f'throw new Error({json.dumps(message)})')
             self.assertTrue(r.stderr.splitlines()[-1].startswith('hint: ' + fix), r.stderr)
 
+    def test_a_3d_validation_error_names_the_shape(self):
+        for message, fix in (
+                ('in set_transform3d: Property "transform3d" failed validation: Required value missing at .translateZ',
+                 "transform3d is {type: 'NONE'} or {type: 'FIXED_ORDER', translateZ, rotateX, rotateY, rotateZ}"),
+                ('in set_scene3d: Property "scene3d" failed validation: Required value missing at .preserve3d',
+                 'scene3d is null or {perspective: <px>, preserve3d: <boolean>}'),
+                ('in set_transformOrigin: Property "transformOrigin" failed validation: Expected object, received number at .x',
+                 "transformOrigin is {x: {unit: 'PERCENT'|'PIXELS', value}, y: {unit, value}}")):
+            r = self.run_helper('figma_run.py', '-e', f'throw new Error({json.dumps(message)})')
+            self.assertTrue(r.stderr.splitlines()[-1].startswith('hint: ' + fix), r.stderr)
+
     def test_a_mixed_value_error_names_the_guard(self):
         for message, fix in (
                 ('in loadFontAsync: Cannot unwrap symbol', 'fontName is figma.mixed on a text with several fonts: '
