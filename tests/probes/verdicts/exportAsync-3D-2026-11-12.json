@@ -1,0 +1,10 @@
+{
+ "member": "exportAsync(3D)",
+ "verdict": "works",
+ "error": null,
+ "probe": "transform3d",
+ "typingsVersion": "1.142.0",
+ "date": "2026-11-12",
+ "editorType": "figma",
+ "plan": null
+}

@@ -1,0 +1,15 @@
+{
+  "limits": {
+    "SceneNode.transform3d": "works",
+    "SceneNode.transformOrigin": "works",
+    "FrameNode.scene3d": "works",
+    "TextNode.transform3d": "works",
+    "ComponentNode.transform3d": "works",
+    "exportAsync(3D)": "works",
+    "KeyframeField.TRANSFORM_3D_ROTATION_X": "works",
+    "KeyframeField.TRANSFORM_3D_ROTATION_Y": "works",
+    "KeyframeField.TRANSFORM_3D_ROTATION_Z": "works",
+    "KeyframeField.TRANSFORM_3D_TRANSLATION_Z": "works",
+    "KeyframeField.SCENE_3D_PERSPECTIVE": "works"
+  }
+}

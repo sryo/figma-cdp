@@ -1,0 +1,9 @@
+{
+  "limits": {
+    "MotionNodeMixin.applyManualKeyframeTrack": "works",
+    "MotionNodeMixin.removeManualKeyframeTrack": "works",
+    "MotionNodeMixin.setTimelineDuration": "works",
+    "MotionNodeMixin.applyAnimationStyle": "works",
+    "KeyframeField.fills": "works"
+  }
+}
