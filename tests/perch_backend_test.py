@@ -838,6 +838,39 @@ class Journal(Harness):
         e = self.journal()[0]
         self.assertEqual((e['script'], len(e['rid'])), ('1 + 1', 12))
 
+    WRITE = 'var t = {}; t.characters = "a"; 1'
+    AUDIT = 'var __fx = { audit: function () { return { text: "" }; } }; __fx.audit("0:1").text'
+
+    def writes(self, n, **env):
+        return self.run_helper('figma_run.py', *[a for _ in range(n) for a in ('-e', self.WRITE)], **env)
+
+    def test_writes_with_no_audit_get_one_note(self):
+        """The 25th eval that writes to a file since its last __fx.audit says so once, on stderr, and
+        names the call; the next note is 25 writes later."""
+        self.assertEqual(self.writes(24).stderr, '')
+        r = self.run_helper('figma_run.py', '-e', 'figma.currentPage.name')
+        self.assertEqual((r.stdout, r.stderr), ('"Page 1"\n', ''), 'a read is not counted')
+        r = self.run_helper('figma_run.py', '-e', self.WRITE)
+        self.assertEqual((r.returncode, r.stdout), (0, '1\n'))
+        self.assertEqual(r.stderr.count('\n'), 1, r.stderr)
+        self.assertRegex(r.stderr, r'^note: 25 evals wrote to this file since its last audit: '
+                                   r'run .*__fx\.audit\("<rootId>"\).*--lib')
+        self.assertEqual(self.writes(24).stderr, '', 'not again until 25 more')
+        self.assertIn('note: 50 evals wrote', self.writes(2).stderr)
+
+    def test_an_audit_starts_the_count_again(self):
+        self.writes(20)
+        self.assertEqual(self.run_helper('figma_run.py', '-e', self.AUDIT).stdout, '""\n')
+        self.assertEqual(self.writes(24).stderr, '')
+        self.assertIn('note: 25 evals wrote', self.writes(1).stderr)
+
+    def test_the_count_is_per_file_and_needs_the_journal(self):
+        tabs = json.dumps(TWO_FILES[:2])
+        self.writes(24, PERCH_STUB_TABS=tabs, FIGMA_FILE='https://www.figma.com/design/AAA111/One?node-id=1-2')
+        self.assertEqual(self.writes(1, PERCH_STUB_TABS=tabs, FIGMA_FILE='BBB222').stderr, '')
+        self.assertIn('note: 25 evals wrote', self.writes(1, PERCH_STUB_TABS=tabs, FIGMA_FILE='AAA111').stderr)
+        self.assertEqual(self.writes(30, PERCH_STUB_TABS=tabs, FIGMA_FILE='BBB222', FIGMA_CDP_JOURNAL='0').stderr, '')
+
     def test_journal_off_and_old_days_dropped(self):
         d = os.path.join(self.tmp.name, 'journal')
         os.makedirs(d)
