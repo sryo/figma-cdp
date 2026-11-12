@@ -224,6 +224,9 @@ HINTS = [
     (r'figma\.(get|create)\w*Variable\w* is not a function', 'the variables API lives under figma.variables.<name> (figma.variables.getVariableByIdAsync, createVariable, ...)'),
     (r'loadFontAsync: Cannot unwrap symbol', 'fontName is figma.mixed on a text with several fonts: for (const f of t.getRangeAllFontNames(0, t.characters.length)) await figma.loadFontAsync(f)'),
     (r'Cannot convert a Symbol value', 'a property read figma.mixed (fontSize and the like on a text with several values): test n.fontSize !== figma.mixed before comparing it'),
+    (r'set_transform3d', "transform3d is {type: 'NONE'} or {type: 'FIXED_ORDER', translateZ, rotateX, rotateY, rotateZ} with all four numbers (px, degrees); backfaceVisible and visible are the only other keys (references/motion.md)"),
+    (r'set_scene3d', 'scene3d is null or {perspective: <px>, preserve3d: <boolean>}, both required, on a frame, component or instance (references/motion.md)'),
+    (r'set_transformOrigin', "transformOrigin is {x: {unit: 'PERCENT'|'PIXELS', value}, y: {unit, value}} (references/motion.md)"),
     (r'must be in the same page as the parent', 'nodes on two pages: create them with parent: on the target page, or await figma.setCurrentPageAsync(page) first'),
 ]
 

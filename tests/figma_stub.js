@@ -26,6 +26,30 @@ const DEFAULT_NAME = { FRAME: 'Frame', TEXT: 'Text', RECTANGLE: 'Rectangle', ELL
   COMPONENT_SET: 'Component set', INSTANCE: 'Instance', PAGE: 'Page', GROUP: 'Group', VECTOR: 'Vector', SECTION: 'Section' };
 const solid = (r, g, b) => [{ type: 'SOLID', visible: true, opacity: 1, blendMode: 'NORMAL', color: { r, g, b } }];
 const OVERLAY = { overlayPositionType: 'CENTER', overlayBackground: { type: 'NONE' }, overlayBackgroundInteraction: 'NONE' };
+// 3D transforms as the live API validates them (tests/probes/transform3d.js).
+const T3D_KEYS = ['translateZ', 'rotateX', 'rotateY', 'rotateZ'];
+const invalid = (prop, issues) => new Error('in set_' + prop + ': Property "' + prop + '" failed validation: ' + issues.join('\n'));
+function transform3d(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw invalid('transform3d', ['Expected object, received ' + (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v)]);
+  if (v.type === 'NONE') return { type: 'NONE' };
+  if (v.type !== 'FIXED_ORDER') throw invalid('transform3d', ['Expected .type to be one of the following: NONE, FIXED_ORDER']);
+  const issues = T3D_KEYS.filter((k) => typeof v[k] !== 'number').map((k) => 'Required value missing at .' + k);
+  const extra = Object.keys(v).filter((k) => k !== 'type' && T3D_KEYS.indexOf(k) === -1 && k !== 'backfaceVisible' && k !== 'visible');
+  if (extra.length) issues.push('Unrecognized key' + (extra.length > 1 ? 's' : '') + ': ' + extra.map((k) => '"' + k + '"').join(', '));
+  if (issues.length) throw invalid('transform3d', issues);
+  return Object.assign({ backfaceVisible: true, visible: true }, v);
+}
+function scene3d(v) {
+  if (v === null) return null;
+  const issues = [['perspective', 'number'], ['preserve3d', 'boolean']].filter(([k, t]) => typeof v[k] !== t).map(([k]) => 'Required value missing at .' + k);
+  if (issues.length) throw invalid('scene3d', issues);
+  return Object.assign({ visible: true }, v);
+}
+function transformOrigin(v) {
+  const issues = ['x', 'y'].filter((k) => !v || typeof v[k] !== 'object').map((k) => 'Expected object, received ' + typeof (v && v[k]) + ' at .' + k);
+  if (issues.length) throw invalid('transformOrigin', issues);
+  return v;
+}
 const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 
 function createFigma() {
@@ -56,10 +80,14 @@ function createFigma() {
       constraints: { horizontal: 'MIN', vertical: 'MIN' }, layoutPositioning: 'AUTO', layoutGrow: 0, layoutAlign: 'INHERIT',
       componentPropertyReferences: null, boundVariables: {}, fillStyleId: '', effects: [], strokes: [], strokeWeight: 1,
       _reactions: null };
+    if (type !== 'PAGE' && type !== 'DOCUMENT' && type !== 'SECTION') {
+      t.transform3d = { type: 'NONE' };
+      t.transformOrigin = { x: { unit: 'PERCENT', value: 50 }, y: { unit: 'PERCENT', value: 50 } };
+    }
     if (CONTAINERS[type]) t.children = [];
     if (type === 'FRAME' || type === 'COMPONENT' || type === 'COMPONENT_SET' || type === 'INSTANCE') {
       Object.assign(t, { layoutMode: 'NONE', itemSpacing: 0, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0,
-        primaryAxisSizingMode: 'AUTO', counterAxisSizingMode: 'AUTO', primaryAxisAlignItems: 'MIN', counterAxisAlignItems: 'MIN',
+        scene3d: null, primaryAxisSizingMode: 'AUTO', counterAxisSizingMode: 'AUTO', primaryAxisAlignItems: 'MIN', counterAxisAlignItems: 'MIN',
         layoutWrap: 'NO_WRAP', cornerRadius: 0, clipsContent: type !== 'COMPONENT_SET',
         fills: type === 'FRAME' ? solid(1, 1, 1) : [] });
       t._sizing = { h: 'FIXED', v: 'FIXED' };
@@ -244,7 +272,10 @@ function createFigma() {
           const axis = (k === 'layoutGrow') === primaryIsH ? 'h' : 'v';
           if (k === 'layoutGrow' ? v > 0 : v === 'STRETCH') target._sizing[axis] = 'FILL';
         }
-        if (k === 'fills' || k === 'strokes' || k === 'effects') v = clone(v);
+        if (k === 'transform3d') v = transform3d(v);
+        if (k === 'scene3d' && 'scene3d' in target) v = scene3d(v);
+        if (k === 'transformOrigin') v = transformOrigin(v);
+        if (k === 'fills' || k === 'strokes' || k === 'effects' || k === 'transform3d' || k === 'scene3d' || k === 'transformOrigin') v = clone(v);
         if (k === 'componentPropertyReferences') {
           for (let up = target.parent; up && up.type !== 'COMPONENT'; up = up.parent) {
             if (up.type === 'INSTANCE') throw new Error('Cannot set componentPropertyReferences on a node inside an instance');

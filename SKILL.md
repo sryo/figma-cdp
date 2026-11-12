@@ -50,6 +50,7 @@ Specs are self-contained: verified ids, exact end state, assertions, no TBDs; [R
 | `references/api-components.md` | Components, variables, styles |
 | `references/api-styling.md` | Effects, gradients, prototype types |
 | `references/prototyping.md` | Reactions, overlays, flows, interactive components, plan limits |
+| `references/motion.md` | 3D transforms, perspective, Motion timeline keyframes |
 
 Per-task reference combos (a worker reads these only for calls its cheat sheet lacks):
 - Build screens: conventions + building + api-layout

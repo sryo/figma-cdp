@@ -38,7 +38,7 @@ JSON return → final gate: __fx.audit + figma_fidelity.py against the manifest.
 
 ## Reference file organization
 
-- **Task-shaped on-demand:** `conventions.md` (value precedence, source → Figma tables, design defaults), `gotchas.md`, `building.md` (the one variant recipe), `copy.md`, `reading.md`, `execution.md`, `fidelity.md`, `capture.md`, `rest-api.md`.
+- **Task-shaped on-demand:** `conventions.md` (value precedence, source → Figma tables, design defaults), `gotchas.md`, `building.md` (the one variant recipe), `copy.md`, `reading.md`, `execution.md`, `fidelity.md`, `capture.md`, `rest-api.md`, `prototyping.md`, `motion.md` (3D transforms and the Motion timeline: runtime members the typings may lack, each pinned by a probe).
 - **Coordinator-only setup:** `connection.md` (perch, rooms, troubleshooting) — loaded during setup; workers receive a working connection.
 - **API reference split 5 ways** so workers load only what their task touches: `api-reference.md` (universal core — including GeometryMixin fills/strokes and the hex helper, so solid color work needs no extra file), `api-text.md`, `api-layout.md`, `api-components.md`, `api-styling.md`. Per-file "load for" descriptions and the per-task combo list live in `SKILL.md`.
 

@@ -19,6 +19,7 @@ Bind only on an exact match. No match: write the source value raw and list it in
 | Corner radius | `__fx.frame` binds the corners to a `CORNER_RADIUS` (or all-scopes) variable, else `cornerRadius = n` |
 | Type (family, size, weight, line height) | `await text.setTextStyleIdAsync(style.id)` when a text style matches all four; else set them and list the text in assumptions if no style fits |
 | Shadow, blur | an effect style with the same values (`effectStyleId`), else `effects = [...]` |
+| 3D rotation, perspective | `transform3d` on the layer and `scene3d` on its parent frame (`references/motion.md`) |
 | Copy | the manifest string, verbatim, placeholders filled with realistic sample values |
 
 ```js
