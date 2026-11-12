@@ -254,10 +254,39 @@ def journal(rid, file, label, source, ok, out):
                  'script': source[:20000], 'ok': ok, 'result' if ok else 'error': text[:4000]}
         if not ok:
             entry['hint'] = hint(text)
+        wrote = bool(ok and WRITES.search(source))
+        entry['unaudited'] = n = 0 if ok and '__fx.audit(' in source else unaudited(d, file_key(file)) + wrote
         with open(os.path.join(d, time.strftime('%Y-%m-%d') + '.jsonl'), 'a', encoding='utf-8') as f:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        if wrote and n % AUDIT_EVERY == 0:
+            print(f'note: {n} evals wrote to this file since its last audit: run -e \'return (await '
+                  '__fx.audit("<rootId>")).text\' with --lib on what you built or edited, and fix the lines it lists', file=sys.stderr)
     except Exception:
         pass
+
+# A script that changes the document: it makes, moves, sizes, fills or removes a node, or sets its text.
+WRITES = re.compile(r'figma\.create\w+\(|__fx\.(?:frame|text|svg|icon|instance|autoLayout|overlayFrame|linkCopies|react)\('
+                    r'|\.(?:appendChild|insertChild|resize|resizeWithoutConstraints|rescale|remove|clone|setProperties'
+                    r'|swapComponent|setRange\w+|insertCharacters|deleteCharacters)\('
+                    r'|\.(?:characters|x|y|fills|strokes|visible|layoutMode|fontSize|fontName)\s*[-+]?=(?!=)')
+AUDIT_EVERY = 25
+
+def file_key(file):
+    """The file key of a Figma URL, so one file counts as one however --file spells it."""
+    m = re.search(r'/(?:design|file|board|slides|proto)/([A-Za-z0-9]+)', file or '')
+    return m[1] if m else file or ''
+
+def unaudited(d, key):
+    """How many evals wrote to the file since the last one that ran __fx.audit on it: the count its
+    latest journal entry carries, read from the two newest days."""
+    for name in sorted((n for n in os.listdir(d) if n.endswith('.jsonl')), reverse=True)[:2]:
+        with open(os.path.join(d, name), encoding='utf-8') as f:
+            for line in reversed(f.readlines()):
+                if '"unaudited"' in line and key in line:
+                    e = json.loads(line)
+                    if file_key(e.get('file')) == key:
+                        return e['unaudited']
+    return 0
 
 def usage(msg):
     print(f'{PROG}: {msg}\n{USAGE}', file=sys.stderr)
