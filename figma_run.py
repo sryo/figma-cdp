@@ -222,6 +222,8 @@ HINTS = [
     (r"Cannot (read|set) propert(y|ies) of null", 'a lookup returned null: the id is on another page, deleted, or mistyped; check it before use'),
     (r'component property definitions of a component set or non-variant', 'a variant: read componentPropertyDefinitions on its set (node.parent)'),
     (r'figma\.(get|create)\w*Variable\w* is not a function', 'the variables API lives under figma.variables.<name> (figma.variables.getVariableByIdAsync, createVariable, ...)'),
+    (r'loadFontAsync: Cannot unwrap symbol', 'fontName is figma.mixed on a text with several fonts: for (const f of t.getRangeAllFontNames(0, t.characters.length)) await figma.loadFontAsync(f)'),
+    (r'Cannot convert a Symbol value', 'a property read figma.mixed (fontSize and the like on a text with several values): test n.fontSize !== figma.mixed before comparing it'),
     (r'must be in the same page as the parent', 'nodes on two pages: create them with parent: on the target page, or await figma.setCurrentPageAsync(page) first'),
 ]
 
