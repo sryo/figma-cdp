@@ -193,6 +193,19 @@ class Docs(unittest.TestCase):
         self.assertRegex(use, r'(?i)new screen[^.]*sizing from the source[^.]*instance override', 'new instances inherit the copy\'s sizing')
         self.assertRegex(use, r'(?i)report[^.]*master', 'the master\'s gap goes unreported')
 
+    def test_a_template_has_a_recipe_that_picks_layouts_and_keeps_layers(self):
+        row = next(l for l in docs()['SKILL.md'].splitlines() if l.startswith('| `references/building.md`'))
+        self.assertRegex(row, r'(?i)template', 'nothing sends a template fill to the recipe')
+        text = docs()['references/building.md']
+        self.assertIn('## Filling a template', text)
+        sec = text[text.index('## Filling a template'):].split('\n## ')[0]
+        self.assertRegex(sec, r'(?i)list[^.]*layouts?[^.]*content[^.]*suits', 'the layouts are listed with what each is for')
+        self.assertRegex(sec, r'(?i)per frame[^.]*from (the|its) content', 'the layout is picked from the content')
+        self.assertRegex(sec, r'(?i)never[^.]*(bend|fit)[^.]*content[^.]*layout', 'content is bent to a layout already used')
+        self.assertRegex(sec, r'(?i)keep[^.]*layers the template shows', 'the template\'s visible layers stay')
+        self.assertRegex(sec, r'(?i)replac\w+[^.]*(fill|contents)[^.]*never hide', 'a placeholder is filled, not hidden')
+        self.assertRegex(sec, r'(?i)(under|beneath)[^.]*never shows uncovered', 'why a hidden placeholder shows')
+
     def test_the_manifest_is_read_instead_of_the_source_files(self):
         step = next(l for l in docs()['SKILL.md'].splitlines() if l.startswith('2. **Source.'))
         self.assertRegex(step, r'(?i)read the manifest[^.]*not the source files', 'the source is cat whole beside its manifest')
