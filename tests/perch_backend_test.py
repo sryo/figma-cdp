@@ -153,6 +153,16 @@ class PerchBackend(Harness):
             r = self.run_helper('figma_run.py', '-e', f'throw new Error({json.dumps(message)})')
             self.assertTrue(r.stderr.splitlines()[-1].startswith('hint: ' + fix), r.stderr)
 
+    def test_a_mixed_value_error_names_the_guard(self):
+        for message, fix in (
+                ('in loadFontAsync: Cannot unwrap symbol', 'fontName is figma.mixed on a text with several fonts: '
+                 'for (const f of t.getRangeAllFontNames(0, t.characters.length)) await figma.loadFontAsync(f)'),
+                ('in findAll: "findAll" callback crashed: TypeError: Cannot convert a Symbol value to a number',
+                 'a property read figma.mixed (fontSize and the like on a text with several values): '
+                 'test n.fontSize !== figma.mixed before comparing it')):
+            r = self.run_helper('figma_run.py', '-e', f'throw new Error({json.dumps(message)})')
+            self.assertEqual(r.stderr.splitlines()[-1], 'hint: ' + fix, r.stderr)
+
     def test_batch_prints_the_fix_under_the_error(self):
         r = self.run_helper('figma_run.py', '-e', '1', '-e', 'throw new Error("Cannot write to node with unloaded font")')
         self.assertEqual(r.returncode, 1)
