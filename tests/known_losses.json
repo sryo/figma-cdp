@@ -6,7 +6,7 @@
     {"id": "mixed-content-text", "pattern": "text beside block|bare text (lost|dropped)", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "mask-image-icon", "pattern": "mask-image", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "grid-display", "pattern": "\\[capture:grid\\]|display: ?grid", "doc": "references/capture.md#risks-and-limitations"},
-    {"id": "transform-3d", "pattern": "\\[capture:transform\\]|3d transform|non-affine", "doc": "references/capture.md#risks-and-limitations"},
+    {"id": "transform-unmapped", "pattern": "\\[capture:transform\\]|non-affine|perspective\\(\\)|3d (scale|skew)", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "background-tab-scripts", "pattern": "scroll-into-view|background tab.*(missing|never run)|webgl", "doc": "references/capture.md#risks-and-limitations"},
     {"id": "variable-font-axes", "pattern": "variable[- ]font|optical size|font-variation", "doc": "references/capture.md#risks-and-limitations"}
   ]

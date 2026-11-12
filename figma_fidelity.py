@@ -532,7 +532,7 @@ STYLE_WEIGHT = {'thin': 100, 'hairline': 100, 'extralight': 200, 'ultralight': 2
 GENERIC_FAMILIES = {'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-sans-serif', 'ui-serif',
                     'ui-monospace', 'ui-rounded', '-apple-system', 'blinkmacsystemfont'}
 CAP = re.compile(r'^\[cap:(\d+)\]')
-WAIVE_FLAGS = {'grid': 'grid-display', 'transform': 'transform-3d'}
+WAIVE_FLAGS = {'grid': 'grid-display', 'transform': 'transform-unmapped'}
 
 
 def lab(h):

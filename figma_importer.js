@@ -4,7 +4,7 @@
 // ahead of the chunks in window.__batchState.captureAssets[key]. Cross-batch state in
 // window.__batchState: captureIds (i → Figma id), captureRects (i → layout-space rect),
 // captureLayout (i → {mode, alignItems, primaryGap}), captureFonts, captureReport,
-// captureProps (master text i → TEXT property key).
+// captureProps (master text i → TEXT property key), captureScene (i → the node's `scene`).
 //
 // Repeats: a node carrying `rep` (set by `figma_capture.py import --componentize`) belongs
 // to a group of identical-shape subtrees. The first member is built as a COMPONENT in its
@@ -37,6 +37,7 @@
   var fontCache = bs.captureFonts = bs.captureFonts || {};
   var propKeys = bs.captureProps = bs.captureProps || {};
   var edgeMap = bs.captureEdge = bs.captureEdge || {};
+  var sceneMap = bs.captureScene = bs.captureScene || {};
   var report = bs.captureReport = bs.captureReport ||
     { created: 0, flagged: [], fontsFallenBack: [], instantiated: [], components: [], warnings: [] };
   var components = spec.components || {};
@@ -477,6 +478,22 @@
   // CSS rotates clockwise (y-down); Figma's `rotation` is counter-clockwise degrees.
   function rotationOf(xf) { return -Math.atan2(xf[1], xf[0]) * 180 / Math.PI; }
 
+  // The walker's 3D part, in Figma's fixed order, about the CSS transform-origin (px of the
+  // node's box; the centre when absent). The parent frame takes the page's perspective once a
+  // child tilts: a perspective with nothing tilted under it changes nothing.
+  // preserve-3d with no perspective is a viewer infinitely far away; scene3d needs a distance
+  // (0 collapses the render), and from this far the picture is the same to the pixel.
+  var NO_PERSPECTIVE = 1e6;
+  function set3d(node, t, parent, scene) {
+    var v = { type: 'FIXED_ORDER', translateZ: t.translateZ, rotateX: t.rotateX, rotateY: t.rotateY, rotateZ: t.rotateZ };
+    if (t.backfaceVisible === false) v.backfaceVisible = false;
+    node.transform3d = v;
+    if (t.origin) node.transformOrigin = { x: { unit: 'PIXELS', value: t.origin[0] }, y: { unit: 'PIXELS', value: t.origin[1] } };
+    if (scene && parent && 'scene3d' in parent && !parent.scene3d) {
+      parent.scene3d = { perspective: scene.perspective || NO_PERSPECTIVE, preserve3d: !!scene.preserve3d };
+    }
+  }
+
   var MIN_MAX = [['minW', 'minWidth'], ['maxW', 'maxWidth'], ['minH', 'minHeight'], ['maxH', 'maxHeight']];
 
   // A column whose in-flow children all stretch across it, except ones its auto margins centre
@@ -823,6 +840,9 @@
         catch (e) { warn(n, 'constraints', e); }
       }
     }
+
+    if (n.scene) sceneMap[n.i] = n.scene;
+    if (n.xf3) try { set3d(node, n.xf3, canAppend ? p : null, sceneMap[n.parent]); } catch (e) { warn(n, 'transform3d', e); }
 
     if (n.rep && n.rep.prop) await bindTextProperty(n, node);
 

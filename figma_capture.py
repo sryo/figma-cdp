@@ -33,7 +33,7 @@ PIECE_BYTES = 150_000   # asset piece and node chunk budget, measured on the JSO
 WALK_HEIGHT = 900       # the walk's window height, a loft's when the walk makes one
 EVAL_MAX = 225_000      # node chunk ceiling: one eval's source, importer and envelope included
 BATCH_KEYS = ['captureIds', 'captureEdge', 'captureRects', 'captureLayout',
-              'captureReport', 'captureFonts', 'captureAssets', 'captureProps']
+              'captureReport', 'captureFonts', 'captureAssets', 'captureProps', 'captureScene']
 
 # ------------------------------------------------- perch client
 
@@ -295,7 +295,7 @@ def componentize(nodes):
                                     or st.get('position') in ('absolute', 'fixed'))
         at = [step(r['x'] - up['rect']['x']), step(r['y'] - up['rect']['y'])] if loose else None
         own = [n['tag'], n.get('role'), n.get('level'), n.get('interactable'), layout_mode(st), st,
-               n.get('xf'), n.get('image'), n.get('iframe'), n.get('origin'), (n.get('lines') or 1) > 1,
+               n.get('xf'), n.get('xf3'), n.get('scene'), n.get('image'), n.get('iframe'), n.get('origin'), (n.get('lines') or 1) > 1,
                box, at, [r.get('text') for r in n['runs']] if n.get('runs') else None]
         sig[i] = hashlib.sha1(json.dumps([own, [sig[c] for c in kids[i]]], sort_keys=True).encode()).hexdigest()
         size[i] = 1 + sum(size[c] for c in kids[i])

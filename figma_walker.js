@@ -19,6 +19,7 @@
 
   function px(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
   function r2(n) { return Math.round(n * 100) / 100; }
+  function r4(n) { return Math.round(n * 1e4) / 1e4 || 0; }
 
   // rgb()/rgba() → {r,g,b,a} in 0..1, null for transparent/none.
   var __cc = null, __ccache = {};
@@ -222,8 +223,60 @@
     return /%$/.test(tok) ? parseFloat(tok) / 100 * ref : px(tok);
   }
 
+  // A CSS own transform (DOMMatrix entries; m21 is row 1, column 2) as a 2D affine followed by
+  // Figma's fixed 3D order: m = A · translateZ · rotateX · rotateY · rotateZ, A = matrix(a,b,c,d,e,f).
+  // The rotation's z row is m's own (A leaves z alone); its x and y rows are m's with the
+  // symmetric 2D stretch taken out, so a pure rotation has A = identity. null when the order
+  // can't hold it: a perspective row, a z row that isn't unit (3D scale) or isn't orthogonal to
+  // the other two (3D skew), or no area left in the plane.
+  function fixedOrder(m) {
+    var EPS = 1e-6;
+    if (Math.abs(m.m14) + Math.abs(m.m24) + Math.abs(m.m34) + Math.abs(m.m44 - 1) > EPS) return null;
+    var u = [m.m11, m.m21, m.m31], v = [m.m12, m.m22, m.m32], w = [m.m13, m.m23, m.m33];
+    function dot(p, q) { return p[0] * q[0] + p[1] * q[1] + p[2] * q[2]; }
+    if (Math.abs(dot(w, w) - 1) > 1e-4) return null;
+    var uu = dot(u, u), vv = dot(v, v), uv = dot(u, v);
+    if (Math.abs(dot(u, w)) > 1e-4 * Math.sqrt(uu) || Math.abs(dot(v, w)) > 1e-4 * Math.sqrt(vv)) return null;
+    var det = uu * vv - uv * uv;
+    if (det < 1e-12) return null;
+    // A = sqrt(G) for G = [[uu, uv], [uv, vv]], the Gram matrix of the two in-plane rows.
+    var s = Math.sqrt(det), t = Math.sqrt(uu + vv + 2 * s);
+    var a = (uu + s) / t, b = uv / t, d = (vv + s) / t, c = b, ad = a * d - b * c;
+    var p = [0, 1, 2].map(function (k) { return (d * u[k] - c * v[k]) / ad; });
+    var q = [0, 1, 2].map(function (k) { return (a * v[k] - b * u[k]) / ad; });
+    // A mirrored box: flip the y axis in A so the rotation stays a rotation.
+    var cross = [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+    if (dot(cross, w) < 0) { q = q.map(function (x) { return -x; }); c = -c; d = -d; }
+    // R = Rx·Ry·Rz has rows p, q, w: p = [cy·cz, −cy·sz, sy], q[2] = −sx·cy, w[2] = cx·cy.
+    var deg = 180 / Math.PI, rx, ry, rz;
+    if (Math.abs(p[2]) > 1 - 1e-9) {
+      ry = p[2] > 0 ? 90 : -90; rz = 0; rx = Math.atan2(w[1], q[1]) * deg;
+    } else {
+      ry = Math.asin(p[2]) * deg; rz = Math.atan2(-p[1], p[0]) * deg; rx = Math.atan2(-q[2], w[2]) * deg;
+    }
+    return { a: a, b: b, c: c, d: d, e: m.m41, f: m.m42, translateZ: m.m43, rotateX: rx, rotateY: ry, rotateZ: rz };
+  }
+
+  // Elements whose 3D own transform was taken off for the walk, with the style attribute to put back.
+  var flattened = [];
+  // Under a tilt (and its parent's perspective) client rects are projections. Leave the element
+  // its 2D part only, so it and everything inside measure in its flat plane.
+  function flatten(el, css) {
+    flattened.push({ el: el, style: el.getAttribute('style') });
+    ['transition', 'translate', 'rotate', 'scale'].forEach(function (k) { el.style.setProperty(k, 'none', 'important'); });
+    el.style.setProperty('transform', css, 'important');
+  }
+  function unflatten() {
+    flattened.forEach(function (f) {
+      if (f.style === null) f.el.removeAttribute('style'); else f.el.setAttribute('style', f.style);
+    });
+    flattened = [];
+  }
+
   // Own transform as T(origin)·(translate·rotate·scale·transform)·T(−origin).
-  // {m} for a usable 2D affine, {flag:true} for 3D / singular, null for none.
+  // {m, t3} for one the importer can place: m its 2D affine (null when identity), t3 the 3D
+  // part in Figma's fixed order when it has one. {flag:true} for what neither holds (3D scale or
+  // skew, perspective(), singular); null for none. An element with a 3D transform is flattened.
   function ownTransform(el, cs) {
     var t = cs.transform, tr = cs.translate, ro = cs.rotate, sc = cs.scale;
     function none(v) { return !v || v === 'none'; }
@@ -231,39 +284,63 @@
     var parts = [], toks;
     if (!none(tr)) {
       toks = tr.split(/\s+/);
-      if (toks.length > 2) return { flag: true };
-      parts.push('translate(' + lengthPx(toks[0], el.offsetWidth) + 'px, ' +
-        lengthPx(toks[1] || '0px', el.offsetHeight) + 'px)');
+      parts.push('translate3d(' + lengthPx(toks[0], el.offsetWidth) + 'px, ' +
+        lengthPx(toks[1] || '0px', el.offsetHeight) + 'px, ' + px(toks[2] || '0px') + 'px)');
     }
     if (!none(ro)) {
       toks = ro.split(/\s+/);
-      if (toks.length > 1 && !(toks.length === 2 && toks[0] === 'z')) return { flag: true };
-      parts.push('rotate(' + toks[toks.length - 1] + ')');
+      var angle = toks[toks.length - 1];
+      if (toks.length === 1) parts.push('rotate(' + angle + ')');
+      else if (toks.length === 2 && /^[xyz]$/.test(toks[0])) parts.push('rotate' + toks[0].toUpperCase() + '(' + angle + ')');
+      else if (toks.length === 4) parts.push('rotate3d(' + toks.slice(0, 3).join(', ') + ', ' + angle + ')');
+      else return { flag: true };
     }
     if (!none(sc)) {
       toks = sc.split(/\s+/);
-      if (toks.length > 2) return { flag: true };
-      parts.push('scale(' + toks[0] + ', ' + (toks[1] || toks[0]) + ')');
+      parts.push('scale3d(' + toks[0] + ', ' + (toks[1] || toks[0]) + ', ' + (toks[2] || '1') + ')');
     }
     if (!none(t)) parts.push(t);
     var m;
     try { m = new DOMMatrix(parts.join(' ')); } catch (e) { return { flag: true }; }
+    var o = (cs.transformOrigin || '0px 0px').split(/\s+/);
+    var ox = px(o[0]), oy = px(o[1]), oz = px(o[2]);
+    var t3 = null;
     if (!m.is2D) {
       // matrix3d() with identity depth components (translateZ(0)-style hacks) is still planar.
       var depthPart = Math.abs(m.m13) + Math.abs(m.m14) + Math.abs(m.m23) + Math.abs(m.m24) +
         Math.abs(m.m31) + Math.abs(m.m32) + Math.abs(m.m33 - 1) + Math.abs(m.m34) +
         Math.abs(m.m43) + Math.abs(m.m44 - 1);
-      if (depthPart > 1e-6) return { flag: true };
-      m = new DOMMatrix([m.a, m.b, m.c, m.d, m.e, m.f]);
+      var d = depthPart > 1e-6 ? fixedOrder(new DOMMatrix().translate(0, 0, oz).multiply(m).translate(0, 0, -oz)) : null;
+      if (depthPart > 1e-6 && !d) { flatten(el, 'none'); return { flag: true }; }
+      if (d) {
+        // The computed matrix carries six digits; past them the 2D part is noise.
+        var flat = [d.a, d.b, d.c, d.d, d.e, d.f].map(function (x) { return Math.round(x * 1e6) / 1e6; });
+        m = new DOMMatrix(flat);
+        flatten(el, 'matrix(' + flat.join(', ') + ')');
+        t3 = { translateZ: r2(d.translateZ), rotateX: r4(d.rotateX), rotateY: r4(d.rotateY), rotateZ: r4(d.rotateZ) };
+        if (Math.abs(ox - el.offsetWidth / 2) > 0.01 || Math.abs(oy - el.offsetHeight / 2) > 0.01) t3.origin = [r2(ox), r2(oy)];
+        if (cs.backfaceVisibility === 'hidden') t3.backfaceVisible = false;
+      } else m = new DOMMatrix([m.a, m.b, m.c, m.d, m.e, m.f]);
     }
-    var o = (cs.transformOrigin || '0px 0px').split(/\s+/);
-    var ox = px(o[0]), oy = px(o[1]);
     var own = new DOMMatrix().translate(ox, oy).multiply(m).translate(-ox, -oy);
     if (Math.abs(own.a * own.d - own.b * own.c) < 1e-6) return { flag: true };
     var eps = 1e-9;
     if (Math.abs(own.a - 1) < eps && Math.abs(own.b) < eps && Math.abs(own.c) < eps &&
-        Math.abs(own.d - 1) < eps && Math.abs(own.e) < eps && Math.abs(own.f) < eps) return null;
-    return { m: own };
+        Math.abs(own.d - 1) < eps && Math.abs(own.e) < eps && Math.abs(own.f) < eps) own = null;
+    return own || t3 ? { m: own, t3: t3 } : null;
+  }
+
+  // What an element gives its children's 3D transforms: its perspective and whether it keeps
+  // them in one 3D space. A box that clips, fades, filters or blends is flat whatever
+  // transform-style says.
+  function sceneOf(cs) {
+    var scene = null;
+    if (cs.perspective && cs.perspective !== 'none') scene = { perspective: r2(px(cs.perspective)) };
+    if (cs.transformStyle === 'preserve-3d' && cs.overflow === 'visible' && cs.opacity === '1' &&
+        (cs.filter || 'none') === 'none' && (cs.clipPath || 'none') === 'none' && (cs.mixBlendMode || 'normal') === 'normal') {
+      scene = scene || {}; scene.preserve3d = true;
+    }
+    return scene;
   }
 
   // Untransformed layout box of `el` with every ancestor transform undone by `inv`
@@ -271,17 +348,18 @@
   // layout center under the own transform, so tl = cP − own·(w/2,h/2). Children
   // get invChild = T(tl)·own⁻¹·T(−tl)·inv, which maps into this box's local space.
   function geometry(el, cs, inv, isHtml, tag) {
-    var bcr = el.getBoundingClientRect();
-    var own = null, flag = false;
+    var own = null, flag = false, t3 = null;
     if (isHtml && (cs.display !== 'inline' || REPLACED[tag])) {
       var o = ownTransform(el, cs);
-      if (o) { if (o.flag) flag = true; else own = o.m; }
+      if (o) { if (o.flag) flag = true; else { own = o.m; t3 = o.t3; } }
     }
-    // Bounding boxes of rotated/skewed/3D boxes are axis-aligned hulls, so the
+    // Read after ownTransform: it takes a 3D transform off the element.
+    var bcr = el.getBoundingClientRect();
+    // Bounding boxes of rotated/skewed boxes are axis-aligned hulls, so the
     // layout size comes from offsetWidth/Height whenever any transform is involved.
     var axisAligned = Math.abs(inv.b) < 1e-9 && Math.abs(inv.c) < 1e-9;
     var w, h;
-    if (own || flag || (isHtml && !axisAligned)) { w = el.offsetWidth; h = el.offsetHeight; }
+    if (own || flag || t3 || (isHtml && !axisAligned)) { w = el.offsetWidth; h = el.offsetHeight; }
     else if (axisAligned) { w = bcr.width * Math.abs(inv.a); h = bcr.height * Math.abs(inv.d); }
     else { w = bcr.width; h = bcr.height; }
     var cP = inv.transformPoint({ x: bcr.left + bcr.width / 2, y: bcr.top + bcr.height / 2 });
@@ -293,6 +371,7 @@
     var g = { rect: { x: r2(tx), y: r2(ty), w: r2(w), h: r2(h) }, x: tx, y: ty, w: w, h: h,
       invChild: invChild, flag: flag };
     if (own) g.xf = [own.a, own.b, own.c, own.d, own.e, own.f].map(function (v) { return Math.round(v * 1e6) / 1e6; });
+    if (t3) g.xf3 = t3;
     return g;
   }
 
@@ -1017,6 +1096,7 @@
         try { doc = el.contentDocument; } catch (e) { doc = null; }
         var frame = { i: myIdx, parent: parentIdx, tag: tag, rect: rect };
         if (g.xf) frame.xf = g.xf;
+        if (g.xf3) frame.xf3 = g.xf3;
         frame.text = ''; frame.runs = null;
         frame.styles = styleOf(cs, el, false, g.w, g.h);
         if (!doc) {
@@ -1064,6 +1144,9 @@
       var level = role === 'heading' ? headingLevel(tag) : null;
       var entry = { i: myIdx, parent: parentIdx, tag: tag, rect: rect };
       if (g.xf) entry.xf = g.xf;
+      if (g.xf3) entry.xf3 = g.xf3;
+      var scene = isHtml ? sceneOf(cs) : null;
+      if (scene) entry.scene = scene;
       entry.text = combined;
       entry.runs = textInfo.runs;
       if (combined) entry.lines = lineCount(el, g.invChild, (cs.writingMode || '').indexOf('vertical') === 0);
@@ -1212,6 +1295,7 @@
       delete n.drop;
       n.rect = g.rect;
       if (g.xf) n.xf = g.xf;
+      if (g.xf3) n.xf3 = g.xf3;
       n.text = text;
       n.runs = null;
       if (text) n.lines = lineCount(p.span, g.invChild, (scs.writingMode || '').indexOf('vertical') === 0);
@@ -1297,12 +1381,16 @@
     return order;
   }
 
+  // Outside a page there is nothing to walk: tests read the pure geometry (tests/walker_3d_test.js).
+  if (typeof window === 'undefined') return { fixedOrder: fixedOrder };
+
   // figma_walk_prep.js may have loaded the page again in a frame of the capture width: walk that.
   var WIN = window.__fxWalkWin || window, DOC = WIN.document;
   var rootInv = new DOMMatrix().translate(WIN.scrollX, WIN.scrollY);
   visit(DOC.documentElement, -1, rootInv, 0);
   measurePseudos('::before');
   measurePseudos('::after');
+  unflatten();
   compact();
   await resolveAssets();
 

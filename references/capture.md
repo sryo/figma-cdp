@@ -34,7 +34,7 @@ assets   { <key>: asset }       key "a1", "a2", … — one per resolved URL (de
 nodes    [ node ]               flat, DFS-preorder, root i=0 (documentElement)
 ```
 
-`flagged` carries only what the importer cannot place deterministically: `grid` (display grid / inline-grid) and `transform` (own transform is 3D, non-affine, or singular). Positioned children are not flagged — the importer places them (see Import loop).
+`flagged` carries only what the importer cannot place deterministically: `grid` (display grid / inline-grid) and `transform` (an own transform Figma's 2D matrix and fixed 3D order can't hold: `perspective()`, 3D scale or skew, singular). Positioned children are not flagged — the importer places them (see Import loop).
 
 ### asset
 
@@ -52,7 +52,9 @@ nodes    [ node ]               flat, DFS-preorder, root i=0 (documentElement)
 | `parent` | int | parent `i`; −1 for root |
 | `tag` | string | lowercase tag; `"::before"` / `"::after"` for pseudo-element nodes; `"#text"` for text beside block siblings (one node per stretch of text and plain inline elements, text styles only) |
 | `rect` | `{x,y,w,h}` | **layout space** — every ancestor transform and the node's own transform undone; page coordinates (the scroll offset is folded in, so a scrolled capture still lands at page origin); 2 dp |
-| `xf` | `[a,b,c,d,e,f]` | only when the element has a 2D affine own transform (see Geometry); omitted otherwise |
+| `xf` | `[a,b,c,d,e,f]` | the own transform's 2D affine part (see Geometry); omitted when identity |
+| `xf3` | `{translateZ, rotateX, rotateY, rotateZ, origin?, backfaceVisible?}` | only when the own transform is 3D: what follows `xf`, in Figma's fixed order (px, degrees). `origin` `[x, y]` px in the node's box when `transform-origin` isn't its centre; `backfaceVisible: false` for `backface-visibility: hidden` |
+| `scene` | `{perspective?, preserve3d?}` | only on an element with a `perspective` (px) or a used `transform-style: preserve-3d`: what its children's `xf3` render in |
 | `text` | string | merged text content; `""` for containers |
 | `runs` | null \| `[run]` | only when inline spans differ; run = `{text, color, fontSize, fontWeight, fontStyle, textDecoration, fontFamily}` (full values; `fontStyle` "normal"/"italic"; `textDecoration` "none"/"underline"/"line-through") |
 | `lines` | int ≥ 1 | text nodes only — number of line boxes (see Text) |
@@ -127,13 +129,19 @@ Colors arrive pre-parsed to 0..1 `{r,g,b,a}` — map straight to SolidPaint.
 
 `rect` is **layout space**: the box as CSS laid it out before any transform, ancestors' included, at page-viewport origin with scroll 0. The walker carries the accumulated inverse of ancestor transforms down the tree as a `DOMMatrix`; each element's width/height come from `offsetWidth/Height` when it has an own transform or sits under a rotated/skewed ancestor (bounding boxes inflate under rotation) and from `getBoundingClientRect` (scaled by the ancestor inverse) otherwise, and its top-left is the inverse-mapped visual center minus the own-transformed center. A same-origin iframe's content enters as a pure translation to the frame's content box (border + padding + inner scroll) in layout space — inner client rects are already untransformed. `display:none` subtrees and visually hidden ones (an absolute box clipped to nothing, `clip-path: inset(50%)`, or a pixel square hiding its overflow: the sr-only pattern) are skipped outright; `visibility:hidden` and zero-area nodes are pruned but their children still walk, hoisted to the nearest kept ancestor.
 
-`xf = [a,b,c,d,e,f]` is present only when the element (HTMLElement only) has a 2D affine own transform — CSS `transform`, `translate`, `rotate`, `scale` composed about `transform-origin` (percent `translate` resolved against the element's own size). It is expressed relative to the node's untransformed top-left:
+`xf = [a,b,c,d,e,f]` is the 2D affine part of the element's (HTMLElement only) own transform — CSS `transform`, `translate`, `rotate`, `scale` composed about `transform-origin` (percent `translate` resolved against the element's own size). It is expressed relative to the node's untransformed top-left:
 
 ```
 P_parent = rect.xy + [[a, c], [b, d]] · p + [e, f]
 ```
 
-No transform → no `xf`. A `matrix3d` whose depth components are identity (`translateZ(0)` hacks) is flattened to 2D. A 3D, non-affine, or singular (|det| < 1e-6) own transform → no `xf`, the node is flagged `transform`, and its subtree is measured as if the transform were absent.
+No transform → no `xf`. A `matrix3d` whose depth components are identity (`translateZ(0)` hacks) is flattened to 2D.
+
+A 3D own transform `M` (any function list, `transform-origin`'s z folded in) is split into Figma's order (`references/motion.md`), `M = A · translateZ · rotateX · rotateY · rotateZ`: `A` goes to `xf` and the rest to `xf3`. The rotation's z row is `M`'s own and its x and y rows are `M`'s with the symmetric 2D stretch taken out, so a pure rotation leaves `A` the identity (no `xf`) and a list already in that order keeps its angles. Figma renders the pair as CSS does, the tilt in the layer's own box about `transformOrigin` and the 2D transform after it, and a frame's `scene3d` perspective from the frame's centre (`tests/probes/transform3d_render.js`). The element's parent says how the tilt reads: its `perspective` and `transform-style` are that node's `scene`.
+
+Client rects under a tilt are projections, so the walker takes the 3D part off the element for the rest of the walk (inline `transform: <A> !important`, transitions off; the `style` attribute is put back at the end): the element, its pseudo-elements and everything inside measure in its flat plane, as under any 2D transform.
+
+What that order can't hold is flagged `transform` with no `xf` / `xf3`, and its subtree is measured with the transform absent: a `perspective()` in the element's own list, a 3D scale or skew (the z row isn't a unit vector orthogonal to the others, e.g. `rotateY(30deg) scale(1.5)`), or a singular matrix (|det| < 1e-6).
 
 ## Pseudo-elements
 
@@ -262,7 +270,7 @@ One reason string per flagged node, identical in the name tag and the report:
 
 - `grid` — display grid / inline-grid → NONE frame, children at their layout-space rects.
 - `block` — any other non-flex, non-block-flow display (inline, table*, contents, …) **with children** (`kids` present) → NONE frame. A NONE leaf (img, inline svg, a pseudo with only a bg) stays NONE but unflagged.
-- `transform` — the walker flagged a 3D / non-affine own transform, or an in-flow Auto Layout child has an `xf` that is neither a pure rotation nor a pure translation (it keeps its slot; geometry is approximate).
+- `transform` — the walker flagged an own transform it couldn't map (`perspective()`, 3D scale or skew, singular), or an in-flow Auto Layout child has an `xf` that is neither a pure rotation nor a pure translation (it keeps its slot; geometry is approximate).
 - `image` — the node's asset carries an `error` → no image fill, `[capture:image <error>]`.
 
 When several apply, one wins: `image` > `grid` / `block` > walker `transform` > in-flow `transform`.
@@ -298,6 +306,8 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 | `xf` translate-only on an in-flow Auto Layout child | dropped — flow position wins, not flagged |
 | `xf` pure rotation on an in-flow Auto Layout child | `rotation = −atan2(b, a)·180/π` |
 | `xf` neither pure rotation nor translate-only on an in-flow child | stays in flow, `[capture:transform]` |
+| `xf3` (any child, in flow or not) | `transform3d = {type:'FIXED_ORDER', translateZ, rotateX, rotateY, rotateZ}`, `backfaceVisible: false` when given; `origin` → `transformOrigin` in `PIXELS`. The 2D geometry and the Auto Layout slot stay the flat ones |
+| the parent's `scene`, once a child carries `xf3` | parent frame `scene3d = {perspective, preserve3d}`; `preserve3d` with no `perspective` gets 1e6 (a viewer too far to tell from none: 0 collapses the render). A `scene` with no tilted child sets nothing |
 | `iframe` `"cross-origin"` | empty placeholder frame `[capture:iframe <origin>]` |
 | `bg` | `fills = [{type:'SOLID', color:{r,g,b}, opacity:a}]` |
 | `image` (asset kind image) | `fills += [{type:'IMAGE', imageHash: createImage(base64Decode(b64)).hash, scaleMode: mode}]` after `bg` |
@@ -326,7 +336,7 @@ The deterministic import reads each node's sparse `styles` and maps to the neare
 
 **Deterministic import first.** `figma_capture.py import` runs the whole spec inline. Per node, three rungs:
 
-1. **Exact** — flex and block-flow containers → Auto Layout from the sparse styles; positioned children → ABSOLUTE inside them; 2D transforms → `rotation` / `relativeTransform`; images → fills; inline svg → vector nodes.
+1. **Exact** — flex and block-flow containers → Auto Layout from the sparse styles; positioned children → ABSOLUTE inside them; 2D transforms → `rotation` / `relativeTransform`; 3D ones → `transform3d` with the parent's `scene3d`; images → fills; inline svg → vector nodes.
 2. **Geometric** — `grid` / `block` displays → `layoutMode = 'NONE'` frame at the rect; children placed at their layout-space rects (with `relativeTransform` when they carry `xf`).
 3. **Rasterize** *(manual — no automated path)* — when even geometry won't reconstruct (overlap, unreadable structure), screenshot the region and drop it in by hand on the cleanup pass.
 
@@ -350,4 +360,5 @@ Each drop down a rung is one divergence-report entry.
 - **Scripts that wait for the page to be seen.** A background tab draws no frames, so a page's scroll-into-view scripts (lazy sections, a physics shelf, a chart drawn when it scrolls in) never run there and what they add is missing; the walk says so. Content they would only fade in is shown. Walk in a room or on the loft (`--loft`; a localhost page only on the loft) to get the rest, and leave the user's windows alone. A WebGL canvas is snapshotted inside a frame, so it comes out only from a tab that paints (a room's or the loft's); from a background one it is `error:"webgl"` and the walk says so.
 - **grid / non-flow displays.** Demoted to NONE frames (`grid` / `block`), never guessed into Auto Layout — they land on the cleanup work-list.
 - **Stacking inside non-positioned wrappers.** Paint order is per sibling list: a raised box inside a static wrapper does not rise above the wrapper's later siblings.
-- **Still out:** 3D and non-affine transforms (flagged `transform`, subtree flattened), CSS-variable / design-token recovery (computed values only — nothing binds to Figma variables), cross-origin iframes, native AXTree (Semantic layer → upgrade path).
+- **3D transforms.** Kept as `transform3d` / `scene3d` when they fit Figma's fixed order. Not carried: a `perspective-origin` off the parent's centre (Figma looks from the frame's centre), a `perspective()` inside the element's own `transform`, and 3D scale or skew (the last two flagged `transform`, the layer left flat). A tilted child of a component instance keeps its `transform3d`; the instance gets no `scene3d`.
+- **Still out:** CSS-variable / design-token recovery (computed values only — nothing binds to Figma variables), cross-origin iframes, native AXTree (Semantic layer → upgrade path).
